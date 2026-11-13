@@ -1,0 +1,101 @@
+import http from 'node:http';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import nunjucks from 'nunjucks';
+import { enhanceBoard, reservedBoardNames } from '../lib/board';
+import { checkBoardNames, defaultSettings, normalizeSettings, pruneMembers, toScriptJson } from '../lib/settings';
+import { demoData, demoRoster } from '../test/fixture';
+import { defaultProfileFields, rosterFields } from '../lib/roster';
+import { wideData } from '../preview/fixtures';
+import { createResolverPreview } from '../preview/resolver';
+
+async function main() {
+const root = path.resolve(__dirname, '..');
+const statePath = path.join(root, 'preview-state.json');
+let settings = normalizeSettings({ ...defaultSettings, publicAccess: true, showIdentity: true, manualBoards: [{ id: 'newcomers', name: '新生榜', teamIds: ['1', '3', '5'] }] });
+try { settings = normalizeSettings(JSON.parse(await fs.readFile(statePath, 'utf8'))); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+}
+const env = new nunjucks.Environment(new nunjucks.FileSystemLoader([path.join(root, 'templates'), path.join(root, 'preview/templates')]), { autoescape: true });
+const resolverPreview = createResolverPreview(env, JSON.parse(await fs.readFile(path.join(root, 'logos/index.json'), 'utf8')).names);
+const base = '/contest/demo';
+const boardUrl = `${base}/scoreboard/xcpcio-plus`;
+const settingsUrl = `${base}/xcpcio-settings`;
+const publicUrl = `${base}/xcpcio-public`;
+const data = demoData();
+const teams = demoRoster();
+const manifest = JSON.parse(await fs.readFile(path.join(root, 'public/hydro-xcpcio/manifest.json'), 'utf8'));
+const defaults = { process: { env: {} }, UiContext: { cdn_prefix: '/' }, assetBase: manifest.base, tdoc: { title: data.contest.contest_name } };
+const contentTypes: Record<string, string> = { '.webp': 'image/webp', '.ttf': 'font/ttf', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.html': 'text/html', '.json': 'application/json', '.txt': 'text/plain' };
+const server = http.createServer(async (request, response) => {
+    try {
+        const url = new URL(request.url || '/', 'http://localhost');
+        const displayData = url.searchParams.get('fixture') === 'wide' ? wideData() : data;
+        const displayDefaults = { ...defaults, hideSubmissions: url.searchParams.get('running') === '1', unofficialAwards: settings.unofficialAwards, tdoc: { title: displayData.contest.contest_name } };
+        const fixtureQuery = url.searchParams.get('fixture') === 'wide' ? '&fixture=wide' : '';
+        if (await resolverPreview(request, response, url, displayData, settings)) return;
+        if (request.method === 'POST' && url.pathname === settingsUrl) {
+            let body = '';
+            for await (const chunk of request) { body += chunk; if (body.length > 1000000) throw new Error('设置内容过大'); }
+            const next = pruneMembers(normalizeSettings(JSON.parse(new URLSearchParams(body).get('config') || 'null')), new Set(data.teams.map((team) => team.team_id)));
+            checkBoardNames(next, reservedBoardNames(data.teams, next));
+            await fs.writeFile(`${statePath}.tmp`, JSON.stringify(next, null, 2));
+            await fs.rename(`${statePath}.tmp`, statePath);
+            settings = next;
+            response.writeHead(303, { Location: `${settingsUrl}?saved=1` }).end(); return;
+        }
+        if (request.method !== 'GET') { response.writeHead(405).end(); return; }
+        if (url.pathname === '/api/board') {
+            response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(JSON.stringify(enhanceBoard(displayData, settings, { identity: settings.showIdentity }))); return;
+        }
+        if (url.pathname === settingsUrl) {
+            response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(env.render('xcpcio_plus_settings.html', {
+                ...defaults, boardUrl, publicUrl, replacementEnabled: true,
+                settingsJson: toScriptJson({ settings, teams, filterFields: rosterFields(teams, defaultProfileFields) }),
+            })); return;
+        }
+        if (url.pathname === `${base}/scoreboard` && settings.replaceNative) {
+            response.writeHead(302, { Location: `${settings.publicAccess ? publicUrl : boardUrl}${url.search}` }).end(); return;
+        }
+        if (url.pathname === boardUrl && settings.publicAccess && url.searchParams.get('realtime') !== 'true') {
+            response.writeHead(302, { Location: `${publicUrl}${url.search}` }).end(); return;
+        }
+        if (url.pathname === publicUrl) {
+            if (!settings.publicAccess) { response.writeHead(404).end('Public scoreboard is disabled'); return; }
+            if (['true', '1', 'on'].includes(url.searchParams.get('realtime') || '')) { response.writeHead(403).end('Realtime results require authorization'); return; }
+            if (url.searchParams.get('json') === 'true' || request.headers.accept?.includes('application/json')) {
+                response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(JSON.stringify(enhanceBoard(displayData, settings, { identity: settings.showIdentity }))); return;
+            }
+            response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }).end(env.render('xcpcio_plus_board.html', {
+                ...displayDefaults, ...manifest, settingsUrl: null,
+                runtimeJson: toScriptJson({ dataSource: `${publicUrl}?json=true${fixtureQuery}#allInOne=true`, refreshInterval: 5000 }),
+            })); return;
+        }
+        if (url.pathname === boardUrl) {
+            response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(env.render('xcpcio_plus_board.html', {
+                ...displayDefaults, ...manifest, settingsUrl, runtimeJson: toScriptJson({ dataSource: '/api/board#allInOne=true', refreshInterval: 5000 }),
+            })); return;
+        }
+        if (url.pathname.startsWith('/hydro-xcpcio/') || url.pathname.startsWith('/hydro-resolver/')) {
+            const publicRoot = path.join(root, 'public');
+            const file = path.resolve(publicRoot, `.${decodeURIComponent(url.pathname)}`);
+            if (!file.startsWith(`${publicRoot}${path.sep}`)) { response.writeHead(403).end(); return; }
+            const body = await fs.readFile(file);
+            response.writeHead(200, { 'Content-Type': contentTypes[path.extname(file)] || 'application/octet-stream' }).end(body); return;
+        }
+        if (url.pathname.startsWith('/preview-hydro/')) {
+            const previewRoot = path.join(root, 'preview/hydro');
+            const file = path.resolve(previewRoot, `.${decodeURIComponent(url.pathname.slice('/preview-hydro'.length))}`);
+            if (!file.startsWith(`${previewRoot}${path.sep}`)) { response.writeHead(403).end(); return; }
+            response.writeHead(200, { 'Content-Type': contentTypes[path.extname(file)] || 'application/octet-stream' }).end(await fs.readFile(file)); return;
+        }
+        if (url.pathname === '/') { response.writeHead(302, { Location: boardUrl }).end(); return; }
+        response.writeHead(404).end('Not found');
+    } catch (error) {
+        response.writeHead((error as NodeJS.ErrnoException).code === 'ENOENT' ? 404 : 400, { 'Content-Type': 'text/plain; charset=utf-8' }).end(error instanceof Error ? error.message : 'Invalid request');
+    }
+});
+const port = Number(process.env.XCPCIO_PREVIEW_PORT || 18900);
+server.listen(port, '127.0.0.1', () => console.log(`Preview: http://127.0.0.1:${port}${boardUrl}\nSettings: http://127.0.0.1:${port}${settingsUrl}`));
+}
+main().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN" class="hasjs"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{{ tdoc.title }} · Hydro 榜单预览</title>
+<link rel="stylesheet" href="/preview-hydro/theme.css">
+<style>
+:root{--font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;--code-font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+[hidden]{display:none!important}.preview-nav.nav{position:static;width:100%;height:auto;transform:none;visibility:visible;display:block}.preview-nav .row{display:flex;justify-content:space-between;align-items:center;padding:0 15px;min-height:50px}.preview-nav .nav__list{display:flex;align-items:center;margin:0;float:none;gap:12px}.preview-nav .nav__item{display:block}.preview-brand{font-size:20px;color:#5f9fd6!important}.preview-nav button{font:inherit;border:0;background:none;padding:8px 0;cursor:pointer;color:inherit}.preview-footer{padding:22px 15px;text-align:center;color:#888;font-size:12px}.preview-nav .preview-caption{font-size:12px;color:#888}.preview-shell .main{padding:30px 0}.theme--dark .preview-nav{background:#323334}.theme--dark .preview-nav button{color:#ddd}@media(max-width:767px){.preview-shell .main{padding:14px 0}.preview-nav .row{padding:0 15px;margin:0}.preview-nav .preview-caption{display:none}}
+</style>
+<script>document.documentElement.classList.toggle('theme--dark', new URLSearchParams(location.search).get('theme') === 'dark' || localStorage.getItem('xcpcio-preview-theme') === 'dark');</script>
+</head><body>
+<nav class="nav preview-nav"><div class="row">
+  <div class="nav__list"><a class="preview-brand" href="/">Hydro</a><a class="nav__item nav--active" href="/contest/demo/xcpcio-public">竞赛榜单</a></div>
+  <div class="nav__list"><span class="preview-caption">本地功能预览</span><button id="preview-theme" type="button" aria-label="切换深色模式">切换深色</button></div>
+</div></nav>
+<div id="panel" class="preview-shell"><main class="main">{% block content %}{% endblock %}</main><footer class="preview-footer">Hydro · XCPCIO 增强榜 · 本地预览</footer></div>
+<script>document.getElementById('preview-theme').addEventListener('click', () => {const dark = document.documentElement.classList.toggle('theme--dark');localStorage.setItem('xcpcio-preview-theme', dark ? 'dark' : 'light');});</script>
+</body></html>

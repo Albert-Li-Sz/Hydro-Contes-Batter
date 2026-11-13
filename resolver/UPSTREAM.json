@@ -1,0 +1,187 @@
+{
+  "repository": "https://github.com/Albert-Li-Sz/Resolver-Web",
+  "tag": "v1.4.0",
+  "commit": "1d9788e1430c4898e463d99f52aab6c400399328",
+  "files": [
+    {
+      "source": "LICENSE",
+      "destination": "licenses/Resolver-Web-Apache-2.0.txt",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "modifiedSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    {
+      "source": "THIRD_PARTY_NOTICES.md",
+      "destination": "licenses/Resolver-Web-THIRD-PARTY-NOTICES.md",
+      "sha256": "cb0371bb9a253d73dce1639a14407e2156683643cb68b8d2df2bad7536e2c5a1",
+      "modifiedSha256": "cb0371bb9a253d73dce1639a14407e2156683643cb68b8d2df2bad7536e2c5a1"
+    },
+    {
+      "source": "licenses/Resolver-original-MIT.txt",
+      "destination": "licenses/Resolver-original-MIT.txt",
+      "sha256": "39d1d111ca822e5137fd1fd58b1bde4197fb11a0ad31fc27e845ab79c90acc78",
+      "modifiedSha256": "39d1d111ca822e5137fd1fd58b1bde4197fb11a0ad31fc27e845ab79c90acc78"
+    },
+    {
+      "source": "public/assets/ICPC-LICENSE.txt",
+      "destination": "licenses/ICPC-Software-License.txt",
+      "sha256": "8f900b51a24320679d2b844c77877b211f309755e74a32b756526a8dc006ccab",
+      "modifiedSha256": "8f900b51a24320679d2b844c77877b211f309755e74a32b756526a8dc006ccab"
+    },
+    {
+      "source": "public/assets/font/Helvetica-Plain.ttf",
+      "destination": "resolver/public/assets/font/Helvetica-Plain.ttf",
+      "sha256": "b917e29bbb97b5c18e9500a18a87ee989d5d61eb5b39a417043a8d6f16ecf8ac",
+      "modifiedSha256": "b917e29bbb97b5c18e9500a18a87ee989d5d61eb5b39a417043a8d6f16ecf8ac"
+    },
+    {
+      "source": "public/assets/font/NotoSansSC-VF.ttf",
+      "destination": "resolver/public/assets/font/NotoSansSC-VF.ttf",
+      "sha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da",
+      "modifiedSha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da"
+    },
+    {
+      "source": "public/assets/font/noto-sans-sc.json",
+      "destination": "resolver/public/assets/font/noto-sans-sc.json",
+      "sha256": "ca44569f9aac72291bda05f0eba27c4e02d45177d0e56cf68cdfb7c36fc6074e",
+      "modifiedSha256": "ca44569f9aac72291bda05f0eba27c4e02d45177d0e56cf68cdfb7c36fc6074e"
+    },
+    {
+      "source": "public/assets/img/icpc-logo.png",
+      "destination": "resolver/public/assets/img/icpc-logo.png",
+      "sha256": "e860937e89da192271e1f510ab18d30a71a6ab7816e4963c4d7a83fbc0dba432",
+      "modifiedSha256": "e860937e89da192271e1f510ab18d30a71a6ab7816e4963c4d7a83fbc0dba432"
+    },
+    {
+      "source": "public/assets/img/id.png",
+      "destination": "resolver/public/assets/img/id.png",
+      "sha256": "b5d2f58ef955e3bbcb6b0341266a8e8f4aa07591fa15be06190de356cd44fa5c",
+      "modifiedSha256": "b5d2f58ef955e3bbcb6b0341266a8e8f4aa07591fa15be06190de356cd44fa5c"
+    },
+    {
+      "source": "public/assets/img/tools-logo.png",
+      "destination": "resolver/public/assets/img/tools-logo.png",
+      "sha256": "a8384b604b28c4b1882c5a45bb4f26e62ff788173c5302913aa32ac67ed66d61",
+      "modifiedSha256": "a8384b604b28c4b1882c5a45bb4f26e62ff788173c5302913aa32ac67ed66d61"
+    },
+    {
+      "source": "public/js/automatic-advance.js",
+      "destination": "resolver/public/js/automatic-advance.js",
+      "sha256": "4ce57cae65d19082b474cd7098fde134cb2fef3b9472c06eaf3e0a066cdc06ca",
+      "modifiedSha256": "4ce57cae65d19082b474cd7098fde134cb2fef3b9472c06eaf3e0a066cdc06ca"
+    },
+    {
+      "source": "public/js/display-preferences.js",
+      "destination": "resolver/public/js/display-preferences.js",
+      "sha256": "fb46e0de7bc3393f05ddaad077de081cf5d678de589ee48a5fd5abcf53d3ffe8",
+      "modifiedSha256": "46464ddeb0bc4a4a91b6b930a12712fd1d11d90121f0cdbe301dec784ec0e3e9"
+    },
+    {
+      "source": "public/js/display-settings.js",
+      "destination": "resolver/public/js/display-settings.js",
+      "sha256": "d0637f1b0c6903db9033c40590b3b346f3679035aca18af03a89e7748b5e8c77",
+      "modifiedSha256": "be6ad6374151aeace91ed50a8b0f41794d823e3108ed6353d57a480c26825f10"
+    },
+    {
+      "source": "public/js/freeze.js",
+      "destination": "resolver/public/js/freeze.js",
+      "sha256": "0b71c5ca2c6193bf4eadcde62ea7ebcadcf34964ef12fa0432152fa76d8662f4",
+      "modifiedSha256": "d62be6b4fc101e626a6536f00ed0c0731160dcf8f4a91e38d55fa3a9b8761f12"
+    },
+    {
+      "source": "public/js/http.js",
+      "destination": "resolver/public/js/http.js",
+      "sha256": "fd2f8f79aa08ba15098591da809abc3468ec783f0bf4e2fe53ac18d533dc11f1",
+      "modifiedSha256": "fd2f8f79aa08ba15098591da809abc3468ec783f0bf4e2fe53ac18d533dc11f1"
+    },
+    {
+      "source": "public/js/logos.js",
+      "destination": "resolver/public/js/logos.js",
+      "sha256": "22945410e5478e1a93e6ea4355a31a6c4e8ce8c723bc13e966da0e563ce4ee38",
+      "modifiedSha256": "c12252894d2821fc51d799e7d5444b6c72e9b9f158c6cd215ba9b06e0738d28d"
+    },
+    {
+      "source": "public/js/medals.js",
+      "destination": "resolver/public/js/medals.js",
+      "sha256": "f26b721870dc3b4704b17d695c057bf4c26362c5a621111d5149d33adc29cd65",
+      "modifiedSha256": "bd977787a00b68be9fb866d824c2cbfa7c25d109970992f1b35f6d7abfeea274"
+    },
+    {
+      "source": "public/js/play.js",
+      "destination": "resolver/public/js/play.js",
+      "sha256": "f567d13c8cf76352d046dbe9a3e98ddd0c097c2e46b093c25da3f719fd09f65f",
+      "modifiedSha256": "ab6c2169b85f98bbe8b3f89b28447e2555f900731b123c0928021826a83fea4b"
+    },
+    {
+      "source": "public/js/playback-model.js",
+      "destination": "resolver/public/js/playback-model.js",
+      "sha256": "b0abe992806ed2da7895bfcda33ef152b1f4c6e5f1971a3a9b2d2c9d22e90623",
+      "modifiedSha256": "b0abe992806ed2da7895bfcda33ef152b1f4c6e5f1971a3a9b2d2c9d22e90623"
+    },
+    {
+      "source": "public/js/playback-options.js",
+      "destination": "resolver/public/js/playback-options.js",
+      "sha256": "8754735958dc39bd52261f9f691eaa3376dccafc2ba510e69c28838efd3015d6",
+      "modifiedSha256": "8754735958dc39bd52261f9f691eaa3376dccafc2ba510e69c28838efd3015d6"
+    },
+    {
+      "source": "public/js/render/animator.js",
+      "destination": "resolver/public/js/render/animator.js",
+      "sha256": "2dc130a6b4c40d485211385fbcc756b3ba61d8bab64e4847fd7a6377114a5ae8",
+      "modifiedSha256": "2dc130a6b4c40d485211385fbcc756b3ba61d8bab64e4847fd7a6377114a5ae8"
+    },
+    {
+      "source": "public/js/render/resolver-view.js",
+      "destination": "resolver/public/js/render/resolver-view.js",
+      "sha256": "a7ad7808df01fee371f753b5161452bd24c5800a58cf62cba7f7305b3bc689b1",
+      "modifiedSha256": "0ae9b3ace778367ed8e7b5436f13dcf400b9eedaacdd7d07fa92acfb00e96066"
+    },
+    {
+      "source": "public/js/render/shaded-rect.js",
+      "destination": "resolver/public/js/render/shaded-rect.js",
+      "sha256": "1173d7c1a53e93ffa5bdd841a16a9202a8ee1f0626a8e7920de2327ed4b87903",
+      "modifiedSha256": "1173d7c1a53e93ffa5bdd841a16a9202a8ee1f0626a8e7920de2327ed4b87903"
+    },
+    {
+      "source": "public/js/render/text.js",
+      "destination": "resolver/public/js/render/text.js",
+      "sha256": "75c470dc182564139d956f78ad38c9d5128b85d74ed334a745b38cf08a244cef",
+      "modifiedSha256": "147251798fcc81aed1be4734af87634610363aaa061aa4d2f9c49ccd4323297e"
+    },
+    {
+      "source": "public/js/school-logos.js",
+      "destination": "resolver/public/js/school-logos.js",
+      "sha256": "69193eae8dd00e0434541b2646c97681c627859cf51ecf525b3ab1a4f0d75b8e",
+      "modifiedSha256": "1947549835eb58433a85abfd2f2825a14cbd2def38afc1eb44ba2f6e712c6cbf"
+    },
+    {
+      "source": "public/js/standings.js",
+      "destination": "resolver/public/js/standings.js",
+      "sha256": "79ca8bc5a177bf33832cac73652abcea8845f748cd360bbfecedc006d331706c",
+      "modifiedSha256": "79ca8bc5a177bf33832cac73652abcea8845f748cd360bbfecedc006d331706c"
+    },
+    {
+      "source": "public/licenses/noto-sans-sc.txt",
+      "destination": "licenses/Noto-Sans-SC-OFL.txt",
+      "sha256": "babcfe66c8a098b2fa279bc724a3a342f8124f77ce18941fbcc1bbb39823cded",
+      "modifiedSha256": "babcfe66c8a098b2fa279bc724a3a342f8124f77ce18941fbcc1bbb39823cded"
+    },
+    {
+      "source": "public/play.html",
+      "destination": "templates/xcpcio_resolver_play.html",
+      "sha256": "b99524cc2d9c548b978de1bb6d6efd39b12f5debf907bf5e693cd3a8683b30b7",
+      "modifiedSha256": "677eed9bb8673afd38dfd987c9cb3fe32159697953b25b3645afcd26c7b7a4e0"
+    },
+    {
+      "source": "server/lib/engine.js",
+      "destination": "resolver/server/lib/engine.js",
+      "sha256": "b74872b78f03b96d06a0c40e94464f26d19326c6200808d9bb007e94bb39b0e1",
+      "modifiedSha256": "978aa2395f985bbdb809202aa290b9dfb3d6f8fe74c37eacc588190948c8060c"
+    },
+    {
+      "source": "server/lib/limits.js",
+      "destination": "resolver/server/lib/limits.js",
+      "sha256": "74b2b6065404f8f3956c46e4f22f9173cf00ab8c9765d3385a8157477de0d0d0",
+      "modifiedSha256": "74b2b6065404f8f3956c46e4f22f9173cf00ab8c9765d3385a8157477de0d0d0"
+    }
+  ]
+}

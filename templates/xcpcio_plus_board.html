@@ -1,0 +1,44 @@
+{% set page_name = 'contest_scoreboard_xcpcio_plus' %}
+{% extends "layout/basic.html" %}
+{% block content %}
+<link rel="stylesheet" href="{{ '/' if process.env.DEV else UiContext.cdn_prefix }}hydro-xcpcio/{{ assetBase }}/{{ css }}">
+<link rel="stylesheet" href="{{ '/' if process.env.DEV else UiContext.cdn_prefix }}hydro-xcpcio/{{ assetBase }}/enhanced.css">
+<div class="row xp-page xp-board-page{% if hideSubmissions %} xp-no-submissions{% endif %}" id="xcpcio-plus"><div class="medium-12 columns">
+  <section class="section visible xp-board-section" aria-label="竞赛榜单">
+    <div class="section__header xp-page-header">
+      <div><h1 class="section__title">{{ tdoc.title }}</h1></div>
+      <div class="xp-page-actions">
+        {% if realtimeUrl %}<a class="button" href="{{ realtimeUrl }}">查看实时榜</a>{% endif %}
+        {% if frozenUrl %}<a class="button" href="{{ frozenUrl }}">返回封榜视图</a>{% endif %}
+        {% if publicUrl %}<a class="button" href="{{ publicUrl }}">免登录榜单</a>{% endif %}
+        {% if settingsUrl %}<a class="button" href="{{ settingsUrl }}">奖牌与分榜设置</a>{% endif %}
+      </div>
+    </div>
+    <div class="section__body xp-board-body">
+      {% if realtime %}<p class="xp-notice">当前为有权限用户的实时榜，可能包含封榜后的结果。</p>{% endif %}
+      <div id="app" aria-label="XCPCIO 榜单"></div>
+      <div class="xp-board-footnote">
+        <div class="xp-legend" id="xp-legend" aria-label="榜单图例">
+          <span><i class="xp-dot xp-gold"></i>金牌</span><span><i class="xp-dot xp-silver"></i>银牌</span><span><i class="xp-dot xp-bronze"></i>铜牌</span>
+          <span class="xp-result-key"><i class="xp-dot xp-first"></i>首次通过</span><span class="xp-result-key"><i class="xp-dot xp-correct"></i>通过</span><span class="xp-result-key"><i class="xp-dot xp-incorrect"></i>未通过</span><span class="xp-result-key"><i class="xp-dot xp-frozen"></i>封榜</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</div></div>
+<script type="application/json" id="xcpcio-runtime">{{ runtimeJson | safe }}</script>
+<script>
+(() => {
+    const config = JSON.parse(document.getElementById('xcpcio-runtime').textContent);
+    window.CDN_HOST = "{{ '/' if process.env.DEV else UiContext.cdn_prefix }}hydro-xcpcio/{{ assetBase }}/";
+    window.__toAssetUrl = url => window.CDN_HOST + url;
+    window.DATA_HOST = '/';
+    window.DATA_REGION = 'Hydro';
+    window.DEFAULT_LANG = 'zh-CN';
+    window.DATA_SOURCE = config.dataSource;
+    window.REFETCH_INTERVAL = config.refreshInterval;
+})();
+</script>
+<script type="module" src="{{ '/' if process.env.DEV else UiContext.cdn_prefix }}hydro-xcpcio/{{ assetBase }}/board-ui.js"></script>
+<script type="module" crossorigin src="{{ '/' if process.env.DEV else UiContext.cdn_prefix }}hydro-xcpcio/{{ assetBase }}/{{ js }}"></script>
+{% endblock %}

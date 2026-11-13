@@ -1,0 +1,280 @@
+import { bulkSelection, fieldValues, filterMembers, normalize } from './member-filter.mjs';
+
+const root = document.getElementById('xp-settings');
+if (root) {
+    const data = JSON.parse(document.getElementById('xp-data').textContent);
+    const { teams, filterFields } = data;
+    let { settings } = data;
+    // A submission the server rejects leaves this page; keep what was sent so going back does not lose the edits.
+    const draftKey = `xp-settings-draft:${location.pathname}`;
+    const store = { get: () => { try { return sessionStorage.getItem(draftKey); } catch { return null; } },
+        set: (value) => { try { sessionStorage.setItem(draftKey, value); } catch { /* storage unavailable */ } },
+        clear: () => { try { sessionStorage.removeItem(draftKey); } catch { /* storage unavailable */ } } };
+    let restored = false;
+    if (new URLSearchParams(location.search).get('saved') === '1') store.clear();
+    else {
+        try {
+            const draft = JSON.parse(store.get() || 'null');
+            if (draft && Array.isArray(draft.manualBoards) && draft.medals) { settings = { ...settings, ...draft }; restored = true; }
+        } catch { store.clear(); }
+    }
+    const form = document.getElementById('xp-form');
+    const container = document.getElementById('xp-boards');
+    const medals = ['gold', 'silver', 'bronze'];
+    for (const key of medals) root.querySelector(`[data-medal="${key}"]`).value = settings.medals[key];
+    document.getElementById('xp-schools').checked = settings.schoolBoards;
+    document.getElementById('xp-participation').checked = settings.participationBoards;
+    const unofficialAwards = document.getElementById('xp-unofficial-awards');
+    unofficialAwards.checked = settings.unofficialAwards;
+    function updateAwardRule() {
+        document.getElementById('xp-award-rule').textContent = unofficialAwards.checked
+            ? '打星选手与其他选手共用奖牌名额，对所有榜生效。'
+            : '打星选手不授奖、不占名额，对所有榜生效。';
+    }
+    unofficialAwards.addEventListener('change', updateAwardRule); updateAwardRule();
+    const publicAccess = document.getElementById('xp-public-access');
+    publicAccess.checked = settings.publicAccess;
+    document.getElementById('xp-replace-native').checked = settings.replaceNative;
+    const showIdentity = document.getElementById('xp-show-identity');
+    showIdentity.checked = settings.showIdentity;
+    function updatePublicLink() {
+        document.getElementById('xp-public-url-wrap').hidden = !publicAccess.checked;
+        document.getElementById('xp-public-disabled').hidden = publicAccess.checked;
+    }
+    publicAccess.addEventListener('change', updatePublicLink); updatePublicLink();
+    const publicLink = document.getElementById('xp-public-url');
+    publicLink.textContent = publicLink.href;
+    const copyButton = document.getElementById('xp-copy-url');
+    copyButton.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(publicLink.href); copyButton.textContent = '已复制'; } catch { copyButton.textContent = '请手动复制'; }
+        setTimeout(() => { copyButton.textContent = '复制链接'; }, 2000);
+    });
+    const savedNotice = document.getElementById('xp-saved');
+    const query = new URLSearchParams(location.search);
+    savedNotice.hidden = query.get('saved') !== '1';
+    if (query.has('saved')) {
+        // A reload should not repeat the notice for changes made afterwards.
+        query.delete('saved');
+        history.replaceState(null, '', `${location.pathname}${query.toString() ? `?${query}` : ''}${location.hash}`);
+    }
+    let dirty = false;
+    const saveHint = document.getElementById('xp-save-hint');
+    const markDirty = () => {
+        if (dirty) return;
+        dirty = true; savedNotice.hidden = true; saveHint.textContent = '有未保存的更改。';
+    };
+    form.addEventListener('input', (event) => { if (!event.target.closest('.xp-search, .xp-value-search, .xp-filter-panel')) markDirty(); });
+    form.addEventListener('change', (event) => { if (!event.target.closest('.xp-search, .xp-filter-panel')) markDirty(); });
+    let submitting = false;
+    addEventListener('beforeunload', (event) => { if (dirty && !submitting) event.preventDefault(); });
+    // Returning from a failed save through the back/forward cache: the edits are still unsaved.
+    addEventListener('pageshow', () => { submitting = false; });
+    if (restored) {
+        const notice = document.getElementById('xp-restored'); notice.hidden = false;
+        document.getElementById('xp-discard').addEventListener('click', () => { store.clear(); dirty = false; location.reload(); });
+        markDirty();
+    }
+    const editors = [];
+    const nameKey = (name) => normalize(name);
+    // Mirrors the server's save-time check so a clash is reported on the field instead of an error page.
+    function checkNames() {
+        const taken = new Set(['所有队伍', ...(document.getElementById('xp-participation').checked ? ['正式参赛', '非正式参赛'] : []),
+            ...(document.getElementById('xp-schools').checked ? teams.map((team) => `${team.organization || '未填写学校'}榜`) : [])].map(nameKey));
+        for (const editor of editors) {
+            const key = nameKey(editor.name.value);
+            editor.name.setCustomValidity(key && taken.has(key) ? '已有同名榜单，请改用不同的名称' : '');
+            taken.add(key);
+        }
+    }
+    for (const id of ['xp-participation', 'xp-schools']) document.getElementById(id).addEventListener('change', checkNames);
+    const make = (tag, text, className) => {
+        const element = document.createElement(tag);
+        if (text !== undefined) element.textContent = text;
+        element.className = [tag === 'button' ? 'button' : tag === 'select' ? 'select' : '', className || ''].filter(Boolean).join(' ');
+        return element;
+    };
+    function addBoard(board) {
+        const card = make('div', undefined, 'xp-board');
+        const title = make('div', undefined, 'xp-line xp-board-header');
+        const name = make('input', undefined, 'textbox xp-board-title');
+        name.type = 'text'; name.required = true; name.maxLength = 64;
+        name.placeholder = '例如：新生榜'; name.setAttribute('aria-label', '分榜名称'); name.value = board.name;
+        const remove = make('button', '删除分榜', 'xp-delete'); remove.type = 'button';
+        const editor = { board, card, name };
+        remove.addEventListener('click', () => {
+            const label = name.value.trim() || '未命名分榜';
+            if (selected.size && !confirm(`删除“${label}”及其 ${selected.size} 名成员？保存后生效。`)) return;
+            editors.splice(editors.indexOf(editor), 1); card.remove(); markDirty(); updateAddButton(); checkNames();
+        });
+        title.append(name, remove); card.append(title);
+        const override = make('input'); override.type = 'checkbox'; override.checked = !!board.medals;
+        const overrideLabel = make('label', undefined, 'checkbox'); overrideLabel.append(override, document.createTextNode('单独设置这个分榜的奖牌数量'));
+        const counts = make('div', undefined, 'xp-medals');
+        const fields = {};
+        for (const [index, key] of medals.entries()) {
+            const label = make('label'); const caption = make('span');
+            caption.append(make('i', undefined, `xp-dot xp-${key}`), document.createTextNode(['金牌', '银牌', '铜牌'][index]));
+            label.append(caption);
+            const input = make('input', undefined, 'textbox'); input.type = 'number'; input.min = '0'; input.max = '100000'; input.step = '1';
+            input.setAttribute('aria-label', `分榜${['金', '银', '铜'][index]}牌数量`);
+            input.value = (board.medals || settings.medals)[key]; label.append(input); counts.append(label); fields[key] = input;
+        }
+        function toggleMedals() {
+            counts.hidden = !override.checked;
+            for (const input of Object.values(fields)) { input.disabled = !override.checked; input.required = override.checked; }
+        }
+        override.addEventListener('change', toggleMedals); toggleMedals();
+        card.append(overrideLabel, counts);
+        const details = make('details', undefined, 'xp-member-picker'); details.open = !board.name;
+        const summary = make('summary');
+        const knownIds = new Set(teams.map((team) => team.team_id));
+        // Members who left the contest are dropped on save; say so instead of listing them as choices.
+        const stale = board.teamIds.filter((id) => !knownIds.has(id));
+        let selected = new Set(board.teamIds.filter((id) => knownIds.has(id)));
+        const choices = teams;
+        let matches = choices;
+        const updateSummary = () => { summary.textContent = `选择成员（已选 ${selected.size} 人）`; };
+        updateSummary();
+        const search = make('input', undefined, 'textbox xp-search'); search.type = 'search'; search.placeholder = '搜索姓名、学校、用户 ID 或其他字段'; search.setAttribute('aria-label', '搜索参赛选手');
+        const filterPanel = make('div', undefined, 'xp-filter-panel');
+        const filterHeader = make('div', undefined, 'xp-line');
+        const modeLabel = make('label', '组合条件：');
+        const mode = make('select'); mode.setAttribute('aria-label', '组合条件');
+        for (const [value, text] of [['all', '满足全部条件'], ['any', '满足任一条件']]) { const option = make('option', text); option.value = value; mode.append(option); }
+        modeLabel.append(mode);
+        const addFilter = make('button', '＋ 添加筛选条件'); addFilter.type = 'button';
+        const onlySelected = make('input'); onlySelected.type = 'checkbox';
+        const onlySelectedLabel = make('label', undefined, 'checkbox'); onlySelectedLabel.append(onlySelected, document.createTextNode('只看已选成员'));
+        filterHeader.append(modeLabel, addFilter, onlySelectedLabel);
+        const conditions = make('div'); const filters = [];
+        const filterCount = make('p', undefined, 'xp-muted'); filterCount.setAttribute('aria-live', 'polite');
+        filterPanel.append(filterHeader, conditions, filterCount);
+        const list = make('div', undefined, 'xp-members');
+        const inputs = new Map();
+        const bulkButtons = [];
+        for (const team of choices) {
+            const label = make('label', undefined, 'checkbox xp-member');
+            const input = make('input'); input.type = 'checkbox'; input.checked = selected.has(team.team_id);
+            const text = `${team.name} · ${team.organization || '未填写学校'} · ID ${team.team_id} · ${team.group.includes('official') ? '正式' : '非正式'}`;
+            input.setAttribute('aria-label', text);
+            input.addEventListener('change', () => { if (input.checked) selected.add(team.team_id); else selected.delete(team.team_id); updateSummary(); });
+            const info = make('span', undefined, 'xp-member-info');
+            info.append(make('strong', team.name), make('span', `${team.organization || '未填写学校'} · ID ${team.team_id} · ${team.group.includes('official') ? '正式' : '非正式'}`, 'xp-muted'));
+            label.append(input, info); list.append(label);
+            inputs.set(team.team_id, { label, input });
+        }
+        const emptyList = make('p', '没有匹配的选手，请调整筛选条件。', 'xp-empty'); list.append(emptyList);
+        function applyFilters() {
+            matches = filterMembers(choices, { query: search.value, mode: mode.value, rules: filters.map((filter) => filter.read()) });
+            if (onlySelected.checked) matches = matches.filter((team) => selected.has(team.team_id));
+            const ids = new Set(matches.map((team) => team.team_id));
+            for (const [id, entry] of inputs) entry.label.hidden = !ids.has(id);
+            filterCount.textContent = `当前匹配 ${matches.length} 人 / 共 ${choices.length} 人`;
+            emptyList.hidden = matches.length > 0;
+            for (const [button, title] of bulkButtons) button.textContent = `${title}（${matches.length}）`;
+        }
+        function addCondition() {
+            const row = make('div', undefined, 'xp-filter-row');
+            const field = make('select'); field.setAttribute('aria-label', '筛选字段');
+            for (const definition of filterFields) { const option = make('option', definition.label); option.value = definition.key; field.append(option); }
+            const operator = make('select'); operator.setAttribute('aria-label', '匹配方式');
+            for (const [value, text] of [['is', '属于任一选中值'], ['not', '不属于选中值'], ['contains', '包含关键词'], ['empty', '未填写'], ['not-empty', '已填写']]) {
+                const option = make('option', text); option.value = value; operator.append(option);
+            }
+            const values = make('div', undefined, 'xp-filter-values'); values.setAttribute('role', 'group'); values.setAttribute('aria-label', '筛选取值');
+            const valueSearch = make('input', undefined, 'textbox xp-value-search'); valueSearch.type = 'search'; valueSearch.placeholder = '搜索取值，可勾选多个'; valueSearch.setAttribute('aria-label', '搜索筛选取值');
+            const valueOptions = make('div', undefined, 'xp-value-options');
+            const valueCount = make('p', undefined, 'xp-muted xp-value-count');
+            const noValues = make('p', '没有匹配的取值', 'xp-muted xp-value-empty');
+            const selectedValues = new Set();
+            values.append(valueSearch, valueOptions, valueCount);
+            const text = make('input', undefined, 'textbox xp-filter-text'); text.type = 'text'; text.placeholder = '多个值用逗号分隔'; text.setAttribute('aria-label', '筛选关键词');
+            const remove = make('button', '删除条件', 'xp-delete'); remove.type = 'button';
+            const filter = { read: () => ({
+                field: field.value, operator: operator.value,
+                values: values.hidden ? text.value.split(/[,，;；\n]/).map((value) => value.trim()).filter(Boolean) : [...selectedValues],
+            }) };
+            function filterValues() {
+                let count = 0;
+                for (const option of valueOptions.querySelectorAll('label')) {
+                    option.hidden = !normalize(option.textContent).includes(normalize(valueSearch.value));
+                    if (!option.hidden) count++;
+                }
+                noValues.hidden = count > 0;
+            }
+            valueSearch.addEventListener('input', filterValues);
+            function updateValues(reset = false) {
+                const categorical = !['name', 'username', 'id'].includes(field.value);
+                const empty = ['empty', 'not-empty'].includes(operator.value);
+                values.hidden = empty || !categorical || operator.value === 'contains';
+                text.hidden = empty || !values.hidden;
+                if (reset) {
+                    valueOptions.replaceChildren(); selectedValues.clear(); text.value = ''; valueSearch.value = '';
+                    const options = [...new Set(choices.flatMap((team) => fieldValues(team, field.value)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+                    for (const value of options) {
+                        const label = make('label', undefined, 'checkbox'); const input = make('input'); input.type = 'checkbox'; input.value = value;
+                        input.addEventListener('change', () => {
+                            if (input.checked) selectedValues.add(value); else selectedValues.delete(value);
+                            valueCount.textContent = `已选 ${selectedValues.size} 个值，可连续点选`;
+                            applyFilters();
+                        });
+                        label.append(input, make('span', value)); valueOptions.append(label);
+                    }
+                    valueOptions.append(noValues); valueCount.textContent = '可勾选多个值'; filterValues();
+                }
+                applyFilters();
+            }
+            field.addEventListener('change', () => { operator.value = ['name', 'username', 'id'].includes(field.value) ? 'contains' : 'is'; updateValues(true); });
+            operator.addEventListener('change', () => updateValues());
+            text.addEventListener('input', applyFilters);
+            remove.addEventListener('click', () => { filters.splice(filters.indexOf(filter), 1); row.remove(); applyFilters(); });
+            filters.push(filter); row.append(field, operator, values, text, remove); conditions.append(row); updateValues(true);
+        }
+        addFilter.addEventListener('click', addCondition); mode.addEventListener('change', applyFilters); onlySelected.addEventListener('change', applyFilters); search.addEventListener('input', applyFilters);
+        const bulk = make('div', undefined, 'xp-line xp-bulk');
+        const undo = make('button', '撤销批量操作'); undo.type = 'button'; undo.disabled = true;
+        let beforeBulk;
+        const show = () => { for (const [id, entry] of inputs) entry.input.checked = selected.has(id); updateSummary(); markDirty(); };
+        for (const [operation, title] of [['add', '勾选筛选结果'], ['remove', '取消勾选筛选结果'], ['replace', '替换为筛选结果']]) {
+            const button = make('button', title); button.type = 'button';
+            button.addEventListener('click', () => {
+                beforeBulk = selected; undo.disabled = false;
+                selected = bulkSelection(selected, matches, operation); show();
+            }); bulk.append(button); bulkButtons.push([button, title]);
+        }
+        undo.addEventListener('click', () => { selected = beforeBulk; undo.disabled = true; show(); });
+        bulk.append(undo);
+        if (stale.length) card.append(make('p', `${stale.length} 名成员已不在参赛名单（ID ${stale.join(', ')}），保存后将从此分榜移除。`, 'xp-notice'));
+        details.append(summary, search, filterPanel, bulk, list); card.append(details); container.append(card); applyFilters();
+        editor.read = () => ({ id: board.id, name: name.value.trim(), teamIds: [...selected], ...(override.checked ? { medals: Object.fromEntries(medals.map((key) => [key, Number(fields[key].value)])) } : {}) });
+        editors.push(editor); name.addEventListener('input', checkNames);
+    }
+    const addButton = document.getElementById('xp-add');
+    function updateAddButton() {
+        addButton.disabled = editors.length >= 50;
+        document.getElementById('xp-add-limit').hidden = !addButton.disabled;
+    }
+    for (const board of settings.manualBoards) addBoard(board);
+    checkNames();
+    updateAddButton();
+    addButton.addEventListener('click', () => {
+        if (editors.length >= 50) return;
+        addBoard({ id: `g-${crypto.randomUUID().slice(0, 8)}`, name: '', teamIds: [] });
+        editors.at(-1).name.focus(); markDirty(); updateAddButton();
+    });
+    form.addEventListener('submit', () => {
+        submitting = true;
+        const payload = document.getElementById('xp-payload');
+        payload.value = JSON.stringify({
+            medals: Object.fromEntries(medals.map((key) => [key, Number(root.querySelector(`[data-medal="${key}"]`).value)])),
+            schoolBoards: document.getElementById('xp-schools').checked,
+            participationBoards: document.getElementById('xp-participation').checked,
+            unofficialAwards: unofficialAwards.checked,
+            publicAccess: publicAccess.checked,
+            replaceNative: document.getElementById('xp-replace-native').checked,
+            showIdentity: showIdentity.checked,
+            manualBoards: editors.map((editor) => editor.read()),
+        });
+        store.set(payload.value);
+    });
+}

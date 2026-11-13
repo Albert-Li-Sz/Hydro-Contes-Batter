@@ -1,0 +1,15 @@
+node_modules/
+/public/
+/dist/
+preview-state.json
+preview-state.json.tmp
+*.tgz
+test-output/
+.DS_Store
+.logo-cache/
+.logos-build-*/
+.claude/
+.codex/
+.env
+.env.*
+!.env.example

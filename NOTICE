@@ -1,0 +1,51 @@
+Hydro XCPCIO Plus is based on @hydrooj/scoreboard-xcpcio.
+Hydro plugin integration is derived from hydro-dev/Hydro, AGPL-3.0-or-later.
+https://github.com/hydro-dev/Hydro/tree/master/packages/scoreboard-xcpcio
+
+The initial Hydro-Contes-Batter repository's Apache-2.0 notice is preserved
+verbatim in licenses/Repository-initial-Apache-2.0.txt from commit
+61ea976cc1bc9a392cce0fc7938804b0ce13d2bd. The imported Hydro plugin integration
+continues to use its existing AGPL-3.0-or-later license.
+
+The bundled leaderboard application is XCPCIO 0.85.4, MIT License.
+https://github.com/xcpcio/xcpcio
+Copyright (c) 2020-PRESENT XCPCIO.
+Its upstream license is distributed with the generated public assets.
+The generated rank engine delegates its buildRank result to lib/award-policy.mjs
+to apply configurable Hydro unofficial-team award eligibility. Score order and
+first-solve calculations remain upstream behavior. The build verifies the pinned
+entry before applying this extension.
+
+School logos in logos/ retain the source resolution from the Hydro Contest Team School
+Logo Registry, https://avatar.hydrooj.com/ (fetched by scripts/fetch-logos.mjs).
+WebP source files are preserved byte-for-byte. Other source formats are converted
+to lossless WebP with their original dimensions and transparency. Source URLs
+and SHA-256 hashes are recorded in logos/index.json.
+The logos remain the property of their respective institutions.
+
+Resolver integration (added in Hydro XCPCIO Plus 0.7.0)
+Source: https://github.com/Albert-Li-Sz/Resolver-Web/tree/v1.4.0
+Commit: 1d9788e1430c4898e463d99f52aab6c400399328
+Source hashes and modified hashes: resolver/UPSTREAM.json
+Modification inventory: resolver/CHANGES.md
+
+Resolver-Web's Apache-2.0 license is preserved in
+licenses/Resolver-Web-Apache-2.0.txt. Its original MIT notice is preserved in
+licenses/Resolver-original-MIT.txt. The complete upstream third-party statement
+is included verbatim as licenses/Resolver-Web-THIRD-PARTY-NOTICES.md; it also
+describes components in the full upstream application outside this integration.
+
+The engine and drawing modules derived from ICPC Tools, Helvetica-Plain.ttf,
+and ICPC images retain Copyright (C) 2019 ICPC Foundation and the ICPC Software
+License in licenses/ICPC-Software-License.txt. This license prohibits commercial
+or income-generating use without the Foundation's written exception. It requires
+users to disclose their source code publicly and include the license in every
+distributed version. The integration's source is included in this package.
+
+Noto Sans SC is Copyright 2014-2021 Adobe under SIL Open Font License 1.1,
+provided in licenses/Noto-Sans-SC-OFL.txt. Its source and hash metadata is in
+resolver/public/assets/font/noto-sans-sc.json. Font binaries are unchanged.
+School logos use the local registry copies described above.
+The Hydro adapter, independent session storage and configuration UI retain this
+plugin's AGPL-3.0-or-later license. Each third-party component retains its own
+terms, copyright and trademark ownership.

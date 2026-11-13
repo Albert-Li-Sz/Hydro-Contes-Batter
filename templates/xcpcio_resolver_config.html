@@ -1,0 +1,63 @@
+{% set page_name = 'contest_resolver' %}
+{% extends "layout/basic.html" %}
+{% block content %}
+<link rel="stylesheet" href="{{ assetBase }}/hydro-config.css">
+<div class="row resolver-config" id="hydro-resolver-config"><div class="medium-12 columns">
+  <section class="section visible">
+    <div class="section__header resolver-heading"><div><h1 class="section__title">滚榜配置</h1><p class="resolver-muted" id="contest-title"></p></div><a class="button" id="back-link" href="{{ contestUrl }}">返回比赛</a></div>
+    <div class="section__body"><p id="rehearsal-note" class="resolver-notice" hidden>仅供彩排</p><p id="message" class="resolver-error" role="alert" hidden></p>
+      <div class="resolver-stats">
+        <div><strong id="stat-teams">—</strong><span>参赛队伍</span></div><div><strong id="stat-official">—</strong><span>正式参赛</span></div><div><strong id="stat-problems">—</strong><span>题目数量</span></div><div><strong id="stat-pending">—</strong><span>待揭晓提交</span></div>
+      </div><p id="snapshot-time" class="resolver-muted">准备预览</p><p id="unjudged-note" class="resolver-notice" hidden></p>
+    </div>
+  </section>
+  <form id="resolver-form">
+    <section class="section visible" id="contest">
+      <div class="section__header"><h2 class="section__title">滚法与分榜</h2></div>
+      <div class="section__body">
+        <div class="resolver-fields resolver-two">
+          <label>滚榜方式<select class="select" name="mode"><option value="board">仅滚所选榜单</option><option value="official">所选分榜正式，其余非正式</option></select></label>
+          <label>选择榜单<select class="select" name="boardId" id="board-select"></select></label>
+          <label>封榜时间来源<select class="select" name="freezeMode"><option value="contest">使用比赛封榜时间</option><option value="custom">本场滚榜自定义</option></select></label>
+          <label>封榜点（比赛开始后的秒数）<input class="textbox" aria-label="封榜点（比赛开始后的秒数）" name="freezeAtSeconds" type="number" min="0" step="1" placeholder="请指定封榜点"><small class="resolver-muted" id="freeze-hint"></small></label>
+        </div>
+        <label class="checkbox"><input name="rehearsal" type="checkbox"><span>仅供彩排</span></label><p class="resolver-muted" id="rehearsal-hint">彩排可忽略尚未评测完成的提交</p>
+      </div>
+    </section>
+    <section class="section visible" id="awards">
+      <div class="section__header"><h2 class="section__title">奖项</h2></div>
+      <div class="section__body">
+        <div class="resolver-fields resolver-three">
+          {% for key, label in [['gold', '金奖'], ['silver', '银奖'], ['bronze', '铜奖']] %}
+          <div><label for="{{ key }}-count">{{ label }}数量</label><input class="textbox" id="{{ key }}-count" name="{{ key }}Count" type="number" min="0" max="10000" step="1" required><label for="{{ key }}-name">{{ label }}名称</label><input class="textbox" id="{{ key }}-name" name="{{ key }}Citation" maxlength="80" required></div>
+          {% endfor %}
+        </div>
+        <div class="resolver-checks"><label class="checkbox"><input name="medalSameScore" type="checkbox"><span>并列同奖</span></label><label class="checkbox"><input name="podiumEnabled" type="checkbox"><span>前三名奖项</span></label><label class="checkbox"><input name="firstSolve" type="checkbox"><span>首杀奖</span></label></div>
+      </div>
+    </section>
+    <section class="section visible">
+      <div class="section__header"><h2 class="section__title">显示与节奏</h2></div>
+      <div class="section__body">
+        <div class="resolver-fields resolver-three">
+          <label>每屏行数<input class="textbox" name="rowsPerScreen" type="number" min="4" max="30" step="1" required></label>
+          <label>自动播放速度<input class="textbox" name="autoplaySpeed" type="number" min="0.25" max="16" step="0.25" required></label>
+          <label>起始画面<select class="select" name="startScreen"><option value="splash">开场画面</option><option value="scoreboard">冻结榜单</option></select></label>
+        </div>
+        <div class="resolver-checks"><label class="checkbox"><input name="autoplay" type="checkbox"><span>启用自动播放</span></label><label class="checkbox"><input name="autoStopAtMedals" type="checkbox"><span>进入奖牌区后手动推进</span></label></div>
+      </div>
+    </section>
+    <section class="section visible" id="preview">
+      <div class="section__header resolver-heading"><h2 class="section__title">滚榜预览</h2><button type="button" class="button" id="refresh-preview">刷新数据</button></div>
+      <div class="section__body"><p id="preview-status" role="status">准备预览</p><div class="resolver-preview"><canvas id="preview-screen" aria-label="滚榜实时预览"></canvas></div>
+        <div class="resolver-actions"><button type="button" class="button" id="preview-reset">回到冻结榜单</button><button type="button" class="button" id="preview-prev">上一步</button><button type="button" class="button" id="preview-next">下一步</button><span id="preview-progress" class="resolver-muted"></span></div>
+        <div class="resolver-actions"><button type="submit" class="button primary" id="start-btn">开始滚榜</button><span class="resolver-muted">开始时重新读取比赛数据并保存独立会话。</span></div>
+      </div>
+    </section>
+  </form>
+  <section class="section visible" id="sessions"><div class="section__header resolver-heading"><h2 class="section__title">我的滚榜会话</h2><button type="button" class="button" id="refresh-sessions">刷新列表</button></div><div class="section__body" id="session-list" aria-live="polite"></div></section>
+  <dialog id="resolver-delete-confirm" aria-labelledby="resolver-delete-title"><form method="dialog"><h2 id="resolver-delete-title">删除滚榜会话</h2><p>删除此会话的固定快照及已保存进度？</p><div class="resolver-actions"><button class="button" value="cancel">取消</button><button class="button primary" value="delete">确认删除</button></div></form></dialog>
+  <p class="resolver-muted">Resolver-Web v1.4.0 · <a href="{{ assetBase }}/licenses/ICPC-Software-License.txt">ICPC Software License</a> · <a href="{{ assetBase }}/licenses/Resolver-Web-Apache-2.0.txt">Apache-2.0</a></p>
+</div></div>
+<script type="application/json" id="resolver-runtime">{{ runtimeJson | safe }}</script>
+<script type="module" src="{{ assetBase }}/js/hydro-config.js"></script>
+{% endblock %}

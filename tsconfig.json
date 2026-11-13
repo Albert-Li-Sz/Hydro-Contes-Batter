@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "Preserve", "moduleResolution": "Bundler",
+    "strict": true, "esModuleInterop": true, "skipLibCheck": true,
+    "experimentalDecorators": true, "resolveJsonModule": true,
+    "types": ["node"], "noEmit": true
+  },
+  "include": ["index.ts", "lib/**/*.ts", "scripts/preview.ts", "test/**/*.ts"]
+}

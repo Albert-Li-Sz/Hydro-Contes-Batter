@@ -1,0 +1,65 @@
+/* Scope the player chrome to its Hydro section. Canvas rendering stays upstream. */
+.resolver-page-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.resolver-page-heading .button { margin:0; }
+#hydro-resolver-player { position:relative; outline:none; }
+#hydro-resolver-player [hidden] { display:none !important; }
+#hydro-resolver-player .resolver-viewport { position:relative; width:100%; aspect-ratio:16/9; overflow:hidden; background:#000; }
+#hydro-resolver-player #stage { position:absolute; inset:0; display:grid; place-items:center; background:#000; }
+#hydro-resolver-player #screen,
+#hydro-resolver-player #calibration { display:block; width:100%; height:100%; object-fit:contain; background:#000; }
+#hydro-resolver-player #calibration { position:absolute; inset:0; }
+#hydro-resolver-player .hud { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; padding:12px 20px; font-size:13px; }
+#hydro-resolver-player .hud-left,
+#hydro-resolver-player .hud-right { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
+#hydro-resolver-player .hud-title { font-weight:600; }
+#hydro-resolver-player .hud-sub,
+#hydro-resolver-player .subtle { opacity:.65; }
+#hydro-resolver-player .progress { width:100%; height:2px; background:#8882; }
+#hydro-resolver-player .progress span { display:block; height:100%; background:#5f9fd6; }
+#hydro-resolver-player .controls { display:flex; justify-content:center; flex-wrap:wrap; align-items:center; gap:8px; padding:4px 16px 16px; }
+#hydro-resolver-player .controls .button { margin:0; }
+#hydro-resolver-player .icon-btn { display:inline-flex; align-items:center; justify-content:center; padding:8px 12px; }
+#hydro-resolver-player .icon-btn svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.7; }
+#hydro-resolver-player .divider { height:20px; border-left:1px solid #8884; }
+#hydro-resolver-player .toast { display:none; text-align:center; padding:8px 16px; font-size:13px; }
+#hydro-resolver-player .toast.is-showing { display:block; }
+#hydro-resolver-player .overlay,
+#hydro-resolver-player .help-panel { position:absolute; inset:0; z-index:20; display:grid; align-content:center; justify-items:center; padding:20px; background:#0008; }
+#hydro-resolver-player .loader-card,
+#hydro-resolver-player .help-card,
+#hydro-resolver-player .display-dialog { background:#fff; color:#333; padding:24px; width:min(600px,100%); box-shadow:0 4px 24px #0003; line-height:1.7; }
+#hydro-resolver-player .help-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+#hydro-resolver-player .help-card h2,
+#hydro-resolver-player .display-dialog h2 { font-size:18px; margin:0 0 12px; }
+#hydro-resolver-player .help-card dl div { display:grid; grid-template-columns:1fr 1fr; gap:16px; font-size:13px; }
+#hydro-resolver-player .help-note { font-size:13px; opacity:.65; line-height:1.7; margin:12px 0; }
+#hydro-resolver-player .help-card { max-height:90%; overflow:auto; }
+#hydro-resolver-player .share-actions { display:flex; justify-content:flex-end; gap:12px; margin-top:16px; }
+#hydro-resolver-player .display-dialog { border:0; max-height:90vh; overflow:auto; }
+#hydro-resolver-player .display-dialog::backdrop { background:#0008; }
+#hydro-resolver-player .display-dialog label { display:block; margin-bottom:10px; }
+#hydro-resolver-player .display-dialog input,
+#hydro-resolver-player .display-dialog select { display:block; width:100%; }
+#hydro-resolver-player .display-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+#hydro-resolver-player .resolver-rehearsal { position:absolute; top:8px; left:50%; transform:translateX(-50%); z-index:10; padding:4px 12px; background:#3c2e0c; color:#ffe0a0; font-size:13px; pointer-events:none; }
+#hydro-resolver-player.disconnected #hud-connection { color:#b57917; }
+#hydro-resolver-player:fullscreen { width:100vw; height:100vh; margin:0; background:#000; }
+#hydro-resolver-player:fullscreen .resolver-viewport { width:100%; height:100%; aspect-ratio:auto; }
+#hydro-resolver-player:fullscreen .hud { position:absolute; top:0; left:0; right:0; background:#fff; }
+#hydro-resolver-player:fullscreen #controls-wrap { position:absolute; bottom:16px; left:50%; transform:translateX(-50%); width:max-content; max-width:95%; background:#fff; color:#333; }
+#hydro-resolver-player:fullscreen .controls { padding:12px; }
+#hydro-resolver-player:fullscreen.idle:not(.help-open) .hud,
+#hydro-resolver-player:fullscreen.idle:not(.help-open):not(.fs-bar-visible) #controls-wrap { opacity:0; pointer-events:none; }
+#hydro-resolver-player:fullscreen.idle:not(.help-open) { cursor:none; }
+#hydro-resolver-player.display-open #controls-wrap { visibility:hidden; }
+.theme--dark #hydro-resolver-player .loader-card,
+.theme--dark #hydro-resolver-player .help-card,
+.theme--dark #hydro-resolver-player .display-dialog,
+.theme--dark #hydro-resolver-player:fullscreen .hud,
+.theme--dark #hydro-resolver-player:fullscreen #controls-wrap { background:#1f252e; color:#ddd; }
+@media (max-width:640px) {
+  #hydro-resolver-player .hud { padding:10px 12px; }
+  #hydro-resolver-player .controls { gap:4px; }
+  #hydro-resolver-player .help-panel { position:fixed; }
+  #hydro-resolver-player .help-card dl div { grid-template-columns:1fr; gap:0; margin-bottom:8px; }
+}

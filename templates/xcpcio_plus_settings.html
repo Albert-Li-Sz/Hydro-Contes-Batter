@@ -1,0 +1,68 @@
+{% set page_name = 'contest_xcpcio_plus_settings' %}
+{% extends "layout/basic.html" %}
+{% block content %}
+<link rel="stylesheet" href="{{ '/' if process.env.DEV else UiContext.cdn_prefix }}hydro-xcpcio/{{ assetBase }}/enhanced.css">
+<div class="row xp-page xp-settings" id="xp-settings"><div class="medium-12 columns">
+  <section class="section visible">
+    <div class="section__header xp-page-header">
+      <div><h1 class="section__title">奖牌与分榜设置</h1><p class="xp-muted">{{ tdoc.title }}</p></div>
+      <a class="button" href="{{ boardUrl }}">返回榜单</a>
+    </div>
+  </section>
+  <p id="xp-saved" class="xp-status" role="status" hidden>设置已保存，榜单刷新后生效。</p>
+  <p id="xp-restored" class="xp-notice xp-restored" role="status" hidden><span>上次提交没有保存成功，已恢复当时填写的内容。请检查后重新保存。</span><button class="button" type="button" id="xp-discard">放弃并重新加载</button></p>
+  <form method="post" id="xp-form">
+    <input type="hidden" name="config" id="xp-payload">
+    <div class="xp-settings-grid">
+      <section class="section visible">
+        <div class="section__header"><h2 class="section__title">奖项规则</h2></div>
+        <div class="section__body">
+          <div class="xp-medals">
+            <label><span><i class="xp-dot xp-gold"></i>金牌</span><input class="textbox" aria-label="金牌数量" data-medal="gold" type="number" min="0" max="100000" step="1" required></label>
+            <label><span><i class="xp-dot xp-silver"></i>银牌</span><input class="textbox" aria-label="银牌数量" data-medal="silver" type="number" min="0" max="100000" step="1" required></label>
+            <label><span><i class="xp-dot xp-bronze"></i>铜牌</span><input class="textbox" aria-label="铜牌数量" data-medal="bronze" type="number" min="0" max="100000" step="1" required></label>
+          </div>
+          <p class="xp-muted">各榜默认使用此数量；并列同奖，零过题不获奖。</p>
+          <div class="xp-award-policy">
+            <label class="checkbox"><input type="checkbox" id="xp-unofficial-awards" aria-label="允许打星选手参与奖项" aria-describedby="xp-award-rule"><span><strong>允许打星选手参与奖项</strong></span></label>
+            <p class="xp-muted" id="xp-award-rule" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+      <section class="section visible">
+        <div class="section__header"><h2 class="section__title">自动分榜</h2></div>
+        <div class="section__body">
+          <div class="xp-checks xp-auto-options">
+            <label class="checkbox"><input type="checkbox" id="xp-schools"><span><strong>按学校生成分榜</strong><small>根据选手填写的学校自动归组。</small></span></label>
+            <label class="checkbox"><input type="checkbox" id="xp-participation"><span><strong>按参赛资格分榜</strong><small>分别显示正式参赛与打星选手。</small></span></label>
+          </div>
+        </div>
+      </section>
+    </div>
+    <section class="section visible">
+      <div class="section__header"><h2 class="section__title">访问与默认榜单</h2></div>
+      <div class="section__body">
+        <div class="xp-checks xp-access-options">
+          <label class="checkbox"><input type="checkbox" id="xp-replace-native" {% if not replacementEnabled %}disabled{% endif %}><span><strong>替换 Hydro 原生榜单</strong><small>从比赛的榜单入口直接进入增强榜。</small></span></label>
+          <label class="checkbox"><input type="checkbox" id="xp-public-access"><span><strong>公开榜单</strong><small>开赛后无需登录即可查看，遵守封榜规则。</small></span></label>
+          <label class="checkbox"><input type="checkbox" id="xp-show-identity"><span><strong>向所有观众显示真实姓名与学校</strong><small>属于 Hydro 私有资料。关闭时其他观众只看到用户名，不显示学校和学校榜。</small></span></label>
+        </div>
+        {% if not replacementEnabled %}<p class="xp-muted">全局替换已关闭，需在插件配置启用 asDefault 后生效。</p>{% endif %}
+        <div id="xp-public-url-wrap" class="xp-public-link"><span>公开地址：<a id="xp-public-url" href="{{ publicUrl }}" target="_blank" rel="noopener">{{ publicUrl }}</a></span><button class="button" type="button" id="xp-copy-url">复制链接</button></div>
+        <p id="xp-public-disabled" class="xp-muted" hidden>公开访问已关闭，保存后公开链接将不可访问。</p>
+      </div>
+    </section>
+    <section class="section visible">
+      <div class="section__header"><h2 class="section__title">手动分榜</h2></div>
+      <div class="section__body">
+        <p class="xp-muted">从参赛名单中选择成员；每个榜独立排名、授奖和计算首次通过。</p>
+        <div id="xp-boards"></div>
+        <div class="xp-line"><button class="button" type="button" id="xp-add">＋ 添加手动分榜</button><span class="xp-muted" id="xp-add-limit" hidden>最多 50 个手动分榜</span></div>
+      </div>
+    </section>
+    <div class="xp-savebar"><button class="button primary" type="submit">保存设置</button><span class="xp-muted" id="xp-save-hint" aria-live="polite">保存后对所有观众生效。</span></div>
+  </form>
+</div></div>
+<script type="application/json" id="xp-data">{{ settingsJson | safe }}</script>
+<script type="module" src="{{ '/' if process.env.DEV else UiContext.cdn_prefix }}hydro-xcpcio/{{ assetBase }}/settings.js"></script>
+{% endblock %}
