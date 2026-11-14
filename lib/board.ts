@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { BoardSettings, Medals } from './settings';
+import { awardsFor } from './settings';
 import { AWARD_EXEMPT_TAG } from './award-policy.mjs';
 
 export interface BoardTeam {
@@ -63,8 +64,15 @@ function cappedMedals(configured: Medals, solvedTeams: number): Medals {
 
 /** Names the board switcher already shows for automatic boards, which manual boards must not repeat. */
 export function reservedBoardNames(teams: BoardTeam[], settings: BoardSettings): string[] {
-    return ['所有队伍', ...(settings.participationBoards ? ['正式参赛', '非正式参赛'] : []),
+    return ['所有队伍', '主榜', '总榜', ...(settings.participationBoards ? ['正式参赛', '非正式参赛'] : []),
         ...(settings.schoolBoards ? [...new Set(teams.map((team) => `${schoolName(team.organization)}榜`))] : [])];
+}
+
+export function automaticBoards(teams: BoardTeam[]) {
+    return [{ id: 'official', name: '正式参赛', kind: 'participation' },
+        { id: 'unofficial', name: '非正式参赛', kind: 'participation' },
+        ...[...new Set(teams.map((team) => schoolName(team.organization)))].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+            .map((school) => ({ id: schoolGroup(school), name: `${school}榜`, kind: 'school' }))];
 }
 
 /** Group membership is additive; it never changes Hydro's official/unofficial flag. */
@@ -87,7 +95,7 @@ export function enhanceBoard(data: BoardData, settings: BoardSettings, { identit
         ...team,
         tag: [
             ...(Array.isArray(team.tag) ? team.tag.filter((tag) => typeof tag === 'string' && tag !== AWARD_EXEMPT_TAG) : []),
-            ...(!settings.unofficialAwards && team.group.includes('unofficial') ? [AWARD_EXEMPT_TAG] : []),
+            ...(team.group.includes('unofficial') ? [AWARD_EXEMPT_TAG] : []),
         ],
         organization: identity ? schoolName(team.organization) : '',
         group: [...new Set([
@@ -100,13 +108,13 @@ export function enhanceBoard(data: BoardData, settings: BoardSettings, { identit
     const solved = new Set(data.submissions.filter((submission) => submission.status === 'CORRECT'
         && submission.timestamp >= 0 && submission.timestamp < duration
         && submission.problem_id >= 0 && submission.problem_id < data.contest.problem_quantity).map((submission) => submission.team_id));
-    const medal: Record<string, Medals> = {};
+    const medal: Record<string, Medals & { hydroAwards: ReturnType<typeof awardsFor> }> = {};
     const allGroups = ['all', ...Object.keys(groups)];
     for (const id of allGroups) {
         const members = teams.filter((team) => id === 'all' || team.group.includes(id));
-        const manual = settings.manualBoards.find((board) => id === `manual-${board.id}`);
-        medal[id] = cappedMedals(manual?.medals || settings.medals, members.filter((team) => solved.has(team.team_id)
-            && (settings.unofficialAwards || !team.group.includes('unofficial'))).length);
+        const awards = awardsFor(settings, id);
+        medal[id] = { ...cappedMedals(awards.medals, members.filter((team) => solved.has(team.team_id)
+            && !team.group.includes('unofficial')).length), hydroAwards: awards };
     }
     return {
         ...data,

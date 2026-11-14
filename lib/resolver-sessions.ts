@@ -53,6 +53,7 @@ export class ResolverSessions {
 
     async ensureIndexes() {
         await this.sessions.createIndex({ domainId: 1, contestId: 1, ownerId: 1, createdAt: -1 });
+        await this.sessions.createIndex({ updatedAt: 1 });
         await this.chunks.createIndex({ sessionId: 1, sequence: 1 }, { unique: true });
     }
 
@@ -81,6 +82,25 @@ export class ResolverSessions {
         }
     }
 
+    /** Delete sessions (and their snapshots) nobody has opened or advanced for `maxAgeMs`. */
+    async prune(maxAgeMs: number, now = Date.now()) {
+        if (!Number.isFinite(maxAgeMs) || maxAgeMs <= 0) return 0;
+        const rows = await this.sessions.find({ updatedAt: { $lt: new Date(now - maxAgeMs) } }).toArray();
+        let deleted = 0;
+        for (const row of rows) {
+            if (!row.ready && !row.deleting) continue;
+            // Claim only the version scanned. A concurrent open/move refreshes updatedAt.
+            const claim = await this.sessions.updateOne(
+                { _id: row._id, ready: row.ready, updatedAt: row.updatedAt },
+                { $set: { ready: false, deleting: true } },
+            );
+            if (!claim.matchedCount) continue;
+            await this.remove(row);
+            deleted++;
+        }
+        return deleted;
+    }
+
     async list(scope: ResolverScope) {
         const rows = await this.sessions.find(scope, {
             projection: { _id: 1, ready: 1, deleting: 1, createdAt: 1, config: 1, overview: 1, index: 1, revision: 1 },
@@ -93,6 +113,14 @@ export class ResolverSessions {
 
     async get(scope: ResolverScope, id: string, forDeletion = false) {
         const session = await this.sessions.findOne({ domainId: scope.domainId, contestId: scope.contestId, ownerId: scope.ownerId, _id: id });
+        // Opening a session counts as use, so one being presented without moves is not pruned.
+        // (At most hourly: the player polls this every two seconds.)
+        if (session?.ready && Date.now() - new Date(session.updatedAt).getTime() > 3600_000) {
+            const updatedAt = new Date();
+            const result = await this.sessions.updateOne({ _id: id, ready: true }, { $set: { updatedAt } });
+            if (!result.matchedCount) throw new ResolverError('滚榜会话正在删除', 404);
+            session.updatedAt = updatedAt;
+        }
         if (session && !session.ready && !(forDeletion && session.deleting)) throw new ResolverError('滚榜会话正在写入或删除', 404);
         if (!session) throw new ResolverError('滚榜会话不存在或不属于当前账号', 404);
         return session;
@@ -131,6 +159,31 @@ export class ResolverSessions {
         if (result.matchedCount) return { status: 200, playback: this.playback({ ...session, index, revision: revision + 1 }) };
         const current = await this.get(session, session._id);
         return { status: 409, playback: this.playback(current), error: '进度已在另一个页面更新，已暂停并同步' };
+    }
+
+    /** A session of this contest, whichever administrator created it (read-only audience view). */
+    async find(domainId: string, contestId: string, id: string) {
+        const session = await this.sessions.findOne({ domainId, contestId, _id: id });
+        return session?.ready ? session : null;
+    }
+
+    /**
+     * What an audience may see: the steps up to the current one, with no future steps and no award
+     * recipients beyond the team being shown. Follows Resolver-Web server/lib/sessions.js snapshot().
+     */
+    async spectator(session: ResolverSession) {
+        const { game } = await this.read(session);
+        const { autoStopTeamId: _hidden, ...meta } = game.meta;
+        const steps = game.steps.slice(0, session.index + 1).map((step) => {
+            if (!step.teamId || !Array.isArray(step.awards)) return step;
+            return { ...step, awards: (step.awards as { teamIds: string[] }[]).map((award) => ({
+                ...award, teamIds: award.teamIds.filter((teamId) => teamId === step.teamId),
+            })) };
+        });
+        return {
+            game: { ...game, meta, contest: { ...game.contest, awards: [] }, steps },
+            playback: this.playback(session),
+        };
     }
 
     async remove(session: ResolverSession) {

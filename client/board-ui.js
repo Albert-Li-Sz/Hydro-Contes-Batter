@@ -2,6 +2,19 @@
 // Ranking and submissions remain owned by the upstream Vue application.
 const app = document.getElementById('app');
 if (app) {
+    let awardRules;
+    window.addEventListener('hydro-xcpcio-awards', (event) => {
+        awardRules = event.detail.rules;
+        const podium = document.getElementById('xp-podium');
+        podium.hidden = !event.detail.podium.length;
+        podium.textContent = event.detail.podium.map((team, index) => `${['冠军', '亚军', '季军'][index]} ${team.name}`).join(' · ');
+        for (const tier of ['gold', 'silver', 'bronze']) {
+            const dot = document.querySelector(`#xp-legend .xp-${tier}`);
+            if (dot?.nextSibling) dot.nextSibling.textContent = awardRules?.[`${tier}Citation`] || { gold: '金牌', silver: '银牌', bronze: '铜牌' }[tier];
+        }
+        const first = document.querySelector('#xp-legend .xp-first');
+        if (first) first.parentElement.hidden = !awardRules?.firstSolve;
+    });
     // Below this width identity and score share one column (see enhanced.css).
     const mobile = matchMedia('(max-width: 1023px)');
     let scheduled = false;
@@ -293,7 +306,9 @@ if (app) {
                         names.forEach((name, index) => cells[index]?.classList.add(`xp-col-${name}`));
                         const rank = cells[0];
                         const medal = [['gold', '金牌'], ['silver', '银牌'], ['bronze', '铜牌']].find(([name]) => rank.classList.contains(name));
-                        rank.setAttribute('aria-label', `${medal ? `${medal[1]}，` : ''}第 ${rank.textContent.trim()} 名`);
+                        const citation = medal && (awardRules?.[`${medal[0]}Citation`] || medal[1]);
+                        rank.setAttribute('aria-label', `${citation ? `${citation}，` : ''}第 ${rank.textContent.trim()} 名`);
+                        rank.title = citation || '';
                         const team = cells[names.indexOf('team')];
                         const schoolAction = hasSchool ? cells[1]?.querySelector('[cursor-pointer]') : null;
                         const schoolName = schoolAction?.textContent.trim() || '';
@@ -309,6 +324,10 @@ if (app) {
                         // Name on the first line, school on the second; unofficial (打星) participants get
                         // a star after the school instead of after the name.
                         const unofficial = !!star;
+                        if (unofficial) {
+                            if (rank.textContent.trim() !== '*') rank.textContent = '*';
+                            rank.setAttribute('aria-label', '打星选手');
+                        }
                         const label = `${schoolName}${unofficial ? ' ★' : ''}`;
                         if (school && school.dataset.xpName !== label) {
                             school.dataset.xpName = label;
@@ -333,6 +352,7 @@ if (app) {
                             result.firstElementChild.textContent = `${solved} 题`;
                             result.lastElementChild.textContent = `${penalty} 罚时`;
                         }
+                        for (const cell of row.querySelectorAll('td[aria-label^="首次通过"]:not(.first-solve)')) cell.removeAttribute('aria-label');
                         for (const cell of row.querySelectorAll('td.first-solve')) {
                             cell.setAttribute('aria-label', `首次通过，${cell.textContent.trim().replace(/\s+/g, ' ')}`);
                         }

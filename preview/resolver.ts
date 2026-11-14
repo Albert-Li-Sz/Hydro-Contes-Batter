@@ -3,12 +3,13 @@ import type { Environment } from 'nunjucks';
 import type { BoardData } from '../lib/board';
 import type { BoardSettings } from '../lib/settings';
 import { toScriptJson } from '../lib/settings';
-import { defaultResolverConfig, parseResolverConfig, prepareResolver, ResolverError, resolverBoards } from '../lib/resolver-data';
+import { defaultResolverConfig, parseResolverConfig, prepareResolver, ResolverError, resolverBoards, resolverCodeBase } from '../lib/resolver-data';
 import { ResolverSessions } from '../lib/resolver-sessions';
 import { previewDatabase } from './resolver-memory-db';
 
-export function createResolverPreview(env: Environment, logoNames: Record<string, string>) {
-    const sessions = new ResolverSessions(previewDatabase().db);
+export function createResolverPreview(env: Environment, logoNames: Record<string, string>, version: string, db = previewDatabase().db) {
+    const codeBase = resolverCodeBase(version);
+    const sessions = new ResolverSessions(db);
     const base = '/contest/demo/resolver';
     const scope = { domainId: 'system', contestId: 'demo', ownerId: 1 };
     return async (request: IncomingMessage, response: ServerResponse, url: URL, data: BoardData, settings: BoardSettings) => {
@@ -30,7 +31,7 @@ export function createResolverPreview(env: Environment, logoNames: Record<string
             }
             if (url.pathname === base && request.method === 'GET') {
                 response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(env.render('xcpcio_resolver_config.html', {
-                    tdoc: { title: data.contest.contest_name }, assetBase: '/hydro-resolver', contestUrl: '/contest/demo/scoreboard/xcpcio-plus',
+                    tdoc: { title: data.contest.contest_name }, assetBase: '/hydro-resolver', codeBase, settingsUrl: '/contest/demo/xcpcio-settings', contestUrl: '/contest/demo/scoreboard/xcpcio-plus',
                     runtimeJson: toScriptJson({
                         base, contestUrl: '/contest/demo/scoreboard/xcpcio-plus', title: data.contest.contest_name,
                         initialStats: {
@@ -38,7 +39,7 @@ export function createResolverPreview(env: Environment, logoNames: Record<string
                             officialCount: data.teams.filter((team) => !team.group.includes('unofficial')).length,
                             problemCount: data.contest.problem_quantity,
                         },
-                        boards, ended, config: defaults, durationSeconds: data.contest.end_time - data.contest.start_time,
+                        boards, ended, config: defaults, sessionDays: 0, durationSeconds: data.contest.end_time - data.contest.start_time,
                         contestFreezeAtSeconds: Number(data.contest.frozen_time) > 0
                             ? data.contest.end_time - data.contest.start_time - Number(data.contest.frozen_time) : null,
                     }),
@@ -62,7 +63,7 @@ export function createResolverPreview(env: Environment, logoNames: Record<string
                 const operation = match[2];
                 if (!operation && request.method === 'GET') {
                     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(env.render('xcpcio_resolver_play.html', {
-                        tdoc: { title: session.overview.title }, configUrl: base, runtimeJson: toScriptJson({
+                        tdoc: { title: session.overview.title }, codeBase, configUrl: base, runtimeJson: toScriptJson({
                             id: session._id, controlToken: session.controlToken,
                             base: `${base}/sessions/${session._id}`, rehearsal: session.config.rehearsal,
                         }),

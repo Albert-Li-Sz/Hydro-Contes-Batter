@@ -1,7 +1,8 @@
 {
   "repository": "https://github.com/Albert-Li-Sz/Resolver-Web",
   "tag": "v1.4.0",
-  "commit": "1d9788e1430c4898e463d99f52aab6c400399328",
+  "commit": "d4a1a80fa1c0a7b0013f941256004ba5f63c6773",
+  "tagObject": "1d9788e1430c4898e463d99f52aab6c400399328",
   "files": [
     {
       "source": "LICENSE",
@@ -157,7 +158,7 @@
       "source": "public/js/standings.js",
       "destination": "resolver/public/js/standings.js",
       "sha256": "79ca8bc5a177bf33832cac73652abcea8845f748cd360bbfecedc006d331706c",
-      "modifiedSha256": "79ca8bc5a177bf33832cac73652abcea8845f748cd360bbfecedc006d331706c"
+      "modifiedSha256": "debed21acd0188a6966a82a83df7291d8c5a45098915d06219c82287793a6545"
     },
     {
       "source": "public/licenses/noto-sans-sc.txt",
@@ -169,19 +170,175 @@
       "source": "public/play.html",
       "destination": "templates/xcpcio_resolver_play.html",
       "sha256": "b99524cc2d9c548b978de1bb6d6efd39b12f5debf907bf5e693cd3a8683b30b7",
-      "modifiedSha256": "677eed9bb8673afd38dfd987c9cb3fe32159697953b25b3645afcd26c7b7a4e0"
+      "modifiedSha256": "5edc5769fa75f457f9ef1e0a4e29870dfc101bbc2a018d67598aa078413b30d3"
     },
     {
       "source": "server/lib/engine.js",
       "destination": "resolver/server/lib/engine.js",
       "sha256": "b74872b78f03b96d06a0c40e94464f26d19326c6200808d9bb007e94bb39b0e1",
-      "modifiedSha256": "978aa2395f985bbdb809202aa290b9dfb3d6f8fe74c37eacc588190948c8060c"
+      "modifiedSha256": "bdda030c9d6bceb53301c9b10851df4bd71f9f23d35d2db4053474bb387f55c4"
     },
     {
       "source": "server/lib/limits.js",
       "destination": "resolver/server/lib/limits.js",
       "sha256": "74b2b6065404f8f3956c46e4f22f9173cf00ab8c9765d3385a8157477de0d0d0",
       "modifiedSha256": "74b2b6065404f8f3956c46e4f22f9173cf00ab8c9765d3385a8157477de0d0d0"
+    },
+    {
+      "source": "public/js/render/digital-font.js",
+      "destination": "resolver/public/js/render/digital-font.js",
+      "sha256": "1ead283c1915f9bee9d4ba5d75facad8c7c226c47bccd9ae817f3af80e669622",
+      "modifiedSha256": "1ead283c1915f9bee9d4ba5d75facad8c7c226c47bccd9ae817f3af80e669622"
+    },
+    {
+      "source": "public/js/render/java-contest.js",
+      "destination": "resolver/public/js/render/java-contest.js",
+      "sha256": "bfd6a2e362f3d581fe715847d2901d2eb6ba876bfde7402189e2927d151e52c7",
+      "modifiedSha256": "c5b1aae692fc114acf5993e677a7ce0d68dcada556a474848192d937e54b9cbb"
+    },
+    {
+      "source": "public/js/render/java-graphics.js",
+      "destination": "resolver/public/js/render/java-graphics.js",
+      "sha256": "1b01daa619eeafb5c558abe67294a0c0601ee2cf3231b77ed4292a4d473f3d6b",
+      "modifiedSha256": "1b01daa619eeafb5c558abe67294a0c0601ee2cf3231b77ed4292a4d473f3d6b"
+    },
+    {
+      "source": "public/js/render/java-text.js",
+      "destination": "resolver/public/js/render/java-text.js",
+      "sha256": "b0f55f8731c88a8c651ad2cdb5ef9f7a5a15d5c4b2838d543b435569458f3bd3",
+      "modifiedSha256": "b0f55f8731c88a8c651ad2cdb5ef9f7a5a15d5c4b2838d543b435569458f3bd3"
+    },
+    {
+      "source": "public/js/render/pres-charts.js",
+      "destination": "resolver/public/js/render/pres-charts.js",
+      "sha256": "6abc56f5bb5122257110b49cb756d84af97a1b056cb9434f65c783fd4d1666ad",
+      "modifiedSha256": "6abc56f5bb5122257110b49cb756d84af97a1b056cb9434f65c783fd4d1666ad"
+    },
+    {
+      "source": "public/js/render/pres-clock.js",
+      "destination": "resolver/public/js/render/pres-clock.js",
+      "sha256": "ed665be3edd70e20ffb083a626471da1148822abb446b22b1b838edc511cd75f",
+      "modifiedSha256": "ed665be3edd70e20ffb083a626471da1148822abb446b22b1b838edc511cd75f"
+    },
+    {
+      "source": "public/js/render/pres-floor.js",
+      "destination": "resolver/public/js/render/pres-floor.js",
+      "sha256": "3d479272d13b9381448addac1c04510e755c3a2891998af4c00e0be8025f05a3",
+      "modifiedSha256": "c32ff4520c27139cb8d99d60e985e1f4e3d96ac64ecec5481ae7a62ebc19efb1"
+    },
+    {
+      "source": "public/js/render/pres-logos.js",
+      "destination": "resolver/public/js/render/pres-logos.js",
+      "sha256": "25eb24fb2a848fe4d89861f8a4515a4b517688b20ac4f2b38335b89a0657d21c",
+      "modifiedSha256": "25eb24fb2a848fe4d89861f8a4515a4b517688b20ac4f2b38335b89a0657d21c"
+    },
+    {
+      "source": "public/js/render/pres-map.js",
+      "destination": "resolver/public/js/render/pres-map.js",
+      "sha256": "e6792e190ca3b7c9d526c23b380d19e572636b087a756bacc1830536a45b10d0",
+      "modifiedSha256": "4c02363a511d6b4913276aff75a37631282b8e18e680bcfc91a1f09db3fd52a6"
+    },
+    {
+      "source": "public/js/render/pres-misc.js",
+      "destination": "resolver/public/js/render/pres-misc.js",
+      "sha256": "726e5923125257ac48bbd72ea1bbd5e45ad365cc0361ef851d2968e797492143",
+      "modifiedSha256": "726e5923125257ac48bbd72ea1bbd5e45ad365cc0361ef851d2968e797492143"
+    },
+    {
+      "source": "public/js/render/pres-problems.js",
+      "destination": "resolver/public/js/render/pres-problems.js",
+      "sha256": "a1b8aa7b9a7916e3901fbc09594f137aae26ea978f2d09dab7f1bd7f08ed7bb1",
+      "modifiedSha256": "1a5e450b945ff8046ef8ffd71bc0bc0552b54df5cac070148e331a60d37833cd"
+    },
+    {
+      "source": "public/js/render/pres-scoreboard.js",
+      "destination": "resolver/public/js/render/pres-scoreboard.js",
+      "sha256": "cc7c78d77d9c0a8636b79044aa2f8569e244ec80bce405827877c11228e97874",
+      "modifiedSha256": "cc7c78d77d9c0a8636b79044aa2f8569e244ec80bce405827877c11228e97874"
+    },
+    {
+      "source": "public/js/render/pres-tiles.js",
+      "destination": "resolver/public/js/render/pres-tiles.js",
+      "sha256": "e43bf87faefa909f5108ed787b34d38cbfc2ec913c2f4a893d18916c3c7dd572",
+      "modifiedSha256": "e43bf87faefa909f5108ed787b34d38cbfc2ec913c2f4a893d18916c3c7dd572"
+    },
+    {
+      "source": "public/js/render/presentation-glyphs.js",
+      "destination": "resolver/public/js/render/presentation-glyphs.js",
+      "sha256": "c3ccd00b26ac331eed4fe11bc44e01e3ebb22808c51219d4718b047b7d35cd64",
+      "modifiedSha256": "c3ccd00b26ac331eed4fe11bc44e01e3ebb22808c51219d4718b047b7d35cd64"
+    },
+    {
+      "source": "public/js/render/presentation-java.js",
+      "destination": "resolver/public/js/render/presentation-java.js",
+      "sha256": "b03ec3b61eabb9aa2f782835fc233ce8df84d01a2f11eda27ad281a7f6b36608",
+      "modifiedSha256": "b03ec3b61eabb9aa2f782835fc233ce8df84d01a2f11eda27ad281a7f6b36608"
+    },
+    {
+      "source": "public/js/render/presentation-locale.js",
+      "destination": "resolver/public/js/render/presentation-locale.js",
+      "sha256": "7eef7eed896a42d446db1d33cd042cb62ac09633e51388ec958bb12d49725777",
+      "modifiedSha256": "7eef7eed896a42d446db1d33cd042cb62ac09633e51388ec958bb12d49725777"
+    },
+    {
+      "source": "public/js/render/presentation-metrics.js",
+      "destination": "resolver/public/js/render/presentation-metrics.js",
+      "sha256": "38841a4fd654ef80d494a47135b3f8a7189acb83dbfa06f283c00be7d33750d9",
+      "modifiedSha256": "38841a4fd654ef80d494a47135b3f8a7189acb83dbfa06f283c00be7d33750d9"
+    },
+    {
+      "source": "public/js/render/presentation-ports.js",
+      "destination": "resolver/public/js/render/presentation-ports.js",
+      "sha256": "630fc99f12e41cce2136d07c0ab81e83554f0c1123f06456ec24b6154300dc88",
+      "modifiedSha256": "630fc99f12e41cce2136d07c0ab81e83554f0c1123f06456ec24b6154300dc88"
+    },
+    {
+      "source": "public/js/render/presentation-state.js",
+      "destination": "resolver/public/js/render/presentation-state.js",
+      "sha256": "d9530da6512c44688f5c5fac10afd395b08f48aedc4dcf6da57633aec775b99a",
+      "modifiedSha256": "d9530da6512c44688f5c5fac10afd395b08f48aedc4dcf6da57633aec775b99a"
+    },
+    {
+      "source": "public/js/render/presentation-templates.js",
+      "destination": "resolver/public/js/render/presentation-templates.js",
+      "sha256": "d3f189ec55e04bf7524154405301c13e1c490eeed7556a87fb17db218580b8f1",
+      "modifiedSha256": "d3f189ec55e04bf7524154405301c13e1c490eeed7556a87fb17db218580b8f1"
+    },
+    {
+      "source": "public/js/render/presentation-view.js",
+      "destination": "resolver/public/js/render/presentation-view.js",
+      "sha256": "30436cfccc9c6421e9ce7e172df2703387430025b5da8e7cf5a6946fc4bc4080",
+      "modifiedSha256": "c953486dca2ba02b767eef9e1b6c01596253d934f2d5b15cffd31a9243a3397d"
+    },
+    {
+      "source": "public/js/render/presentation-widths.js",
+      "destination": "resolver/public/js/render/presentation-widths.js",
+      "sha256": "d554c361298681c399cb2705ecfd529afb0644ba29fc8999ac16240816880b04",
+      "modifiedSha256": "d554c361298681c399cb2705ecfd529afb0644ba29fc8999ac16240816880b04"
+    },
+    {
+      "source": "public/assets/img/icpc-balloon.gif",
+      "destination": "resolver/public/assets/img/icpc-balloon.gif",
+      "sha256": "2d07c126aacda0532d26a6a6f0aafbdfb88c343b4e7e32a993ae0c9fb473d5c3",
+      "modifiedSha256": "2d07c126aacda0532d26a6a6f0aafbdfb88c343b4e7e32a993ae0c9fb473d5c3"
+    },
+    {
+      "source": "public/assets/img/icpc-balloon-solved.gif",
+      "destination": "resolver/public/assets/img/icpc-balloon-solved.gif",
+      "sha256": "18a0f64179438db406b61375b687fe0127b9f9da8421a97b93e586034f4552c1",
+      "modifiedSha256": "18a0f64179438db406b61375b687fe0127b9f9da8421a97b93e586034f4552c1"
+    },
+    {
+      "source": "public/assets/img/icpc-balloon-failed.gif",
+      "destination": "resolver/public/assets/img/icpc-balloon-failed.gif",
+      "sha256": "4334370fef0f5b620e1e24f1c61874bd3a6a479ba391399a328ee80c7daee99d",
+      "modifiedSha256": "4334370fef0f5b620e1e24f1c61874bd3a6a479ba391399a328ee80c7daee99d"
+    },
+    {
+      "source": "public/assets/img/world-map.jpg",
+      "destination": "resolver/public/assets/img/world-map.jpg",
+      "sha256": "c1b2cee063aff7136bd344204f11d42e18737b5db3beed28a87de1935ccc2f0a",
+      "modifiedSha256": "c1b2cee063aff7136bd344204f11d42e18737b5db3beed28a87de1935ccc2f0a"
     }
   ]
 }

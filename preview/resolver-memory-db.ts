@@ -4,7 +4,11 @@ import type { Context } from 'hydrooj';
 export function previewDatabase() {
     const tables = new Map<string, Map<string, Record<string, any>>>();
     const matches = (row: Record<string, any>, filter: Record<string, any>) =>
-        Object.entries(filter).every(([key, value]) => row[key] === value);
+        Object.entries(filter).every(([key, value]) => {
+            if (value instanceof Date) return row[key] instanceof Date && row[key].getTime() === value.getTime();
+            if (value && typeof value === 'object' && '$lt' in value) return row[key] < value.$lt;
+            return row[key] === value;
+        });
     const db = {
         collection(name: string) {
             if (!tables.has(name)) tables.set(name, new Map());
@@ -31,8 +35,13 @@ export function previewDatabase() {
                         async toArray() { return rows; },
                     };
                 },
-                async updateOne(filter: Record<string, any>, update: Record<string, any>) {
+                async updateOne(filter: Record<string, any>, update: Record<string, any>, options: { upsert?: boolean } = {}) {
                     const row = [...table.values()].find((item) => matches(item, filter));
+                    if (!row && options.upsert) {
+                        const inserted = structuredClone({ ...filter, ...update.$setOnInsert, ...update.$set });
+                        table.set(inserted._id, inserted);
+                        return { matchedCount: 0, upsertedCount: 1 };
+                    }
                     if (!row) return { matchedCount: 0 };
                     Object.assign(row, structuredClone(update.$set || {}));
                     for (const [key, value] of Object.entries(update.$inc || {})) row[key] += value;

@@ -15,6 +15,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cache = path.join(root, '.logo-cache');
 const target = path.join(root, 'logos');
 const headers = { 'User-Agent': 'hydro-scoreboard-logo-fetch' };
+// The scoreboard shows logos at about 58 CSS px; it gets small copies, the resolver keeps the originals.
+const thumbSize = 128;
+const thumbnail = (input, output) => run('cwebp', ['-quiet', '-resize', '0', String(thumbSize), '-q', '82', '-alpha_q', '100', input, '-o', output]);
 
 /** Same normalisation as the board uses for school names (client/member-filter.mjs). */
 const normalize = (value) => String(value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
@@ -37,7 +40,7 @@ if (!Array.isArray(registry) || !registry.length) throw new Error('学校 Logo �
 await mkdir(cache, { recursive: true });
 const workspace = await mkdtemp(path.join(root, '.logos-build-'));
 const staging = path.join(workspace, 'logos');
-await mkdir(staging);
+await mkdir(path.join(staging, 'thumb'), { recursive: true });
 const names = {};
 const images = {};
 const failed = [];
@@ -67,6 +70,7 @@ async function handle(entry) {
         // their pixel dimensions and are converted without another lossy encoding.
         if (body.subarray(0, 4).toString() === 'RIFF') await writeFile(output, body);
         else await run('cwebp', ['-quiet', '-lossless', '-exact', '-metadata', 'icc', '-m', '6', original, '-o', output]);
+        await thumbnail(output, path.join(staging, 'thumb', `${id}.webp`));
         images[id] = {
             source: origin + entry.src,
             sourceSha256: createHash('sha256').update(body).digest('hex'),
@@ -91,11 +95,12 @@ try {
     const icpc = (await readdir(dist)).find((file) => /^icpc-[\w-]+\.png$/.test(file));
     if (!icpc) throw new Error('无法找到 XCPCIO 自带的 ICPC 标志');
     await run('cwebp', ['-quiet', '-lossless', '-exact', '-metadata', 'icc', '-m', '6', path.join(dist, icpc), '-o', path.join(staging, 'icpc.webp')]);
+    await thumbnail(path.join(staging, 'icpc.webp'), path.join(staging, 'thumb', 'icpc.webp'));
 
     const sorted = Object.fromEntries(Object.entries(names).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
     const sortedImages = Object.fromEntries(Object.entries(images).sort(([a], [b]) => a.localeCompare(b)));
     await writeFile(path.join(staging, 'index.json'), JSON.stringify({
-        source: origin, resolution: 'original', encoding: 'original-webp-or-lossless', names: sorted, images: sortedImages,
+        source: origin, resolution: 'original', encoding: 'original-webp-or-lossless', thumbnail: thumbSize, names: sorted, images: sortedImages,
     }));
     // Publish only after all downloads and conversions succeed. Roll back the
     // directory swap if publishing fails, so a retry retains a usable registry.

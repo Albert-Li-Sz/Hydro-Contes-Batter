@@ -5,3 +5,5 @@ export function computeCells(contest: ResolverContest, options?: { frozen?: bool
     results: Record<string, { status: string; pending: number; timeSeconds: number; _penaltyCount: number }[]>;
     pendingCount: number;
 };
+/** Loose shape: the big-screen adapter passes the normalized contest straight back to the renderer. */
+export function normalizeContest(input: Record<string, unknown>): Record<string, any>;

@@ -12,9 +12,10 @@ https://github.com/xcpcio/xcpcio
 Copyright (c) 2020-PRESENT XCPCIO.
 Its upstream license is distributed with the generated public assets.
 The generated rank engine delegates its buildRank result to lib/award-policy.mjs
-to apply configurable Hydro unofficial-team award eligibility. Score order and
-first-solve calculations remain upstream behavior. The build verifies the pinned
-entry before applying this extension.
+to apply shared per-board medal, podium and first-solve rules. Unofficial teams
+retain their starred status and may only be eligible for first-solve awards.
+Official ranks and visible first solves are recalculated by this adapter.
+The build verifies the pinned entry before applying this extension.
 
 School logos in logos/ retain the source resolution from the Hydro Contest Team School
 Logo Registry, https://avatar.hydrooj.com/ (fetched by scripts/fetch-logos.mjs).
@@ -25,7 +26,7 @@ The logos remain the property of their respective institutions.
 
 Resolver integration (added in Hydro XCPCIO Plus 0.7.0)
 Source: https://github.com/Albert-Li-Sz/Resolver-Web/tree/v1.4.0
-Commit: 1d9788e1430c4898e463d99f52aab6c400399328
+Commit: d4a1a80fa1c0a7b0013f941256004ba5f63c6773
 Source hashes and modified hashes: resolver/UPSTREAM.json
 Modification inventory: resolver/CHANGES.md
 
@@ -46,6 +47,9 @@ Noto Sans SC is Copyright 2014-2021 Adobe under SIL Open Font License 1.1,
 provided in licenses/Noto-Sans-SC-OFL.txt. Its source and hash metadata is in
 resolver/public/assets/font/noto-sans-sc.json. Font binaries are unchanged.
 School logos use the local registry copies described above.
+The big-screen pages draw ICPC Tools presentation ports from the same Resolver-Web
+release (public/js/render/presentation-*.js, pres-*.js, java-*.js and the ICPC
+balloon and map images); they are covered by the same terms as above.
 The Hydro adapter, independent session storage and configuration UI retain this
 plugin's AGPL-3.0-or-later license. Each third-party component retains its own
 terms, copyright and trademark ownership.

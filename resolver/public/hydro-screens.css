@@ -1,0 +1,6 @@
+#hydro-screens .screen-card .section__body { display: grid; gap: 12px; }
+#hydro-screens .screen-link { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#hydro-screens .screen-link .textbox { flex: 1 1 320px; min-width: 0; margin: 0; font-family: var(--code-font-family, monospace); font-size: 12px; }
+#hydro-screens .screen-link .button { margin: 0; }
+#hydro-screens .screen-card textarea.textbox { width: 100%; min-height: 72px; resize: vertical; }
+#hydro-screens .resolver-preview iframe { display: block; width: 100%; height: 100%; border: 0; background: #000; }

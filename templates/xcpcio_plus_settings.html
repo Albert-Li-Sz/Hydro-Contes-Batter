@@ -23,10 +23,8 @@
             <label><span><i class="xp-dot xp-bronze"></i>铜牌</span><input class="textbox" aria-label="铜牌数量" data-medal="bronze" type="number" min="0" max="100000" step="1" required></label>
           </div>
           <p class="xp-muted">各榜默认使用此数量；并列同奖，零过题不获奖。</p>
-          <div class="xp-award-policy">
-            <label class="checkbox"><input type="checkbox" id="xp-unofficial-awards" aria-label="允许打星选手参与奖项" aria-describedby="xp-award-rule"><span><strong>允许打星选手参与奖项</strong></span></label>
-            <p class="xp-muted" id="xp-award-rule" aria-live="polite"></p>
-          </div>
+          <div id="xp-default-award-options"></div>
+          <p class="xp-muted">打星选手保留非正式身份，金银铜及前三名仅授予正式选手。各榜可以单独设置打星选手的一血资格。</p>
         </div>
       </section>
       <section class="section visible">
@@ -51,6 +49,10 @@
         <div id="xp-public-url-wrap" class="xp-public-link"><span>公开地址：<a id="xp-public-url" href="{{ publicUrl }}" target="_blank" rel="noopener">{{ publicUrl }}</a></span><button class="button" type="button" id="xp-copy-url">复制链接</button></div>
         <p id="xp-public-disabled" class="xp-muted" hidden>公开访问已关闭，保存后公开链接将不可访问。</p>
       </div>
+    </section>
+    <section class="section visible" id="board-awards">
+      <div class="section__header"><h2 class="section__title">各榜奖项</h2></div>
+      <div class="section__body"><p class="xp-muted">榜单与滚榜共用这些设置。未单独设置的榜单继承上方默认值。</p><div id="xp-board-awards"></div></div>
     </section>
     <section class="section visible">
       <div class="section__header"><h2 class="section__title">手动分榜</h2></div>

@@ -15,7 +15,8 @@ export function scoreTeam(contest, team, cells = []) {
     if (hydro) timeSeconds += (cell.timeSeconds ?? minutes * 60) + penalties * penalty * 60;
     lastSolutionTime = Math.max(lastSolutionTime, minutes);
   }
-  return { teamId: team.id, displayName: team.displayName || team.name || team.id, solved,
+  return { teamId: team.id, displayName: team.displayName || team.name || team.id,
+    sortName: team.name || team.displayName || team.id, solved,
     time: hydro ? Math.floor(timeSeconds / 60) : time,
     ...(hydro ? { timeSeconds } : {}), ...(team.unrank ? { unrank: true } : {}), lastSolutionTime, rank: 0 };
 }
@@ -26,7 +27,7 @@ export function compareStandings(contest, a, b) {
   const scoreTime = (row) => hydro ? row.timeSeconds : row.time;
   return b.solved - a.solved || scoreTime(a) - scoreTime(b) ||
     (hydro ? 0 : a.lastSolutionTime - b.lastSolutionTime) ||
-    names.compare(String(a.displayName), String(b.displayName)) ||
+    names.compare(String(a.sortName ?? a.displayName), String(b.sortName ?? b.displayName)) ||
     (String(a.teamId) < String(b.teamId) ? -1 : String(a.teamId) > String(b.teamId) ? 1 : 0);
 }
 

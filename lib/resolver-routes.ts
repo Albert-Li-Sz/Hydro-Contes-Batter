@@ -6,16 +6,20 @@ import {
 import type { BoardData } from './board';
 import type { BoardSettings } from './settings';
 import { toScriptJson } from './settings';
-import { defaultResolverConfig, parseResolverConfig, prepareResolver, ResolverError, resolverAssetBase, resolverBoards } from './resolver-data';
+import { defaultResolverConfig, parseResolverConfig, prepareResolver, ResolverError, resolverAssetBase, resolverBoards, resolverCodeBase } from './resolver-data';
 import { ResolverSessions, ResolverSession, ResolverScope } from './resolver-sessions';
 
 export function applyResolver(ctx: Context, dependencies: {
+    /** Sessions idle for longer than this are deleted together with their snapshots. */
+    sessionDays: number;
     loadSettings: (tdoc: Tdoc) => Promise<BoardSettings>;
     loadData: (tdoc: Tdoc, realtime: boolean, identity: boolean, staffResults: boolean) => Promise<BoardData>;
 }) {
     const sessions = new ResolverSessions(ctx.db);
     const logoNames = JSON.parse(fs.readFileSync(path.join(__dirname, '../logos/index.json'), 'utf8')).names;
-    ctx.on('app/started', () => sessions.ensureIndexes());
+    const codeBase = resolverCodeBase(JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8')).version);
+    const sessionTtl = dependencies.sessionDays * 24 * 3600 * 1000;
+    ctx.on('app/started', async () => { await sessions.ensureIndexes(); await sessions.prune(sessionTtl); });
 
     class ResolverHandler extends Handler {
         tdoc!: Tdoc;
@@ -89,7 +93,7 @@ export function applyResolver(ctx: Context, dependencies: {
             const { settings, data, boards, ended } = await this.source();
             this.response.template = 'xcpcio_resolver_config.html';
             this.response.body = {
-                tdoc: this.tdoc, assetBase: resolverAssetBase, contestUrl: this.base.slice(0, -'/resolver'.length),
+                tdoc: this.tdoc, assetBase: resolverAssetBase, codeBase, settingsUrl: `${this.base.slice(0, -'/resolver'.length)}/xcpcio-settings`, contestUrl: this.base.slice(0, -'/resolver'.length),
                 runtimeJson: toScriptJson({
                     base: this.base, contestUrl: this.base.slice(0, -'/resolver'.length),
                     title: data.contest.contest_name, boards, ended,
@@ -101,7 +105,7 @@ export function applyResolver(ctx: Context, dependencies: {
                     durationSeconds: data.contest.end_time - data.contest.start_time,
                     contestFreezeAtSeconds: Number(data.contest.frozen_time) > 0
                         ? data.contest.end_time - data.contest.start_time - Number(data.contest.frozen_time) : null,
-                    config: defaultResolverConfig(settings, ended),
+                    config: defaultResolverConfig(settings, ended), sessionDays: dependencies.sessionDays,
                 }),
             };
         }
@@ -122,7 +126,9 @@ export function applyResolver(ctx: Context, dependencies: {
 
         @param('config', Types.String)
         async post(_domainId: string, config: string) {
-            const session = await sessions.create(this.scope, await this.payload(config));
+            const payload = await this.payload(config);
+            await sessions.prune(sessionTtl);
+            const session = await sessions.create(this.scope, payload);
             this.response.body = { id: session._id, url: `${this.base}/sessions/${session._id}`, overview: session.overview };
         }
     }
@@ -132,7 +138,7 @@ export function applyResolver(ctx: Context, dependencies: {
             const session = this.resolverSession!;
             this.response.template = 'xcpcio_resolver_play.html';
             this.response.body = {
-                tdoc: this.tdoc,
+                tdoc: this.tdoc, codeBase,
                 configUrl: this.base,
                 runtimeJson: toScriptJson({
                     id: session._id, controlToken: session.controlToken,

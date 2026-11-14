@@ -1,0 +1,15 @@
+/* Hydro big-screen page: one full-window canvas, no site chrome. */
+html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+#screen { display: block; width: 100vw; height: 100vh; object-fit: contain; background: #000; cursor: pointer; }
+/* Controls appear on mouse movement and fade out, so nothing covers the picture on a big screen. */
+#screen-full { position: fixed; top: 16px; right: 16px; padding: 8px 16px; border: 1px solid #fff6; border-radius: 4px;
+  background: #000a; color: #fff; font: 14px/1.4 system-ui, sans-serif; cursor: pointer; transition: opacity .3s; }
+#screen-full:hover, #screen-full:focus-visible { background: #fff2; outline: none; }
+#screen-hint { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); margin: 0; padding: 6px 14px; border-radius: 4px;
+  background: #000c; color: #ddd; font: 13px/1.5 system-ui, sans-serif; transition: opacity .3s; pointer-events: none; }
+body.idle #screen-full, body.idle #screen-hint { opacity: 0; pointer-events: none; }
+body.idle #screen { cursor: none; }
+body.fullscreen #screen { cursor: default; }
+body.fullscreen.idle #screen { cursor: none; }
+#screen-status { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); margin: 0; padding: 6px 14px;
+  border-radius: 4px; background: #000c; color: #ddd; font: 13px/1.5 system-ui, sans-serif; }

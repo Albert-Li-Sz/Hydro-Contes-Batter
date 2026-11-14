@@ -33,7 +33,15 @@ async function request(url, options = {}) {
 function readConfig() {
     const result = {};
     for (const [key, initial] of Object.entries(runtime.config)) {
+        if (key === 'freezeAtSeconds') {
+            // Entered as "the last N minutes"; the server works with seconds from the start.
+            const minutes = form.elements.freezeMinutes.value;
+            result[key] = form.elements.freezeMode.value === 'custom' && minutes !== ''
+                ? Math.round(runtime.durationSeconds - Number(minutes) * 60) : null;
+            continue;
+        }
         const field = form.elements.namedItem(key);
+        if (!field) continue;
         if (field.type === 'checkbox') result[key] = field.checked;
         else if (field.type === 'number') result[key] = field.value === '' ? null : Number(field.value);
         else result[key] = field.value ?? initial;
@@ -43,15 +51,48 @@ function readConfig() {
 
 function updateFreeze() {
     const custom = form.elements.freezeMode.value === 'custom';
-    const field = form.elements.freezeAtSeconds;
+    const field = form.elements.freezeMinutes;
+    const total = Math.floor(runtime.durationSeconds / 60);
+    const contestMinutes = runtime.contestFreezeAtSeconds === null ? null
+        : Math.round((runtime.durationSeconds - runtime.contestFreezeAtSeconds) / 6) / 10;
     field.disabled = !custom;
     field.required = custom;
-    field.max = runtime.durationSeconds - 1;
-    if (!custom) field.value = runtime.contestFreezeAtSeconds ?? '';
+    field.max = total;
+    if (!custom) field.value = contestMinutes ?? '';
+    const minutes = Number(field.value);
     document.getElementById('freeze-hint').textContent = custom
-        ? `有效范围为 0 至 ${runtime.durationSeconds - 1} 秒，仅作用于本次滚榜`
-        : runtime.contestFreezeAtSeconds === null ? '比赛尚未设置封榜时间，请选择自定义' : `比赛开始后 ${runtime.contestFreezeAtSeconds} 秒封榜`;
+        ? (field.value !== '' && minutes > 0 && minutes <= total
+            ? `比赛共 ${total} 分钟，将在开赛后 ${clock(runtime.durationSeconds - minutes * 60)} 封榜，仅作用于本次滚榜`
+            : `请填写 1 至 ${total} 之间的分钟数，仅作用于本次滚榜`)
+        : contestMinutes === null ? '比赛尚未设置封榜时间，请选择“本场滚榜自定义”' : `比赛在最后 ${contestMinutes} 分钟封榜`;
     document.getElementById('rehearsal-note').hidden = runtime.ended && !form.elements.rehearsal.checked;
+}
+
+function clock(seconds) {
+    const total = Math.max(0, Math.round(seconds));
+    return [Math.floor(total / 3600), Math.floor(total / 60) % 60, total % 60].map((part) => String(part).padStart(2, '0')).join(':');
+}
+
+function updateAwards(rules, unofficialFirstSolve) {
+    const summary = document.getElementById('resolver-award-summary');
+    summary.replaceChildren();
+    for (const tier of ['gold', 'silver', 'bronze']) {
+        const item = document.createElement('div');
+        item.textContent = `${rules[`${tier}Citation`]} · ${rules[`${tier}Count`]} 名`;
+        summary.append(item);
+    }
+    document.getElementById('resolver-award-policy').textContent = [
+        rules.medalSameScore ? '并列同奖' : '按名额授奖',
+        rules.firstSolve ? '一血奖已开启' : '一血奖已关闭',
+        rules.podiumEnabled ? '前三名奖项已开启' : '前三名奖项已关闭',
+        unofficialFirstSolve ? '打星选手可获一血奖' : '一血奖仅限正式选手',
+    ].join(' · ');
+}
+
+function updateSelectedAwards() {
+    const board = runtime.boards.find((item) => item.id === form.elements.boardId.value);
+    updateAwards({ ...board.awards, goldCount: board.medals.gold, silverCount: board.medals.silver,
+        bronzeCount: board.medals.bronze }, board.awards.unofficialFirstSolve);
 }
 
 function updateStats(overview) {
@@ -62,7 +103,7 @@ function updateStats(overview) {
 
 function updateOverview(overview) {
     updateStats(overview);
-    document.getElementById('snapshot-time').textContent = `封榜时长 ${overview.durationSeconds - overview.freezeAtSeconds} 秒 · 数据读取于 ${new Date(overview.capturedAt).toLocaleString('zh-CN')}`;
+    document.getElementById('snapshot-time').textContent = `开赛后 ${clock(overview.freezeAtSeconds)} 封榜，封榜时长 ${Math.round((overview.durationSeconds - overview.freezeAtSeconds) / 6) / 10} 分钟 · 数据读取于 ${new Date(overview.capturedAt).toLocaleString('zh-CN')}`;
     const warning = document.getElementById('unjudged-note');
     warning.hidden = !overview.unjudgedCount;
     warning.textContent = `本次彩排忽略 ${overview.unjudgedCount} 条尚未完成评测的提交`;
@@ -99,6 +140,7 @@ async function refreshPreview() {
         });
         if (number !== requestNumber) return;
         updateOverview(data.overview);
+        if (data.config) updateAwards(data.config, data.game?.options.firstSolveIncludeUnrank);
         view?.dispose();
         game = data.game;
         actions = actionIndicesFor(game.steps);
@@ -176,8 +218,11 @@ document.getElementById('contest-title').textContent = runtime.title;
 document.getElementById('back-link').href = runtime.contestUrl;
 const select = form.elements.boardId;
 for (const board of runtime.boards) select.add(new Option(board.name, board.id));
+document.getElementById('session-retention').textContent = runtime.sessionDays > 0
+    ? `会话连续 ${runtime.sessionDays} 天没有打开或推进后会自动删除。` : '会话永久保留，可由创建者手动删除。';
 for (const [key, value] of Object.entries(runtime.config)) {
     const field = form.elements.namedItem(key);
+    if (!field) continue;
     if (field.type === 'checkbox') field.checked = value;
     else field.value = value ?? '';
 }
@@ -187,11 +232,9 @@ if (!runtime.ended) {
 }
 updateFreeze();
 updateStats(runtime.initialStats || {});
+updateSelectedAwards();
 form.addEventListener('input', (event) => {
-    if (event.target.name === 'boardId') {
-        const board = runtime.boards.find((item) => item.id === select.value);
-        for (const tier of ['gold', 'silver', 'bronze']) form.elements[`${tier}Count`].value = board.medals[tier];
-    }
+    if (event.target.name === 'boardId') updateSelectedAwards();
     updateFreeze();
     clearTimeout(debounceTimer);
     startButton.disabled = true;
@@ -212,6 +255,7 @@ form.addEventListener('submit', async (event) => {
             body: JSON.stringify({ config: JSON.stringify(readConfig()) }),
         });
         updateOverview(data.overview);
+        if (data.config) updateAwards(data.config, data.game?.options.firstSolveIncludeUnrank);
         location.assign(data.url);
     } catch (error) {
         showError(error);

@@ -1,10 +1,13 @@
 import type { BoardData } from './board';
 import { enhanceBoard } from './board';
-import type { BoardSettings } from './settings';
+import type { BoardAwards, BoardSettings } from './settings';
+import { awardsFor } from './settings';
 import type { ResolverBoard, ResolverConfig, ResolverContest, ResolverPayload } from './resolver-types';
 import { buildGame } from '../resolver/server/lib/engine.js';
 
 export const resolverAssetBase = '/hydro-resolver';
+/** Scripts and styles are published per plugin version (see scripts/assets.mjs). */
+export const resolverCodeBase = (version: string) => `${resolverAssetBase}/${version}`;
 const pendingStatuses = new Set(['PENDING']);
 const exemptStatuses = new Set(['CORRECT', 'COMPILATION_ERROR', 'PRESENTATION_ERROR', 'CANCELED']);
 
@@ -15,21 +18,25 @@ export class ResolverError extends Error {
 export function resolverBoards(data: BoardData, settings: BoardSettings, identity: boolean): ResolverBoard[] {
     const enhanced = enhanceBoard(data, settings, { identity });
     const groups = enhanced.contest.group as Record<string, string>;
-    return [{ id: 'all', name: '总榜', teamIds: data.teams.map((team) => team.team_id), medals: settings.medals },
+    return [{ id: 'all', name: '主榜', teamIds: data.teams.map((team) => team.team_id), medals: awardsFor(settings, 'all').medals, awards: awardsFor(settings, 'all') },
         ...Object.entries(groups).map(([id, name]) => ({
             id, name,
             teamIds: enhanced.teams.filter((team) => team.group.includes(id)).map((team) => team.team_id),
-            medals: settings.manualBoards.find((board) => `manual-${board.id}` === id)?.medals || settings.medals,
+            medals: awardsFor(settings, id).medals, awards: awardsFor(settings, id),
         }))];
 }
 
-export function defaultResolverConfig(settings: BoardSettings, ended: boolean): ResolverConfig {
+function resolverAwardConfig(awards: BoardAwards) {
+    return { goldCount: awards.medals.gold, silverCount: awards.medals.silver, bronzeCount: awards.medals.bronze,
+        goldCitation: awards.goldCitation, silverCitation: awards.silverCitation, bronzeCitation: awards.bronzeCitation,
+        medalSameScore: awards.medalSameScore, podiumEnabled: awards.podiumEnabled, firstSolve: awards.firstSolve };
+}
+
+export function defaultResolverConfig(settings: BoardAwards, ended: boolean): ResolverConfig {
     return {
         mode: 'board', boardId: 'all', rehearsal: !ended, freezeMode: 'contest', freezeAtSeconds: null,
-        goldCount: settings.medals.gold, silverCount: settings.medals.silver, bronzeCount: settings.medals.bronze,
-        goldCitation: '金奖', silverCitation: '银奖', bronzeCitation: '铜奖', medalSameScore: true,
-        podiumEnabled: false, firstSolve: false, rowsPerScreen: 12, autoplay: false,
-        autoplaySpeed: 4, autoStopAtMedals: true, startScreen: 'splash',
+        ...resolverAwardConfig(settings), rowsPerScreen: 12, autoplay: false,
+        autoplaySpeed: 4, autoStopAtMedals: true, startScreen: 'splash', showSchool: true,
     };
 }
 
@@ -43,7 +50,7 @@ export function parseResolverConfig(raw: unknown, defaults: ResolverConfig): Res
         if (!allowed.includes(input[key] as string)) throw new ResolverError(`${key} 无效`);
         Object.assign(config, { [key]: input[key] });
     }
-    for (const key of ['rehearsal', 'medalSameScore', 'podiumEnabled', 'firstSolve', 'autoplay', 'autoStopAtMedals'] as const) {
+    for (const key of ['rehearsal', 'medalSameScore', 'podiumEnabled', 'firstSolve', 'autoplay', 'autoStopAtMedals', 'showSchool'] as const) {
         if (input[key] === undefined) continue;
         if (typeof input[key] !== 'boolean') throw new ResolverError(`${key} 必须为布尔值`);
         config[key] = input[key];
@@ -77,6 +84,8 @@ export function prepareResolver(
 ): ResolverPayload {
     const board = boards.find((item) => item.id === config.boardId);
     if (!board) throw new ResolverError('所选分榜已不存在，请刷新配置页');
+    // Shared rules are authoritative, including for stale pages and direct API callers.
+    config = { ...config, ...resolverAwardConfig(board.awards) };
     if (config.mode === 'official' && config.boardId === 'all') throw new ResolverError('请选择一个分榜作为正式参赛范围');
     const durationMs = (data.contest.end_time - data.contest.start_time) * 1000;
     if (!(durationMs > 0)) throw new ResolverError('比赛时间无效');
@@ -88,9 +97,11 @@ export function prepareResolver(
     const teams = data.teams.filter((team) => config.mode === 'official' || members.has(team.team_id)).map((team) => {
         const logoKey = (team.organization || '').normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ');
         const logoId = context.logoNames[logoKey];
+        const school = (team.organization || '').trim();
+        const unrank = team.group.includes('unofficial') || (config.mode === 'official' && !members.has(team.team_id));
         return {
-            id: team.team_id, name: team.name, displayName: team.name, organizationName: team.organization || '',
-            unrank: team.group.includes('unofficial') || (config.mode === 'official' && !members.has(team.team_id)),
+            id: team.team_id, name: team.name, displayName: config.showSchool && school ? `${team.name}（${school}）` : team.name,
+            organizationName: school, unrank,
             logo: logoId && /^[a-f\d]{12}$/.test(logoId) ? `${resolverAssetBase}/logos/${logoId}.webp` : `${resolverAssetBase}/assets/img/icpc-logo.png`,
         };
     });
@@ -117,12 +128,13 @@ export function prepareResolver(
         contestId: context.contestId, name: data.contest.contest_name,
         startTime: new Date(data.contest.start_time * 1000).toISOString(), durationMs,
         freezeDurationMs: durationMs - freezeAtSeconds * 1000, scoringMode: 'hydro', penaltyMinutes: 20,
+        unofficialFirstSolve: board.awards.unofficialFirstSolve, firstSolveEnabled: config.firstSolve,
         teams, problems, submissions, awards: [],
     };
     const effectiveConfig = { ...config, rehearsal };
     const game = buildGame(snapshot, {
         ...effectiveConfig, freezeMode: 'feed', medalMode: 'custom', showAwards: true,
-        firstSolveMode: config.firstSolve ? 'all' : 'imported', firstSolveIncludeUnrank: false,
+        firstSolveMode: config.firstSolve ? 'all' : 'imported', firstSolveIncludeUnrank: board.awards.unofficialFirstSolve,
     });
     return {
         snapshot, config: effectiveConfig, game,

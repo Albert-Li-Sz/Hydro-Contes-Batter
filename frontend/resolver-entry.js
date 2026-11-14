@@ -1,4 +1,11 @@
-/** Add one entry after CCS, including when CCS finishes loading later. */
+const entryIds = ['xcpcio-resolver-entry', 'xcpcio-screens-entry'];
+const entries = (url) => [
+    [entryIds[0], url, 'icon-statistics', '滚榜'],
+    [entryIds[1], url.replace(/\/resolver$/, '/screens'), 'icon-preview', '大屏'],
+];
+const removeEntries = () => { for (const id of entryIds) document.getElementById(id)?.remove(); };
+
+/** Add the entries after CCS, including when CCS finishes loading later. */
 export function installResolverEntry(url) {
     let stopped = false;
     let scheduled = false;
@@ -10,28 +17,33 @@ export function installResolverEntry(url) {
         const currentDomain = /^\/d\/([^/]+)\//.exec(location.pathname)?.[1];
         const targetDomain = /^\/d\/([^/]+)\//.exec(url)?.[1];
         if (!currentContest || currentContest !== targetContest || (currentDomain && currentDomain !== targetDomain)) {
-            document.getElementById('xcpcio-resolver-entry')?.remove();
+            removeEntries();
             return;
         }
         const ccs = document.querySelector('#contest-reset');
         const management = document.querySelector(`a[href$="/contest/${currentContest}/management"]`);
         const anchor = (ccs || management)?.closest('li');
         if (!anchor) return;
-        let entry = document.getElementById('xcpcio-resolver-entry');
-        if (!entry) {
-            entry = document.createElement('li');
-            entry.id = 'xcpcio-resolver-entry';
-            entry.className = 'menu__item';
-            const link = document.createElement('a');
-            link.className = 'menu__link';
-            link.href = url;
-            link.setAttribute('data-no-instant', '');
-            const icon = document.createElement('span');
-            icon.className = 'icon icon-statistics';
-            link.append(icon, document.createTextNode(' 滚榜'));
-            entry.append(link);
+        // 滚榜, then 大屏 (same permission), both right after CCS / management.
+        let previous = anchor;
+        for (const [id, href, iconName, label] of entries(url)) {
+            let entry = document.getElementById(id);
+            if (!entry) {
+                entry = document.createElement('li');
+                entry.id = id;
+                entry.className = 'menu__item';
+                const link = document.createElement('a');
+                link.className = 'menu__link';
+                link.href = href;
+                link.setAttribute('data-no-instant', '');
+                const icon = document.createElement('span');
+                icon.className = `icon ${iconName}`;
+                link.append(icon, document.createTextNode(` ${label}`));
+                entry.append(link);
+            }
+            if (previous.nextElementSibling !== entry) previous.after(entry);
+            previous = entry;
         }
-        if (anchor.nextElementSibling !== entry) anchor.after(entry);
     };
     const observer = new MutationObserver(() => {
         if (!scheduled) {
@@ -44,6 +56,6 @@ export function installResolverEntry(url) {
     return () => {
         stopped = true;
         observer.disconnect();
-        document.getElementById('xcpcio-resolver-entry')?.remove();
+        removeEntries();
     };
 }

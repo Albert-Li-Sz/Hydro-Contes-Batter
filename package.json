@@ -1,6 +1,6 @@
 {
   "name": "hydro-scoreboard-xcpcio-plus",
-  "version": "0.7.1",
+  "version": "0.7.8",
   "description": "Hydro XCPCIO 榜单增强与独立 Resolver 滚榜、奖项及分榜管理",
   "repository": {
     "type": "git",
@@ -22,6 +22,7 @@
     "frontend",
     "resolver",
     "public",
+    "!public/hydro-resolver/logos",
     "logos",
     "licenses",
     "scripts/assets.mjs",

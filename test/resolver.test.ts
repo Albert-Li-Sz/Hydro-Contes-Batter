@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { demoData } from './fixture';
-import { defaultSettings } from '../lib/settings';
+import { awardsFor, defaultSettings } from '../lib/settings';
 import { defaultResolverConfig, parseResolverConfig, prepareResolver, resolverBoards } from '../lib/resolver-data';
 import { computeCells } from '../resolver/server/lib/engine.js';
 import { ResolverSessions, resolverChunkBytes } from '../lib/resolver-sessions';
@@ -25,7 +25,7 @@ it('keeps the bundled school crest at source resolution for award presentations'
 });
 
 const settings = {
-    ...defaultSettings, showIdentity: true, unofficialAwards: true,
+    ...defaultSettings, showIdentity: true, schoolBoards: true, participationBoards: true, firstSolve: true,
     manualBoards: [{ id: 'mixed', name: '混合榜', teamIds: ['1', '4', '7'], medals: { gold: 2, silver: 0, bronze: 1 } }],
 };
 const context = { contestId: 'contest-a', ended: true, capturedAt: new Date('2026-11-14T00:00:00Z'), logoNames: {} };
@@ -51,6 +51,57 @@ describe('Resolver Hydro data adapter', () => {
         expect(awards.length).toBeGreaterThan(0);
         expect(awards.every((award) => award.teamIds.every((id) => ['1', '7'].includes(id)))).toBe(true);
         expect(data).toEqual(before);
+    });
+    it('preserves starred identity and formal ranks when first-solve eligibility is enabled', () => {
+        const allowed = { ...settings, unofficialFirstSolve: true, podiumEnabled: true };
+        const data = demoData();
+        data.submissions.unshift({ submission_id: 'star-first', team_id: '4', problem_id: 1, timestamp: 1000, status: 'CORRECT' });
+        const payload = prepareResolver(data, resolverBoards(data, allowed, true), config, context);
+        expect(payload.snapshot.teams.find((team) => team.id === '4')?.unrank).toBe(true);
+        expect(payload.overview.officialCount).toBe(6);
+        expect(payload.game.contest.awards.filter((award: any) => award.teamIds.includes('4')).map((award: any) => award.awardType)).toEqual(['first-to-solve']);
+        expect((computeCells(payload.snapshot).results['4'][1] as any).firstToSolve).toBe(true);
+        const official = prepareResolver(data, resolverBoards(data, allowed, true), { ...config, mode: 'official', boardId: 'manual-mixed' }, context);
+        expect(official.snapshot.teams.filter((team) => !team.unrank).map((team) => team.id)).toEqual(['1', '7']);
+        expect(official.game.contest.awards.filter((award: any) => award.awardType !== 'first-to-solve').every((award: any) => award.teamIds.every((id: string) => ['1', '7'].includes(id)))).toBe(true);
+    });
+    it('marks every equal-time eligible first solve consistently with the award recipients', () => {
+        const data = demoData();
+        data.submissions = ['1', '4'].map((team_id) => ({ submission_id: team_id, team_id, problem_id: 0, timestamp: 1000, status: 'CORRECT' }));
+        const shared = { ...settings, unofficialFirstSolve: true };
+        const payload = prepareResolver(data, resolverBoards(data, shared, true), config, context);
+        const cells = computeCells(payload.snapshot).results as Record<string, any[]>;
+        expect(['1', '4'].every((id) => cells[id][0].firstToSolve)).toBe(true);
+        expect((payload.game.contest.awards.find((award: any) => award.id === 'first-to-solve-0') as any).teamIds.sort()).toEqual(['1', '4']);
+    });
+    it('uses the chosen board rules for both modes and ignores stale per-session award overrides', () => {
+        const rules = { ...awardsFor(settings, 'all'), medals: { gold: 0, silver: 1, bronze: 1 }, goldCitation: '特等奖',
+            silverCitation: '优秀奖', medalSameScore: false, firstSolve: false, podiumEnabled: true, unofficialFirstSolve: true };
+        const shared = { ...settings, boardAwards: { 'manual-mixed': rules } };
+        for (const mode of ['board', 'official'] as const) {
+            const payload = prepareResolver(demoData(), resolverBoards(demoData(), shared, true),
+                { ...config, boardId: 'manual-mixed', mode, goldCount: 99, firstSolve: true }, context);
+            expect(payload.config).toMatchObject({ goldCount: 0, silverCount: 1, goldCitation: '特等奖', silverCitation: '优秀奖', firstSolve: false, podiumEnabled: true, medalSameScore: false });
+            expect(payload.game.contest.awards.some((award: any) => award.awardType === 'first-to-solve')).toBe(false);
+            expect(Object.values(computeCells(payload.snapshot).results).flat().every((cell: any) => !cell.firstToSolve)).toBe(true);
+        }
+    });
+    it('keeps first-solve eligibility fixed in a saved session', async () => {
+        const { db } = previewDatabase(); const store = new ResolverSessions(db);
+        const shared = { ...settings, unofficialFirstSolve: true };
+        const data = demoData();
+        data.submissions.unshift({ submission_id: 'star-first', team_id: '4', problem_id: 1, timestamp: 1000, status: 'CORRECT' });
+        const payload = prepareResolver(data, resolverBoards(data, shared, true), config, context);
+        const saved = await store.create({ domainId: 'test', contestId: 'contest-a', ownerId: 1 }, payload);
+        shared.unofficialFirstSolve = false;
+        expect((await store.read(saved)).snapshot.unofficialFirstSolve).toBe(true);
+        expect(prepareResolver(data, resolverBoards(data, shared, true), config, context).snapshot.unofficialFirstSolve).toBe(false);
+    });
+    it('appends the school to the displayed name only when asked and known', () => {
+        const shown = prepare().snapshot.teams;
+        expect(shown.find((team) => team.id === '1')).toMatchObject({ name: '林澈', displayName: '林澈（南京晓庄学院）' });
+        expect(shown.find((team) => team.id === '8')?.displayName).toBe('陆川');
+        expect(prepare({ showSchool: false }).snapshot.teams.find((team) => team.id === '1')?.displayName).toBe('林澈');
     });
     it('reuses manual medals and hides school groups without identity access', () => {
         const boards = resolverBoards(demoData(), settings, false);
@@ -165,6 +216,91 @@ describe('Resolver persistent session contract', () => {
         expect(() => store.checkToken(a, a.controlToken)).not.toThrow();
         expect(JSON.stringify(await store.list(scope))).not.toContain(a.controlToken);
     });
+    it('prunes sessions idle past the retention period together with their snapshot blocks', async () => {
+        const { db, tables } = previewDatabase();
+        const store = new ResolverSessions(db);
+        const old = await store.create(scope, prepare());
+        const fresh = await store.create({ ...scope, ownerId: 2 }, prepare());
+        const day = 24 * 3600 * 1000;
+        tables.get('xcpcio.resolver.sessions')!.get(old._id)!.updatedAt = new Date(Date.now() - 8 * day);
+        expect(await store.prune(7 * day)).toBe(1);
+        await expect(store.get(scope, old._id)).rejects.toThrow('不存在');
+        expect([...tables.get('xcpcio.resolver.chunks')!.values()].every((block) => block.sessionId === fresh._id)).toBe(true);
+        expect((await store.read(await store.get({ ...scope, ownerId: 2 }, fresh._id))).game.steps.length).toBeGreaterThan(0);
+        // Opening a session counts as use and keeps it alive.
+        tables.get('xcpcio.resolver.sessions')!.get(fresh._id)!.updatedAt = new Date(Date.now() - 6 * day);
+        await store.get({ ...scope, ownerId: 2 }, fresh._id);
+        expect(await store.prune(7 * day, Date.now() + 2 * day)).toBe(0);
+    });
+    it('keeps sessions indefinitely when automatic cleanup is disabled', async () => {
+        const { db, tables } = previewDatabase();
+        const store = new ResolverSessions(db);
+        const session = await store.create(scope, prepare());
+        tables.get('xcpcio.resolver.sessions')!.get(session._id)!.updatedAt = new Date(0);
+        expect(await store.prune(0)).toBe(0);
+        expect((await store.read(await store.get(scope, session._id))).game.steps.length).toBeGreaterThan(0);
+    });
+    it.each(['open', 'move'])('does not prune a session refreshed by a concurrent %s after the scan', async (operation) => {
+        const { db, tables } = previewDatabase();
+        const other = new ResolverSessions(db);
+        const session = await other.create(scope, prepare());
+        tables.get('xcpcio.resolver.sessions')!.get(session._id)!.updatedAt = new Date(0);
+        const original = db.collection.bind(db);
+        vi.spyOn(db, 'collection').mockImplementation(((name: string) => {
+            const collection = original(name as never);
+            if (name === 'xcpcio.resolver.sessions') {
+                const find = collection.find.bind(collection);
+                collection.find = ((filter: any) => {
+                    const cursor = find(filter); const toArray = cursor.toArray.bind(cursor);
+                    cursor.toArray = async () => {
+                        const rows = await toArray();
+                        if (operation === 'open') await other.get(scope, session._id);
+                        else expect((await other.move(session, session.actions[1], 0)).status).toBe(200);
+                        return rows;
+                    };
+                    return cursor;
+                }) as typeof collection.find;
+            }
+            return collection;
+        }) as unknown as typeof db.collection);
+        expect(await new ResolverSessions(db).prune(86400000)).toBe(0);
+        expect((await other.read(await other.get(scope, session._id))).game.steps.length).toBeGreaterThan(0);
+    });
+    it('rejects an open if cleanup has already claimed the session', async () => {
+        const { db, tables } = previewDatabase();
+        const cleaner = new ResolverSessions(db);
+        const session = await cleaner.create(scope, prepare());
+        tables.get('xcpcio.resolver.sessions')!.get(session._id)!.updatedAt = new Date(0);
+        const original = db.collection.bind(db);
+        vi.spyOn(db, 'collection').mockImplementation(((name: string) => {
+            const collection = original(name as never);
+            if (name === 'xcpcio.resolver.sessions') {
+                const findOne = collection.findOne.bind(collection);
+                collection.findOne = (async (filter: any) => {
+                    const row = await findOne(filter);
+                    expect(await cleaner.prune(86400000)).toBe(1);
+                    return row;
+                }) as typeof collection.findOne;
+            }
+            return collection;
+        }) as unknown as typeof db.collection);
+        await expect(new ResolverSessions(db).get(scope, session._id)).rejects.toThrow('正在删除');
+    });
+    it('retries an interrupted cleanup and preserves unfinished snapshot writes', async () => {
+        const { db, tables } = previewDatabase();
+        const store = new ResolverSessions(db);
+        const session = await store.create(scope, prepare());
+        const writing = await store.create(scope, prepare());
+        const rows = tables.get('xcpcio.resolver.sessions')!;
+        rows.get(session._id)!.updatedAt = new Date(0);
+        Object.assign(rows.get(writing._id)!, { updatedAt: new Date(0), ready: false });
+        vi.spyOn(store, 'remove').mockRejectedValueOnce(new Error('interrupted'));
+        await expect(store.prune(86400000)).rejects.toThrow('interrupted');
+        expect(rows.get(session._id)).toMatchObject({ ready: false, deleting: true });
+        expect(await store.prune(86400000)).toBe(1);
+        expect(rows.has(writing._id)).toBe(true);
+        expect([...tables.get('xcpcio.resolver.chunks')!.values()].every((chunk) => chunk.sessionId === writing._id)).toBe(true);
+    });
     it('persists an immutable copy and resumes through a fresh store instance', async () => {
         const { db } = previewDatabase();
         const first = new ResolverSessions(db);
@@ -244,4 +380,12 @@ describe('Resolver persistent session contract', () => {
         await store.remove(await store.get(scope, session._id, true));
         expect([...tables.values()].every((table) => table.size === 0)).toBe(true);
     });
+});
+
+it('matches every recorded modified upstream file hash', () => {
+    const manifest = JSON.parse(readFileSync(new URL('../resolver/UPSTREAM.json', import.meta.url), 'utf8'));
+    for (const entry of manifest.files) {
+        const bytes = readFileSync(new URL(`../${entry.destination}`, import.meta.url));
+        expect(createHash('sha256').update(bytes).digest('hex'), entry.destination).toBe(entry.modifiedSha256);
+    }
 });

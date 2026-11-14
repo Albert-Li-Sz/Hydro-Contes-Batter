@@ -873,6 +873,8 @@ export function normalizeContest(input) {
     freezeSource: input.freezeSource || (freezeDurationMs > 0 ? 'feed' : 'none'),
     missingSubmissionTimes: Math.max(missingSubmissionTimes, Number(input.missingSubmissionTimes) || 0),
     scoringMode: input.scoringMode === 'hydro' ? 'hydro' : 'icpc',
+    firstSolveEnabled: input.firstSolveEnabled !== false,
+    unofficialFirstSolve: input.unofficialFirstSolve === true,
     name: input.name ?? input.formalName ?? 'Contest',
     formalName: input.formalName ?? input.formal_name ?? null,
     startTime,
@@ -1059,15 +1061,18 @@ export function computeCells(contest, options = {}) {
   // First to solve: first solved submission per problem, unless an earlier
   // submission is still unjudged (ICPC Tools marks that problem as unresolved).
   const ftsDecided = new Array(c.problems.length).fill(false);
+  const ftsTimes = new Array(c.problems.length).fill(null);
   const unranked = new Set(c.teams.filter((team) => team.unrank).map((team) => team.id));
   for (const submission of submissions) {
-    if (unranked.has(submission.teamId)) continue;
+    if (!c.firstSolveEnabled || (unranked.has(submission.teamId) && !c.unofficialFirstSolve)) continue;
     const pIndex = problemIndex.get(submission.problemId);
-    if (pIndex == null || ftsDecided[pIndex]) continue;
+    if (pIndex == null || (ftsDecided[pIndex] && ftsTimes[pIndex] !== submission.contestTime)) continue;
 
     const judgedVisible = judgementVisible(c, submission, frozen);
     if (!judgedVisible) {
       ftsDecided[pIndex] = true; // blocked by an earlier pending submission
+      ftsTimes[pIndex] = null;
+      for (const cells of Object.values(results)) cells[pIndex].firstToSolve = false;
     } else if (submission.status === 'solved') {
       const cell = results[submission.teamId]?.[pIndex];
       // Only a visible solved submission can be first-to-solve. A solved
@@ -1075,6 +1080,7 @@ export function computeCells(contest, options = {}) {
       if (cell && cell.status === 'solved') {
         cell.firstToSolve = true;
         ftsDecided[pIndex] = true;
+        ftsTimes[pIndex] = submission.contestTime;
       }
     }
   }

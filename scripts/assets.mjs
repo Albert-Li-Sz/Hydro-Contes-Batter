@@ -32,15 +32,34 @@ for (const file of await readdir(path.join(target, 'assets'))) {
 }
 if (extendedEngines !== 1) throw new Error('无法定位唯一的 XCPCIO 榜单引擎');
 await cp(path.join(root, 'client'), target, { recursive: true });
-await cp(path.join(root, 'lib/award-policy.mjs'), path.join(target, 'award-policy.mjs'));
+const awardPolicy = await readFile(path.join(root, 'lib/award-policy.mjs'), 'utf8');
+await writeFile(path.join(target, 'award-policy.mjs'), awardPolicy.replace('../resolver/public/js/standings.js', './standings.js'));
+await cp(path.join(root, 'resolver/public/js/standings.js'), path.join(target, 'standings.js'));
 await cp(path.join(root, 'licenses/XCPCIO-MIT.txt'), path.join(target, 'XCPCIO-LICENSE.txt'));
 // School logos are fetched ahead of time by scripts/fetch-logos.mjs; the board works without them.
-await cp(path.join(root, 'logos'), path.join(target, 'logos'), { recursive: true }).catch((error) => { if (error.code !== 'ENOENT') throw error; });
+// The board shows them at icon size, so it gets the thumbnails and a name index without the
+// per-image provenance records; the originals are only published for the resolver below.
+const logoSource = path.join(root, 'logos');
+const logoIndex = await readFile(path.join(logoSource, 'index.json'), 'utf8').then(JSON.parse).catch((error) => { if (error.code !== 'ENOENT') throw error; return null; });
+if (logoIndex) {
+    const thumbs = await readdir(path.join(logoSource, 'thumb')).catch(() => null);
+    if (thumbs) await cp(path.join(logoSource, 'thumb'), path.join(target, 'logos'), { recursive: true });
+    else await cp(logoSource, path.join(target, 'logos'), { recursive: true });
+    await writeFile(path.join(target, 'logos', 'index.json'), JSON.stringify({ source: logoIndex.source, names: logoIndex.names }));
+}
 await writeFile(path.join(publicRoot, 'manifest.json'), JSON.stringify({ base: version, js: `assets/${js}`, css: `assets/${css}` }));
 console.log(`XCPCIO assets ready: ${js}`);
 const resolverTarget = path.join(root, 'public/hydro-resolver');
 await rm(resolverTarget, { recursive: true, force: true });
-await cp(path.join(root, 'resolver/public'), resolverTarget, { recursive: true });
-await cp(path.join(root, 'logos'), path.join(resolverTarget, 'logos'), { recursive: true });
+// Scripts and styles live under the plugin version so an upgrade is never served from Hydro's
+// one-day static cache. Images, fonts and logos keep stable paths: saved sessions refer to them.
+const resolverCode = path.join(resolverTarget, version);
+await mkdir(resolverCode, { recursive: true });
+await cp(path.join(root, 'resolver/public'), resolverTarget, { recursive: true, filter: (source) => !/\.css$/.test(source) && path.relative(path.join(root, 'resolver/public'), source).split(path.sep)[0] !== 'js' });
+await cp(path.join(root, 'resolver/public/js'), path.join(resolverCode, 'js'), { recursive: true });
+for (const file of await readdir(path.join(root, 'resolver/public'))) {
+    if (file.endsWith('.css')) await cp(path.join(root, 'resolver/public', file), path.join(resolverCode, file));
+}
+await cp(logoSource, path.join(resolverTarget, 'logos'), { recursive: true, filter: (source) => path.basename(source) !== 'thumb' });
 await cp(path.join(root, 'licenses'), path.join(resolverTarget, 'licenses'), { recursive: true });
 console.log('Resolver assets ready: v1.4.0 with Hydro adapters');

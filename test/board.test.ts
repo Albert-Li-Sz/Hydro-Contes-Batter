@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { createContest, createSubmissions, createTeams, MedalType, Rank } from './engine';
 import { patchBoardEngine } from '../lib/patch-engine.mjs';
 import { enhanceBoard, schoolGroup } from '../lib/board';
-import { defaultSettings, normalizeSettings, toScriptJson, validateMembers } from '../lib/settings';
+import { awardsFor, defaultSettings, normalizeSettings, pruneMembers, toScriptJson } from '../lib/settings';
 import { demoData } from './fixture';
+import { defaultResolverConfig, prepareResolver, resolverBoards } from '../lib/resolver-data';
 
-function rankFor(group = 'all', settings = defaultSettings, data = demoData()) {
+const configuredSettings = { ...defaultSettings, schoolBoards: true, participationBoards: true, firstSolve: true };
+
+function rankFor(group = 'all', settings = configuredSettings, data = demoData()) {
     const result = enhanceBoard(data, settings);
     const contest = createContest(result.contest as never);
     const rank = new Rank(contest, createTeams(result.teams), createSubmissions(result.submissions, contest));
@@ -80,39 +83,86 @@ describe('分榜与奖项', () => {
         expect(frozen.contest.medal).toMatchObject({ all: { gold: 0, silver: 0, bronze: 0 } });
         const rejudged = demoData();
         rejudged.submissions = rejudged.submissions.map((submission) => submission.team_id === '1' && submission.problem_id === 0 ? { ...submission, status: 'WRONG_ANSWER' } : submission);
-        expect(rankFor('all', defaultSettings, rejudged).teams.find((team) => team.id === '3')!.problemStatistics[0].isFirstSolved).toBe(true);
+        expect(rankFor('all', configuredSettings, rejudged).teams.find((team) => team.id === '3')!.problemStatistics[0].isFirstSolved).toBe(true);
     });
     it('重复使用数据不污染原始结果', () => {
         const data = demoData(); const before = JSON.stringify(data);
         enhanceBoard(data, defaultSettings); enhanceBoard(data, defaultSettings);
         expect(JSON.stringify(data)).toBe(before);
     });
-    it('默认排除打星选手，金牌名额顺延，成绩和首次通过保留', () => {
+    it('打星选手保留成绩，奖牌顺延，默认一血资格排除', () => {
         const data = demoData(); data.teams[0].group = ['unofficial'];
         const rank = rankFor('all', defaultSettings, data);
         const star = rank.teams.find((team) => team.id === '1')!;
-        expect(star.rank).toBe(1);
+        expect(star.rank).toBe(0);
         expect(star.solvedProblemNum).toBe(3);
         expect(star.awards).toEqual([]);
-        expect(star.problemStatistics[0].isFirstSolved).toBe(true);
+        expect(star.problemStatistics[0].isFirstSolved).toBe(false);
         expect(rank.teams.find((team) => team.id === '3')!.awards).toContain(MedalType.GOLD);
         expect(rank.teams.find((team) => team.id === '7')!.awards).toContain(MedalType.BRONZE);
     });
-    it('开启后打星选手正常授奖，其他奖牌随设置重新计算', () => {
+    it('允许打星获一血时保持打星身份且奖牌仍顺延', () => {
         const data = demoData(); data.teams[0].group = ['unofficial'];
-        const rank = rankFor('all', { ...defaultSettings, unofficialAwards: true }, data);
-        expect(rank.teams[0].id).toBe('1');
-        expect(rank.teams[0].awards).toContain(MedalType.GOLD);
-        expect(rank.teams.find((team) => team.id === '3')!.awards).toContain(MedalType.SILVER);
+        const rank = rankFor('all', { ...configuredSettings, unofficialFirstSolve: true }, data);
+        const star = rank.teams.find((team) => team.id === '1')!;
+        expect(star.isUnofficial).toBe(true);
+        expect(star.rank).toBe(0);
+        expect(rank.teams.find((team) => team.id === '3')!.rank).toBe(1);
+        expect(star.awards).toEqual([]);
+        expect(star.problemStatistics[0].isFirstSolved).toBe(true);
+        expect(rank.teams.find((team) => team.id === '3')!.awards).toContain(MedalType.GOLD);
     });
-    it('全是打星的分榜默认无奖牌，允许参与后独立授奖及首次通过', () => {
+    it('纯打星榜只可参与一血，开关不会授予奖牌', () => {
         const excluded = rankFor('unofficial');
         expect(excluded.teams).toHaveLength(2);
         expect(excluded.teams.every((team) => team.awards.length === 0)).toBe(true);
-        expect(excluded.teams[0].problemStatistics[0].isFirstSolved).toBe(true);
-        const allowed = rankFor('unofficial', { ...defaultSettings, unofficialAwards: true });
-        expect(allowed.teams[0].awards).toContain(MedalType.GOLD);
-        expect(allowed.teams[1].awards).toContain(MedalType.SILVER);
+        expect(excluded.teams.every((team) => team.problemStatistics.every((cell) => !cell.isFirstSolved))).toBe(true);
+        const allowed = rankFor('unofficial', { ...configuredSettings, unofficialFirstSolve: true });
+        expect(allowed.teams.every((team) => !team.awards.length)).toBe(true);
+        expect(allowed.teams[0].problemStatistics[0].isFirstSolved).toBe(true);
+    });
+    it('新配置默认仅主榜，其他榜需明确启用或创建', () => {
+        expect(enhanceBoard(demoData(), defaultSettings).contest.group).toEqual({});
+        expect(normalizeSettings({ medals: defaultSettings.medals, manualBoards: [] })).toMatchObject({ schoolBoards: false, participationBoards: false });
+        expect(Object.keys(enhanceBoard(demoData(), { ...defaultSettings, participationBoards: true }).contest.group as object)).toEqual(['official', 'unofficial']);
+    });
+    it('主榜、学校榜、参赛类型榜和手动榜独立使用全部奖项规则', () => {
+        const data = demoData(); data.teams[0].group = ['unofficial'];
+        const rules = { ...awardsFor(configuredSettings, 'all'), medals: { gold: 0, silver: 1, bronze: 0 }, goldCitation: '特等奖', unofficialFirstSolve: true, medalSameScore: false, podiumEnabled: true };
+        const settings = { ...configuredSettings, firstSolve: false, manualBoards: [{ id: 'mixed', name: '混合', teamIds: ['1', '2'] }],
+            boardAwards: Object.fromEntries(['all', schoolGroup('南京晓庄学院'), 'unofficial', 'manual-mixed'].map((id) => [id, rules])) };
+        for (const id of Object.keys(settings.boardAwards)) {
+            const rank = rankFor(id, settings, data);
+            expect(rank.teams.find((team) => team.id === '1')!.problemStatistics[0].isFirstSolved).toBe(true);
+            expect(rank.teams.filter((team) => team.isUnofficial).every((team) => !team.awards.length)).toBe(true);
+            expect(awardsFor(settings, id)).toEqual(rules);
+        }
+        expect(rankFor('official', settings, data).teams.every((team) => team.problemStatistics.every((cell) => !cell.isFirstSolved))).toBe(true);
+        expect(rankFor('manual-mixed', settings, data).teams.find((team) => team.id === '2')!.awards).toEqual([MedalType.SILVER]);
+    });
+    it('榜单与滚榜在总罚时并列且最后通过时间不同的情况下授奖一致', () => {
+        const data = demoData();
+        data.teams = data.teams.slice(0, 3);
+        data.teams[0].name = 'A'; data.teams[1].name = 'Z'; data.teams[2].group = ['unofficial'];
+        data.submissions = [['1', 0, 100], ['1', 1, 300], ['2', 0, 190], ['2', 1, 210], ['3', 0, 1]].map(([team_id, problem_id, time], index) => ({
+            submission_id: `tie-${index}`, team_id: String(team_id), problem_id: Number(problem_id), timestamp: Number(time) * 1000, status: 'CORRECT',
+        }));
+        const settings = { ...configuredSettings, medals: { gold: 1, silver: 1, bronze: 0 }, medalSameScore: false, unofficialFirstSolve: true, podiumEnabled: true };
+        const rank = rankFor('all', settings, data);
+        const payload = prepareResolver(data, resolverBoards(data, settings, true), { ...defaultResolverConfig(settings, true), freezeMode: 'custom', freezeAtSeconds: 200 },
+            { contestId: 'tie', ended: true, capturedAt: new Date(), logoNames: {} });
+        for (const [tier, type] of [['gold', MedalType.GOLD], ['silver', MedalType.SILVER]] as const) {
+            const award = payload.game.contest.awards.find((award: any) => award.id === `medal-${tier}`) as any;
+            expect(rank.teams.filter((team) => team.awards.includes(type)).map((team) => team.id)).toEqual(award.teamIds);
+        }
+        expect(rank.teams.filter((team) => !team.isUnofficial).map((team) => team.rank)).toEqual([1, 1]);
+    });
+    it('独立关闭并列同奖时严格按名额授奖', () => {
+        const data = demoData();
+        data.submissions = ['1', '2'].map((team_id) => ({ submission_id: team_id, team_id, problem_id: 0, timestamp: 600000, status: 'CORRECT' }));
+        const settings = { ...defaultSettings, medals: { gold: 1, silver: 1, bronze: 0 }, medalSameScore: false };
+        const rank = rankFor('all', settings, data);
+        expect(rank.teams.slice(0, 2).map((team) => team.awards)).toEqual([[MedalType.GOLD], [MedalType.SILVER]]);
     });
     it('手动分榜自定义奖牌也跳过打星，切换后不会沿用其他分榜的奖项', () => {
         const settings = normalizeSettings({ ...defaultSettings, manualBoards: [{ id: 'mixed', name: '混合榜', teamIds: ['4', '7'], medals: { gold: 1, silver: 0, bronze: 0 } }] });
@@ -140,20 +190,30 @@ describe('设置验证', () => {
         expect(() => normalizeSettings({ ...defaultSettings, medals: { gold: -1, silver: 2, bronze: 3 } })).toThrow();
         expect(() => normalizeSettings({ ...defaultSettings, manualBoards: [{ id: 'x', name: '甲', teamIds: [] }, { id: 'x', name: '乙', teamIds: [] }] })).toThrow();
     });
-    it('拒绝其他比赛成员，去重成员 ID', () => {
+    it('移除其他比赛成员，去重成员 ID', () => {
         const settings = normalizeSettings({ ...defaultSettings, manualBoards: [{ id: 'a', name: '甲', teamIds: ['1', '1', '999'] }] });
         expect(settings.manualBoards[0].teamIds).toEqual(['1', '999']);
-        expect(() => validateMembers(settings, new Set(['1']))).toThrow('999');
+        expect(pruneMembers(settings, new Set(['1'])).manualBoards[0].teamIds).toEqual(['1']);
+    });
+    it('删除手动分榜时一并删除它的单独奖项设置', () => {
+        const rules = { medals: { gold: 2, silver: 0, bronze: 0 } };
+        const settings = normalizeSettings({ ...defaultSettings, manualBoards: [{ id: 'kept', name: '保留', teamIds: [] }],
+            boardAwards: { 'manual-kept': rules, 'manual-gone': rules, official: rules } });
+        expect(Object.keys(settings.boardAwards).sort()).toEqual(['manual-kept', 'official']);
     });
     it('安全嵌入含 HTML 的名称', () => {
         const value = { name: '</script><script>alert(1)</script>\u2028' };
         const json = toScriptJson(value);
         expect(json).not.toContain('<'); expect(JSON.parse(json)).toEqual(value);
     });
-    it('旧配置默认打星不参与奖项，拒绝非布尔设置', () => {
-        const { unofficialAwards, ...legacy } = defaultSettings;
-        expect(normalizeSettings(legacy).unofficialAwards).toBe(false);
+    it('迁移旧授奖开关为一血资格，新字段优先并拒绝非法配置', () => {
+        const { unofficialFirstSolve, ...legacy } = defaultSettings;
+        expect(normalizeSettings(legacy).unofficialFirstSolve).toBe(false);
+        expect(normalizeSettings({ ...legacy, unofficialAwards: true }).unofficialFirstSolve).toBe(true);
+        expect(normalizeSettings({ ...defaultSettings, unofficialAwards: true }).unofficialFirstSolve).toBe(false);
         expect(() => normalizeSettings({ ...defaultSettings, unofficialAwards: 'false' })).toThrow('unofficialAwards');
+        expect(() => normalizeSettings({ ...defaultSettings, boardAwards: { all: { firstSolve: 'yes' } } })).toThrow('firstSolve');
+        expect(() => normalizeSettings({ ...defaultSettings, boardAwards: { all: { goldCitation: '' } } })).toThrow('goldCitation');
     });
     it('上游引擎入口不匹配时中断构建，避免静默授奖错误', () => {
         expect(() => patchBoardEngine('class Unsupported {}')).toThrow('无法扩展');

@@ -1,4 +1,4 @@
-import type { Medals } from './settings';
+import type { BoardAwards, Medals } from './settings';
 
 export interface ResolverTeam {
     id: string;
@@ -26,6 +26,8 @@ export interface ResolverContest {
     freezeDurationMs: number;
     scoringMode: 'hydro';
     penaltyMinutes: number;
+    unofficialFirstSolve: boolean;
+    firstSolveEnabled: boolean;
     teams: ResolverTeam[];
     problems: { id: string; label: string; color: string }[];
     submissions: ResolverSubmission[];
@@ -37,6 +39,7 @@ export interface ResolverBoard {
     name: string;
     teamIds: string[];
     medals: Medals;
+    awards: BoardAwards;
 }
 
 export interface ResolverConfig {
@@ -59,6 +62,7 @@ export interface ResolverConfig {
     autoplaySpeed: number;
     autoStopAtMedals: boolean;
     startScreen: 'splash' | 'scoreboard';
+    showSchool: boolean;
 }
 
 export interface ResolverStep {

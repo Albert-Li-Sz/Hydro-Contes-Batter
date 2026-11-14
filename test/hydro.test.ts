@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Context, Tdoc } from 'hydrooj';
-import { defaultSettings } from '../lib/settings';
+import { awardsFor, defaultSettings } from '../lib/settings';
 import { defaultProfileFields } from '../lib/roster';
+import { ResolverSessions } from '../lib/resolver-sessions';
 import { previewDatabase } from '../preview/resolver-memory-db';
 
 const state = vi.hoisted(() => ({ entries: [] as any[], users: {} as Record<number, any>, locked: false, ended: true, started: true, contest: null as any }));
@@ -54,7 +55,7 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
         updateOne: async ({ _id }: { _id: string }, { $set }: any) => { saved.set(_id, structuredClone($set)); },
     };
     const ctx: any = {
-        db: { collection: (name: string) => name.startsWith('xcpcio.resolver.') ? resolverDb.db.collection(name as any) : collection },
+        db: { collection: (name: string) => name.startsWith('xcpcio.resolver.') || name === 'xcpcio.screens' ? resolverDb.db.collection(name as any) : collection },
         Route: (name: string, _path: string, handler: any) => { routes.set(name, handler); },
         i18n: { load: vi.fn() },
         inject: (_deps: string[], callback: any) => callback({
@@ -65,12 +66,13 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
     };
     return {
         saved,
-        init: () => apply(ctx as Context, { asDefault: true, publicByDefault: true, refreshInterval: 15000, profileFields: defaultProfileFields, ...config }),
+        init: () => apply(ctx as Context, { asDefault: true, publicByDefault: true, refreshInterval: 15000, resolverSessionDays: 0, profileFields: defaultProfileFields, ...config }),
         settings: () => new (routes.get('contest_xcpcio_plus_settings'))(),
         publicBoard: () => new (routes.get('contest_xcpcio_plus_public'))(),
         middleware: () => middleware,
         view: () => view,
         resolver: (name = '') => new (routes.get(`contest_resolver${name}`))(),
+        screens: (name = 's') => new (routes.get(`contest_xcpcio_screen${name}`))(),
         resolverTables: resolverDb.tables,
         hooks: ctx.on,
     };
@@ -234,7 +236,8 @@ describe('Hydro 数据与权限', () => {
     });
     it('真实姓名与学校默认只给有私有资料权限的用户，开启后才对所有观众显示', async () => {
         state.users[1].displayName = '张三';
-        const app = setup(); await app.init(); const guest = app.publicBoard();
+        const saved = new Map([[`system/${state.contest.docId}`, { settings: { ...defaultSettings, publicAccess: true, schoolBoards: true } }]]);
+        const app = setup(saved); await app.init(); const guest = app.publicBoard();
         await guest.prepare('system', state.contest.docId); await guest.get('system', true, false);
         expect(guest.response.body.teams[0].name).toBe('测试选手');
         expect(JSON.stringify(guest.response.body)).not.toMatch(/张三|南京晓庄学院/);
@@ -298,7 +301,7 @@ describe('Hydro 数据与权限', () => {
     it('保存时拒绝重名的手动分榜，以及与自动分榜同名的手动分榜', async () => {
         const app = setup(); await app.init(); const admin = app.settings(); admin.user.own = () => true;
         await admin.prepare('system', state.contest.docId);
-        const post = (names: string[], extra = {}) => admin.post('system', JSON.stringify({ ...defaultSettings, ...extra,
+        const post = (names: string[], extra = {}) => admin.post('system', JSON.stringify({ ...defaultSettings, schoolBoards: true, participationBoards: true, ...extra,
             manualBoards: names.map((name, index) => ({ id: `b${index}`, name, teamIds: [] })) }));
         await expect(post(['新生榜', ' 新生榜'])).rejects.toThrow();
         await expect(post(['正式参赛'])).rejects.toThrow();
@@ -340,25 +343,25 @@ describe('Hydro 数据与权限', () => {
         const app = setup(); await app.init();
         const handler = app.settings(); handler.user.own = () => true;
         await handler.prepare('system', state.contest.docId);
-        await handler.post('system', JSON.stringify({ ...defaultSettings, unofficialAwards: true, medals: { gold: 0, silver: 1, bronze: 0 }, manualBoards: [{ id: 'new', name: '新生榜', teamIds: ['1'] }] }));
+        await handler.post('system', JSON.stringify({ ...defaultSettings, unofficialFirstSolve: true, medals: { gold: 0, silver: 1, bronze: 0 }, manualBoards: [{ id: 'new', name: '新生榜', teamIds: ['1'] }] }));
         const restarted = setup(app.saved); await restarted.init();
         await restarted.view().display.call(handler, { tdoc: state.contest, realtime: false, json: true });
         expect(handler.response.body.contest.group['manual-new']).toBe('新生榜');
-        expect(handler.response.body.contest.medal.all).toEqual({ gold: 0, silver: 1, bronze: 0 });
+        expect(handler.response.body.contest.medal.all).toMatchObject({ gold: 0, silver: 1, bronze: 0 });
         expect(handler.response.addHeader).toHaveBeenCalledWith('Cache-Control', 'no-store');
         const manager = restarted.settings(); manager.user.own = () => true;
         await manager.prepare('system', state.contest.docId); await manager.get();
-        expect(JSON.parse(manager.response.body.settingsJson).settings.unofficialAwards).toBe(true);
+        expect(JSON.parse(manager.response.body.settingsJson).settings.unofficialFirstSolve).toBe(true);
     });
     it('同 ID 比赛在不同域中使用各自设置', async () => {
         const app = setup(); await app.init();
         const handler = app.settings(); handler.user.own = () => true;
         await handler.prepare('system', state.contest.docId);
-        await handler.post('system', JSON.stringify({ ...defaultSettings, schoolBoards: false }));
+        await handler.post('system', JSON.stringify({ ...defaultSettings, schoolBoards: true }));
         handler.domain._id = 'another';
         await handler.prepare('another', state.contest.docId);
         await handler.get();
-        expect(JSON.parse(handler.response.body.settingsJson).settings.schoolBoards).toBe(true);
+        expect(JSON.parse(handler.response.body.settingsJson).settings.schoolBoards).toBe(false);
     });
     it('HTML 输出使用正确的刷新变量，并保留实时权限标识', async () => {
         const app = setup(); await app.init(); const handler = app.settings(); handler.user.own = () => true;
@@ -421,6 +424,77 @@ describe('Hydro Resolver routes', () => {
         await remove.prepare('system', tid(), sid); await remove.post();
         expect([...app.resolverTables.values()].every((table) => table.size === 0)).toBe(true);
     });
+    it('manages big-screen links: managers only, one shared token, frozen public data, revocable', async () => {
+        state.locked = true;
+        state.entries[0].journal = [record(state.contest.lockAt.getTime() / 1000 + 20)];
+        const app = setup(); await app.init();
+        await expect(app.screens().prepare('system', tid())).rejects.toThrow('Forbidden');
+        const admin = app.screens(); admin.user.own = () => true;
+        await admin.prepare('system', tid()); await admin.get();
+        const runtime = JSON.parse(admin.response.body.runtimeJson);
+        const token = runtime.linkBase.split('/').pop();
+        expect(runtime.linkBase).toBe(`/d/system/contest/${tid()}/screen/${token}`);
+        const again = app.screens(); again.user.own = () => true; await again.prepare('system', tid()); await again.get();
+        expect(JSON.parse(again.response.body.runtimeJson).linkBase).toBe(runtime.linkBase);
+        await admin.post('system', JSON.stringify({ items: { message: { text: '封榜' } } }));
+        expect(admin.response.body.config.items.message.text).toBe('封榜');
+
+        const guest = app.screens('_data'); guest.user._id = 0;
+        expect(guest.noCheckPermView).toBe(true);
+        await expect(guest.prepare('system', tid(), 'x'.repeat(48), 'scoreboard')).rejects.toThrow('作废');
+        await expect(guest.prepare('system', tid(), token, 'nope')).rejects.toThrow('作废');
+        await guest.prepare('system', tid(), token, 'scoreboard'); await guest.get('system');
+        const body = guest.response.body;
+        expect(body.item).toEqual({ type: 'scoreboard' });
+        expect(body.data.frozen).toBe(true);
+        expect(body.data.results['1'][0].status).toBe('pending');
+        expect(JSON.stringify(body)).not.toMatch(/张三|南京晓庄学院/);
+        const queue = app.screens('_data'); await queue.prepare('system', tid(), token, 'queue'); await queue.get('system');
+        expect(queue.response.body.item).toEqual({ type: 'queue', variant: 'queue' });
+        expect(queue.response.body.data.contest.submissions[0]).toMatchObject({ teamId: '1', status: 'pending' });
+        const message = app.screens('_data'); await message.prepare('system', tid(), token, 'message'); await message.get('system');
+        expect(message.response.body.item).toEqual({ type: 'message', text: '封榜' });
+
+        state.started = false;
+        const early = app.screens('_data'); await early.prepare('system', tid(), token, 'scoreboard'); await early.get('system');
+        expect(early.response.body.notice).toBe('比赛尚未开始');
+
+        await admin.postResetToken();
+        expect(admin.response.body.linkBase).not.toContain(token);
+        await expect(app.screens('_view').prepare('system', tid(), token, 'clock')).rejects.toThrow('作废');
+    });
+    it('shows a resolver session read-only to the audience screen, without future steps', async () => {
+        const app = setup(); await app.init();
+        const creator = app.resolver('_sessions'); creator.user.own = () => true;
+        creator.user.hasPerm = (perm: bigint) => perm === 4n; // sees private identity
+        await creator.prepare('system', tid()); await creator.post('system', config);
+        const sid = creator.response.body.id;
+        expect(JSON.stringify((await creator.payload(config)).snapshot.teams)).toContain('南京晓庄学院');
+        const admin = app.screens(); admin.user.own = () => true; admin.user._id = 99;
+        await admin.prepare('system', tid()); await admin.get();
+        const token = JSON.parse(admin.response.body.runtimeJson).linkBase.split('/').pop();
+        await admin.post('system', JSON.stringify({ items: { resolver: { sessionId: sid } } }));
+        const screen = app.screens('_data'); await screen.prepare('system', tid(), token, 'resolver'); await screen.get('system');
+        const { game, playback, session } = screen.response.body;
+        expect(session).toBe(sid);
+        expect(game.steps).toHaveLength(playback.index + 1);
+        expect(game.contest.awards).toEqual([]);
+        expect(JSON.stringify(screen.response.body)).not.toMatch(/controlToken|autoStopTeamId/);
+        // The venue display shows the snapshot as the presenter sees it, identity included.
+        expect(JSON.stringify(game.contest.teams)).toContain('南京晓庄学院');
+        // A second audience screen at the same progress reuses the snapshot instead of rebuilding it.
+        const { UserModel } = await import('hydrooj');
+        const before = vi.mocked(UserModel.getList).mock.calls.length;
+        const reads = vi.spyOn(ResolverSessions.prototype, 'read');
+        const other = app.screens('_data'); await other.prepare('system', tid(), token, 'resolver'); await other.get('system');
+        expect(other.response.body.game.steps).toHaveLength(game.steps.length);
+        expect(vi.mocked(UserModel.getList).mock.calls.length).toBe(before);
+        expect(reads).not.toHaveBeenCalled();
+        reads.mockRestore();
+        const poll = app.screens('_data'); await poll.prepare('system', tid(), token, 'resolver'); await poll.get('system', playback.revision, sid);
+        expect(poll.response.body.game).toBeUndefined();
+        expect(poll.response.body.playback).toEqual(playback);
+    });
     it('only supplies the sidebar URL to managers of ACM contests', async () => {
         const app = setup(); await app.init();
         const hook = app.hooks.mock.calls.find(([name]: string[]) => name === 'handler/after')[1];
@@ -438,4 +512,32 @@ describe('Hydro Resolver routes', () => {
         await preview.post('system', JSON.stringify({ boardId: 'manual-one' }));
         expect(preview.response.body.config).toMatchObject({ goldCount: 4, silverCount: 3, bronzeCount: 2 });
     });
+    it('shares independently saved board rules with preview and new sessions while preserving snapshots', async () => {
+        const app = setup(); await app.init();
+        const admin = app.settings(); admin.user.own = () => true;
+        await admin.prepare('system', tid());
+        const rules = { ...awardsFor(defaultSettings, 'all'), medals: { gold: 0, silver: 1, bronze: 0 }, silverCitation: '分榜奖', firstSolve: true, unofficialFirstSolve: true, podiumEnabled: true, medalSameScore: false };
+        const saved = { ...defaultSettings, manualBoards: [{ id: 'one', name: '一组', teamIds: ['1'] }], boardAwards: { 'manual-one': rules } };
+        await admin.post('system', JSON.stringify(saved));
+        const preview = app.resolver('_preview'); preview.user.own = () => true; await preview.prepare('system', tid());
+        const chosen = JSON.stringify({ boardId: 'manual-one', goldCount: 99, firstSolve: false });
+        await preview.post('system', chosen);
+        expect(preview.response.body.config).toMatchObject({ goldCount: 0, silverCount: 1, silverCitation: '分榜奖', firstSolve: true, podiumEnabled: true, medalSameScore: false });
+        const live = app.settings(); live.user.own = () => true;
+        await app.view().display.call(live, { tdoc: state.contest, realtime: true, json: true });
+        expect(live.response.body.contest.medal['manual-one'].hydroAwards).toEqual(rules);
+        const creator = app.resolver('_sessions'); creator.user.own = () => true;
+        await creator.prepare('system', tid()); await creator.post('system', chosen);
+        const sid = creator.response.body.id;
+        const metadata = app.resolverTables.get('xcpcio.resolver.sessions')!.get(sid)!;
+        metadata.updatedAt = new Date(0);
+        const startup = app.hooks.mock.calls.find(([name]: string[]) => name === 'app/started')[1];
+        await startup();
+        expect(app.resolverTables.get('xcpcio.resolver.sessions')!.has(sid)).toBe(true);
+        await admin.post('system', JSON.stringify({ ...saved, boardAwards: {} }));
+        await preview.post('system', chosen);
+        expect(preview.response.body.config).toMatchObject({ goldCount: 1, firstSolve: false });
+        expect(metadata.config).toMatchObject({ goldCount: 0, firstSolve: true });
+    });
+
 });

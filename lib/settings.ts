@@ -11,9 +11,19 @@ export interface ManualBoard {
     medals?: Medals;
 }
 
-export interface BoardSettings {
+export interface BoardAwards {
     medals: Medals;
-    unofficialAwards: boolean;
+    goldCitation: string;
+    silverCitation: string;
+    bronzeCitation: string;
+    medalSameScore: boolean;
+    firstSolve: boolean;
+    podiumEnabled: boolean;
+    unofficialFirstSolve: boolean;
+}
+
+export interface BoardSettings extends BoardAwards {
+    boardAwards: Record<string, BoardAwards>;
     schoolBoards: boolean;
     participationBoards: boolean;
     manualBoards: ManualBoard[];
@@ -25,9 +35,11 @@ export interface BoardSettings {
 
 export const defaultSettings: BoardSettings = {
     medals: { gold: 1, silver: 2, bronze: 3 },
-    unofficialAwards: false,
-    schoolBoards: true,
-    participationBoards: true,
+    goldCitation: '金奖', silverCitation: '银奖', bronzeCitation: '铜奖',
+    medalSameScore: true, firstSolve: false, podiumEnabled: false, unofficialFirstSolve: false,
+    boardAwards: {},
+    schoolBoards: false,
+    participationBoards: false,
     manualBoards: [],
     publicAccess: false,
     replaceNative: true,
@@ -52,12 +64,37 @@ function medals(value: unknown, label: string): Medals {
     return result;
 }
 
+function normalizeAwards(input: Record<string, unknown>, fallback: BoardAwards): BoardAwards {
+    const result: BoardAwards = { medals: medals(input.medals ?? fallback.medals, '奖牌数量'),
+        goldCitation: fallback.goldCitation, silverCitation: fallback.silverCitation, bronzeCitation: fallback.bronzeCitation,
+        medalSameScore: fallback.medalSameScore, firstSolve: fallback.firstSolve,
+        podiumEnabled: fallback.podiumEnabled, unofficialFirstSolve: fallback.unofficialFirstSolve };
+    for (const key of ['medalSameScore', 'firstSolve', 'podiumEnabled', 'unofficialFirstSolve'] as const) {
+        if (input[key] === undefined) continue;
+        if (typeof input[key] !== 'boolean') throw new Error(`${key} 必须是布尔值`);
+        result[key] = input[key];
+    }
+    for (const key of ['goldCitation', 'silverCitation', 'bronzeCitation'] as const) {
+        if (input[key] === undefined) continue;
+        if (typeof input[key] !== 'string' || !input[key].trim() || input[key].trim().length > 80) throw new Error(`${key} 应为 1 至 80 个字符`);
+        result[key] = input[key].trim();
+    }
+    return result;
+}
+
+/** A board override is shared by the live board and new resolver snapshots. */
+export function awardsFor(settings: BoardSettings, boardId: string): BoardAwards {
+    if (settings.boardAwards[boardId]) return settings.boardAwards[boardId];
+    const manual = settings.manualBoards.find((board) => `manual-${board.id}` === boardId);
+    return { medals: manual?.medals || settings.medals,
+        goldCitation: settings.goldCitation, silverCitation: settings.silverCitation, bronzeCitation: settings.bronzeCitation,
+        medalSameScore: settings.medalSameScore, firstSolve: settings.firstSolve,
+        podiumEnabled: settings.podiumEnabled, unofficialFirstSolve: settings.unofficialFirstSolve };
+}
+
 export function normalizeSettings(value: unknown): BoardSettings {
     const input = object(value, '榜单设置');
-    for (const key of ['schoolBoards', 'participationBoards']) {
-        if (typeof input[key] !== 'boolean') throw new Error(`${key} 必须是布尔值`);
-    }
-    for (const key of ['publicAccess', 'replaceNative', 'unofficialAwards', 'showIdentity']) {
+    for (const key of ['schoolBoards', 'participationBoards', 'publicAccess', 'replaceNative', 'unofficialAwards', 'showIdentity']) {
         if (input[key] !== undefined && typeof input[key] !== 'boolean') throw new Error(`${key} 必须是布尔值`);
     }
     if (!Array.isArray(input.manualBoards) || input.manualBoards.length > 50) {
@@ -84,24 +121,26 @@ export function normalizeSettings(value: unknown): BoardSettings {
             ...(board.medals === undefined ? {} : { medals: medals(board.medals, board.name) }),
         };
     });
+    // Legacy broad award permission migrates to first-solve eligibility only.
+    const awards = normalizeAwards({ ...input, unofficialFirstSolve: input.unofficialFirstSolve ?? input.unofficialAwards }, defaultSettings);
+    const overrides = input.boardAwards === undefined ? {} : object(input.boardAwards, '分榜奖项');
+    const boardAwards: Record<string, BoardAwards> = {};
+    for (const [id, value] of Object.entries(overrides)) {
+        if (!/^(all|official|unofficial|school-[a-f0-9]{16}|manual-[a-z0-9][a-z0-9_-]{0,47})$/.test(id)) throw new Error('分榜奖项标识无效');
+        // A deleted manual board takes its award rules with it (also for settings saved before this rule).
+        if (id.startsWith('manual-') && !ids.has(id.slice('manual-'.length))) continue;
+        boardAwards[id] = normalizeAwards(object(value, '分榜奖项'), awards);
+    }
     return {
-        medals: medals(input.medals, '奖牌数量'),
-        unofficialAwards: input.unofficialAwards === undefined ? false : input.unofficialAwards as boolean,
-        schoolBoards: input.schoolBoards as boolean,
-        participationBoards: input.participationBoards as boolean,
+        ...awards, boardAwards,
+        schoolBoards: input.schoolBoards === true,
+        participationBoards: input.participationBoards === true,
         manualBoards,
         // Anything that widens who can see what stays off unless it was saved explicitly.
         publicAccess: input.publicAccess === true,
         replaceNative: input.replaceNative === undefined ? true : input.replaceNative as boolean,
         showIdentity: input.showIdentity === true,
     };
-}
-
-export function validateMembers(settings: BoardSettings, knownIds: Set<string>) {
-    for (const board of settings.manualBoards) {
-        const unknownIds = board.teamIds.filter((id) => !knownIds.has(id));
-        if (unknownIds.length) throw new Error(`${board.name} 包含未参加本场比赛的用户：${unknownIds.join(', ')}`);
-    }
 }
 
 /** Compared the way viewers read them: width, case and spacing differences do not make a name distinct. */

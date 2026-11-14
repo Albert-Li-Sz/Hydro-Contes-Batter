@@ -15,7 +15,10 @@ if (root) {
     else {
         try {
             const draft = JSON.parse(store.get() || 'null');
-            if (draft && Array.isArray(draft.manualBoards) && draft.medals) { settings = { ...settings, ...draft }; restored = true; }
+            if (draft && Array.isArray(draft.manualBoards) && draft.medals) {
+                settings = { ...settings, ...draft, unofficialFirstSolve: draft.unofficialFirstSolve ?? draft.unofficialAwards ?? settings.unofficialFirstSolve };
+                restored = true;
+            }
         } catch { store.clear(); }
     }
     const form = document.getElementById('xp-form');
@@ -24,14 +27,6 @@ if (root) {
     for (const key of medals) root.querySelector(`[data-medal="${key}"]`).value = settings.medals[key];
     document.getElementById('xp-schools').checked = settings.schoolBoards;
     document.getElementById('xp-participation').checked = settings.participationBoards;
-    const unofficialAwards = document.getElementById('xp-unofficial-awards');
-    unofficialAwards.checked = settings.unofficialAwards;
-    function updateAwardRule() {
-        document.getElementById('xp-award-rule').textContent = unofficialAwards.checked
-            ? '打星选手与其他选手共用奖牌名额，对所有榜生效。'
-            : '打星选手不授奖、不占名额，对所有榜生效。';
-    }
-    unofficialAwards.addEventListener('change', updateAwardRule); updateAwardRule();
     const publicAccess = document.getElementById('xp-public-access');
     publicAccess.checked = settings.publicAccess;
     document.getElementById('xp-replace-native').checked = settings.replaceNative;
@@ -78,7 +73,7 @@ if (root) {
     const nameKey = (name) => normalize(name);
     // Mirrors the server's save-time check so a clash is reported on the field instead of an error page.
     function checkNames() {
-        const taken = new Set(['所有队伍', ...(document.getElementById('xp-participation').checked ? ['正式参赛', '非正式参赛'] : []),
+        const taken = new Set(['所有队伍', '主榜', '总榜', ...(document.getElementById('xp-participation').checked ? ['正式参赛', '非正式参赛'] : []),
             ...(document.getElementById('xp-schools').checked ? teams.map((team) => `${team.organization || '未填写学校'}榜`) : [])].map(nameKey));
         for (const editor of editors) {
             const key = nameKey(editor.name.value);
@@ -93,6 +88,81 @@ if (root) {
         element.className = [tag === 'button' ? 'button' : tag === 'select' ? 'select' : '', className || ''].filter(Boolean).join(' ');
         return element;
     };
+    function awardFields(parent, initial, includeCounts) {
+        const fields = {};
+        const grid = make('div', undefined, 'xp-medals');
+        for (const [tier, label] of [['gold', '金奖'], ['silver', '银奖'], ['bronze', '铜奖']]) {
+            const group = make('div');
+            for (const [key, caption, value, type] of [
+                ...(includeCounts ? [[tier, `${label}数量`, initial.medals[tier], 'number']] : []),
+                [`${tier}Citation`, `${label}名称`, initial[`${tier}Citation`], 'text'],
+            ]) {
+                const wrapper = make('label', caption);
+                const input = make('input', undefined, 'textbox'); input.type = type; input.value = value;
+                input.setAttribute('aria-label', caption); input.required = true;
+                if (type === 'number') { input.min = '0'; input.max = '100000'; input.step = '1'; }
+                else input.maxLength = 80;
+                wrapper.append(input); group.append(wrapper); fields[key] = input;
+            }
+            grid.append(group);
+        }
+        parent.append(grid);
+        const checks = make('div', undefined, 'xp-checks');
+        for (const [key, text] of [['medalSameScore', '并列同奖'], ['firstSolve', '一血奖'], ['podiumEnabled', '前三名奖项'], ['unofficialFirstSolve', '允许打星选手获一血奖']]) {
+            const label = make('label', undefined, 'checkbox'); const input = make('input'); input.type = 'checkbox'; input.checked = initial[key];
+            input.setAttribute('aria-label', text); label.append(input, make('span', text)); checks.append(label); fields[key] = input;
+        }
+        parent.append(checks);
+        return {
+            read: () => ({ ...(includeCounts ? { medals: Object.fromEntries(medals.map((key) => [key, Number(fields[key].value)])) } : {}),
+                ...Object.fromEntries(Object.entries(fields).filter(([key]) => !medals.includes(key)).map(([key, input]) => [key, input.type === 'checkbox' ? input.checked : input.value.trim()])) }),
+            set: (values) => { for (const [key, input] of Object.entries(fields)) {
+                const value = medals.includes(key) ? values.medals[key] : values[key];
+                if (input.type === 'checkbox') input.checked = value; else input.value = value;
+            } },
+            disable: (disabled) => { for (const input of Object.values(fields)) input.disabled = disabled; },
+        };
+    }
+    const defaultAwardEditor = awardFields(document.getElementById('xp-default-award-options'), settings, false);
+    const awardEditors = new Map();
+    function refreshAwardEditors() {
+        const boards = [{ id: 'all', name: '主榜' },
+            ...(data.automaticBoards || []).filter((board) => document.getElementById(board.kind === 'school' ? 'xp-schools' : 'xp-participation').checked),
+            ...editors.map((editor) => ({ id: `manual-${editor.board.id}`, name: editor.name.value.trim() || '未命名分榜', medals: editor.board.medals }))];
+        const target = document.getElementById('xp-board-awards');
+        target.replaceChildren();
+        for (const board of boards) {
+            let editor = awardEditors.get(board.id);
+            if (!editor) {
+                const saved = settings.boardAwards?.[board.id] || (board.medals ? { ...settings, medals: board.medals } : null);
+                const card = make('details', undefined, 'xp-board'); const summary = make('summary'); card.append(summary);
+                const label = make('label', undefined, 'checkbox'); const enabled = make('input'); enabled.type = 'checkbox'; enabled.checked = !!saved;
+                label.append(enabled, make('span', '单独设置此榜奖项')); card.append(label);
+                const body = make('div'); card.append(body);
+                const initial = saved || { ...settings, ...defaultAwardEditor.read(), medals: Object.fromEntries(medals.map((key) => [key, Number(root.querySelector(`[data-medal="${key}"]`).value)])) };
+                const fields = awardFields(body, initial, true);
+                const toggle = () => { body.hidden = !enabled.checked; fields.disable(!enabled.checked); };
+                enabled.addEventListener('change', () => {
+                    if (enabled.checked && !saved) fields.set({ ...defaultAwardEditor.read(), medals: Object.fromEntries(medals.map((key) => [key, Number(root.querySelector(`[data-medal="${key}"]`).value)])) });
+                    toggle();
+                }); toggle();
+                editor = { card, summary, enabled, read: fields.read }; awardEditors.set(board.id, editor);
+            }
+            editor.summary.textContent = board.name;
+            editor.enabled.setAttribute('aria-label', `单独设置${board.name}奖项`);
+            target.append(editor.card);
+        }
+    }
+    function readBoardAwards() {
+        const result = { ...settings.boardAwards };
+        for (const [id, editor] of awardEditors) {
+            if (editor.enabled.checked) result[id] = editor.read(); else delete result[id];
+        }
+        const manualIds = new Set(editors.map((editor) => `manual-${editor.board.id}`));
+        for (const id of Object.keys(result)) if (id.startsWith('manual-') && !manualIds.has(id)) delete result[id];
+        return result;
+    }
+    for (const id of ['xp-participation', 'xp-schools']) document.getElementById(id).addEventListener('change', refreshAwardEditors);
     function addBoard(board) {
         const card = make('div', undefined, 'xp-board');
         const title = make('div', undefined, 'xp-line xp-board-header');
@@ -104,27 +174,9 @@ if (root) {
         remove.addEventListener('click', () => {
             const label = name.value.trim() || '未命名分榜';
             if (selected.size && !confirm(`删除“${label}”及其 ${selected.size} 名成员？保存后生效。`)) return;
-            editors.splice(editors.indexOf(editor), 1); card.remove(); markDirty(); updateAddButton(); checkNames();
+            editors.splice(editors.indexOf(editor), 1); card.remove(); markDirty(); updateAddButton(); checkNames(); refreshAwardEditors();
         });
         title.append(name, remove); card.append(title);
-        const override = make('input'); override.type = 'checkbox'; override.checked = !!board.medals;
-        const overrideLabel = make('label', undefined, 'checkbox'); overrideLabel.append(override, document.createTextNode('单独设置这个分榜的奖牌数量'));
-        const counts = make('div', undefined, 'xp-medals');
-        const fields = {};
-        for (const [index, key] of medals.entries()) {
-            const label = make('label'); const caption = make('span');
-            caption.append(make('i', undefined, `xp-dot xp-${key}`), document.createTextNode(['金牌', '银牌', '铜牌'][index]));
-            label.append(caption);
-            const input = make('input', undefined, 'textbox'); input.type = 'number'; input.min = '0'; input.max = '100000'; input.step = '1';
-            input.setAttribute('aria-label', `分榜${['金', '银', '铜'][index]}牌数量`);
-            input.value = (board.medals || settings.medals)[key]; label.append(input); counts.append(label); fields[key] = input;
-        }
-        function toggleMedals() {
-            counts.hidden = !override.checked;
-            for (const input of Object.values(fields)) { input.disabled = !override.checked; input.required = override.checked; }
-        }
-        override.addEventListener('change', toggleMedals); toggleMedals();
-        card.append(overrideLabel, counts);
         const details = make('details', undefined, 'xp-member-picker'); details.open = !board.name;
         const summary = make('summary');
         const knownIds = new Set(teams.map((team) => team.team_id));
@@ -246,8 +298,8 @@ if (root) {
         bulk.append(undo);
         if (stale.length) card.append(make('p', `${stale.length} 名成员已不在参赛名单（ID ${stale.join(', ')}），保存后将从此分榜移除。`, 'xp-notice'));
         details.append(summary, search, filterPanel, bulk, list); card.append(details); container.append(card); applyFilters();
-        editor.read = () => ({ id: board.id, name: name.value.trim(), teamIds: [...selected], ...(override.checked ? { medals: Object.fromEntries(medals.map((key) => [key, Number(fields[key].value)])) } : {}) });
-        editors.push(editor); name.addEventListener('input', checkNames);
+        editor.read = () => ({ id: board.id, name: name.value.trim(), teamIds: [...selected],  });
+        editors.push(editor); name.addEventListener('input', () => { checkNames(); refreshAwardEditors(); });
     }
     const addButton = document.getElementById('xp-add');
     function updateAddButton() {
@@ -255,12 +307,13 @@ if (root) {
         document.getElementById('xp-add-limit').hidden = !addButton.disabled;
     }
     for (const board of settings.manualBoards) addBoard(board);
+    refreshAwardEditors();
     checkNames();
     updateAddButton();
     addButton.addEventListener('click', () => {
         if (editors.length >= 50) return;
         addBoard({ id: `g-${crypto.randomUUID().slice(0, 8)}`, name: '', teamIds: [] });
-        editors.at(-1).name.focus(); markDirty(); updateAddButton();
+        editors.at(-1).name.focus(); markDirty(); updateAddButton(); refreshAwardEditors();
     });
     form.addEventListener('submit', () => {
         submitting = true;
@@ -269,7 +322,8 @@ if (root) {
             medals: Object.fromEntries(medals.map((key) => [key, Number(root.querySelector(`[data-medal="${key}"]`).value)])),
             schoolBoards: document.getElementById('xp-schools').checked,
             participationBoards: document.getElementById('xp-participation').checked,
-            unofficialAwards: unofficialAwards.checked,
+            ...defaultAwardEditor.read(),
+            boardAwards: readBoardAwards(),
             publicAccess: publicAccess.checked,
             replaceNative: document.getElementById('xp-replace-native').checked,
             showIdentity: showIdentity.checked,

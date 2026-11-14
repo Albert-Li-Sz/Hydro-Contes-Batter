@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>{{ title }}</title>
+<link rel="stylesheet" href="{{ codeBase }}/hydro-screen.css">
+</head>
+<body>
+<canvas id="screen" aria-label="{{ title }}"></canvas>
+<button type="button" id="screen-full" title="全屏 (F)">全屏</button>
+<p id="screen-hint" hidden>点击画面或按 F 进入全屏，Esc 退出</p>
+<p id="screen-status" role="status" hidden></p>
+<script type="application/json" id="screen-runtime">{{ runtimeJson | safe }}</script>
+<script type="module" src="{{ codeBase }}/js/hydro-screen.js"></script>
+</body>
+</html>

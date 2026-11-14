@@ -5,17 +5,19 @@ import {
     ContestModel, Context, ForbiddenError, getAlphabeticId, Handler, NotFoundError, ObjectId,
     param, PERM, Schema, STATUS, Tdoc, Types, UserModel, ValidationError,
 } from 'hydrooj';
-import { BoardData, BoardTeam, enhanceBoard, problemColor, reservedBoardNames } from './lib/board';
+import { BoardData, BoardTeam, automaticBoards, enhanceBoard, problemColor, reservedBoardNames } from './lib/board';
 import { BoardSettings, checkBoardNames, defaultSettings, normalizeSettings, pruneMembers, toScriptJson } from './lib/settings';
 import { buildRosterTeam, defaultProfileFields, FilterField, rosterFields } from './lib/roster';
 import { replacementRequest } from './lib/access';
 import { applyResolver } from './lib/resolver-routes';
+import { applyScreens } from './lib/screens-routes';
 
 export const name = 'scoreboard-xcpcio-plus';
 export const Config = Schema.object({
     asDefault: Schema.boolean().default(true).description('将 ACM 比赛默认计分板替换为增强榜'),
     publicByDefault: Schema.boolean().default(false).description('未保存过设置的比赛默认开放免登录公开榜单'),
     refreshInterval: Schema.number().min(5000).max(300000).default(15000).description('榜单刷新间隔（毫秒）'),
+    resolverSessionDays: Schema.number().min(0).max(365).step(1).default(0).description('滚榜会话闲置清理天数，0 为永久保留'),
     profileFields: Schema.array(Schema.object({
         key: Schema.string().required().description('Hydro 公开个人资料字段名'),
         label: Schema.string().required().description('筛选项名称'),
@@ -179,7 +181,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>) {
                 refreshInterval: config.refreshInterval,
             }),
             assetBase: manifest.base, js: manifest.js, css: manifest.css, realtime,
-            unofficialAwards: settings.unofficialAwards,
+
         };
     };
 
@@ -206,7 +208,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>) {
                 publicUrl: publicPath(this.tdoc),
                 replacementEnabled: config.asDefault,
                 assetBase: manifest.base,
-                settingsJson: toScriptJson({ settings, teams, filterFields: rosterFields(teams, profileFields) }),
+                settingsJson: toScriptJson({ settings, teams, automaticBoards: automaticBoards(teams), filterFields: rosterFields(teams, profileFields) }),
             };
         }
 
@@ -258,7 +260,8 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>) {
     }
 
     ctx.Route('contest_xcpcio_plus_settings', '/contest/:tid/xcpcio-settings', SettingsHandler);
-    applyResolver(ctx, { loadSettings, loadData: loadContestData });
+    applyResolver(ctx, { loadSettings, loadData: loadContestData, sessionDays: config.resolverSessionDays ?? 0 });
+    applyScreens(ctx, { loadSettings, loadData: loadContestData });
     ctx.Route('contest_xcpcio_plus_public', '/contest/:tid/xcpcio-public', PublicBoardHandler);
     ctx.i18n.load('zh', { 'XCPCIO Plus': 'XCPCIO 增强榜' });
     ctx.inject(['scoreboard', 'server'], ({ scoreboard, server }) => {
