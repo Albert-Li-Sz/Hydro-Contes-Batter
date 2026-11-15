@@ -6,10 +6,11 @@ import { automaticBoards, enhanceBoard, reservedBoardNames } from '../lib/board'
 import { checkBoardNames, defaultSettings, normalizeSettings, pruneMembers, toScriptJson } from '../lib/settings';
 import { demoData, demoRoster } from '../test/fixture';
 import { defaultProfileFields, rosterFields } from '../lib/roster';
-import { wideData } from '../preview/fixtures';
+import { teamData, wideData } from '../preview/fixtures';
 import { createResolverPreview } from '../preview/resolver';
 import { createScreensPreview } from '../preview/screens';
 import { createLivePreview } from '../preview/live';
+import { createMonitorPreview } from '../preview/monitor';
 import { previewDatabase } from '../preview/resolver-memory-db';
 
 async function main() {
@@ -26,6 +27,7 @@ const pluginVersion = JSON.parse(await fs.readFile(path.join(root, 'package.json
 const previewDb = previewDatabase().db;
 const resolverPreview = createResolverPreview(env, logoNames, pluginVersion, previewDb);
 const screensPreview = createScreensPreview(env, logoNames, pluginVersion, previewDb);
+const monitorPreview = createMonitorPreview(env, pluginVersion, demoData);
 const livePreview = createLivePreview(env, logoNames, pluginVersion, demoData, () => settings);
 const base = '/contest/demo';
 const boardUrl = `${base}/scoreboard/xcpcio-plus`;
@@ -39,12 +41,14 @@ const contentTypes: Record<string, string> = { '.webp': 'image/webp', '.ttf': 'f
 const server = http.createServer(async (request, response) => {
     try {
         const url = new URL(request.url || '/', 'http://localhost');
-        const displayData = url.searchParams.get('fixture') === 'wide' ? wideData() : data;
+        // ?fixture=team: a team contest (Hydro 5.1), teams with members.
+        const displayData = url.searchParams.get('fixture') === 'wide' ? wideData() : url.searchParams.get('fixture') === 'team' ? teamData() : data;
         const displayDefaults = { ...defaults, hideSubmissions: url.searchParams.get('running') === '1',  tdoc: { title: displayData.contest.contest_name } };
-        const fixtureQuery = url.searchParams.get('fixture') === 'wide' ? '&fixture=wide' : '';
+        const fixtureQuery = ['wide', 'team'].includes(url.searchParams.get('fixture') || '') ? `&fixture=${url.searchParams.get('fixture')}` : '';
         if (await resolverPreview(request, response, url, displayData, settings)) return;
         if (await screensPreview(request, response, url, displayData, settings)) return;
         if (await livePreview.handle(request, response, url)) return;
+        if (await monitorPreview(request, response, url)) return;
         if (request.method === 'POST' && url.pathname === settingsUrl) {
             let body = '';
             for await (const chunk of request) { body += chunk; if (body.length > 1000000) throw new Error('设置内容过大'); }

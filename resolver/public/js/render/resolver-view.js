@@ -1201,6 +1201,9 @@ export class ResolverView {
     const maxWidth = this.width - x - 40;
 
     const nameLines = splitText(ctx, teamDisplayName(team), teamFont, true, maxWidth);
+    // Hydro: a team's members, one smaller line under the name (team contests only).
+    const memberLines = Array.isArray(team.members) && team.members.length
+      ? splitText(ctx, team.members.join(' · '), groupFont, false, maxWidth) : [];
     const citationLines = [];
     for (const award of awards) {
       const major = ['winner', 'rank', 'medal'].some((t) =>
@@ -1220,7 +1223,7 @@ export class ResolverView {
     }
 
     const nameLineH = teamFont * 1.06;
-    let panelH = 24 * 2 + nameLines.length * nameLineH;
+    let panelH = 24 * 2 + nameLines.length * nameLineH + memberLines.length * groupFont * 1.06;
     for (const c of citationLines) panelH += c.size * 1.06;
     panelH = Math.max(panelH, logoSize + 24);
     panelH = Math.min(panelH, this.height - 40);
@@ -1237,6 +1240,14 @@ export class ResolverView {
     for (const line of nameLines) {
       drawText(ctx, line, x, y, { size: teamFont, bold: true, color: '#ffffff', maxWidth });
       y += nameLineH;
+    }
+    if (memberLines.length) {
+      let memberY = y - nameLineH + groupFont * 1.15;
+      for (const line of memberLines) {
+        drawText(ctx, line, x, memberY, { size: groupFont, bold: false, color: '#d0d0d0', maxWidth });
+        memberY += groupFont * 1.06;
+      }
+      y = memberY - groupFont * 1.06 + groupFont * 0.55;
     }
     for (const c of citationLines) {
       y += c.size * 0.9;

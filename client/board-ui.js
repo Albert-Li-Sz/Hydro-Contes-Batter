@@ -43,6 +43,8 @@ if (app) {
     // then only grow (rows are virtualised; a shrinking column would jump while scrolling).
     const measure = document.createElement('canvas').getContext('2d');
     let widestText = 0;
+    // Team contests (Hydro 5.1): team name -> member names, from the board data.
+    let teamMembers = null;
     function noteTexts(entries) {
         const family = getComputedStyle(app).fontFamily || 'sans-serif';
         let widest = widestText;
@@ -190,7 +192,7 @@ if (app) {
                 if (title?.textContent.trim()) modal.setAttribute('aria-label', title.textContent.trim());
                 const legendLabels = { Gold: '金牌', Silver: '银牌', Bronze: '铜牌', Honorable: '优胜',
                     'First to solve problem': '首次通过', 'Solved problem': '通过', 'Attempted problem': '未通过',
-                    'Pending judgement/Frozen': '待评测 / 封榜', 队名: '选手', 组织: '学校', 组别: '所属榜单' };
+                    'Pending judgement/Frozen': '待评测 / 封榜', 队名: teamMembers ? '队伍' : '选手', 组织: '学校', 组别: '所属榜单' };
                 for (const cell of modal.querySelectorAll('td')) {
                     const label = legendLabels[cell.textContent.trim()];
                     if (label && cell.childElementCount === 0) cell.textContent = label;
@@ -264,7 +266,8 @@ if (app) {
                 }
                 const hasSchool = /^(Organization|School|学校|组织|单位)$/i.test(headers[1]?.textContent.trim());
                 const names = ['rank', ...(hasSchool ? ['school'] : []), 'team', 'solved', 'penalty'];
-                const translations = ['名次', ...(hasSchool ? ['学校'] : []), hasSchool ? '选手 / 学校' : '选手', '过题', '罚时'];
+                const who = teamMembers ? '队伍' : '选手';
+                const translations = ['名次', ...(hasSchool ? ['学校'] : []), hasSchool ? `${who} / 学校` : who, '过题', '罚时'];
                 headers.slice(0, names.length).forEach((header, index) => {
                     header.classList.add(`xp-col-${names[index]}`);
                     if (header.childElementCount === 0) header.textContent = translations[index];
@@ -313,7 +316,8 @@ if (app) {
                         const schoolAction = hasSchool ? cells[1]?.querySelector('[cursor-pointer]') : null;
                         const schoolName = schoolAction?.textContent.trim() || '';
                         const teamName = team?.querySelector('[line-clamp-2]')?.textContent.trim() || '';
-                        team?.querySelector('[cursor-pointer]')?.setAttribute('title', teamName);
+                        const members = teamMembers?.get(teamName);
+                        team?.querySelector('[cursor-pointer]')?.setAttribute('title', members ? `${teamName}\n队员：${members.join('、')}` : teamName);
                         const star = team?.querySelector('[class~="i-line-md:star-alt-filled"]');
                         if (star) { star.title = '打星选手'; star.setAttribute('aria-label', '打星选手'); }
                         let school = team?.querySelector('.xp-mobile-school');
@@ -391,6 +395,11 @@ if (app) {
     if (typeof window.DATA_SOURCE === 'string') {
         fetch(window.DATA_SOURCE.split('#')[0], { headers: { Accept: 'application/json' } }).then((response) => (response.ok ? response.json() : null))
             .then((board) => {
+                const withMembers = Array.isArray(board?.teams) ? board.teams.filter((team) => Array.isArray(team.members) && team.members.length) : [];
+                if (withMembers.length) {
+                    teamMembers = new Map(withMembers.map((team) => [String(team.name ?? ''), team.members.map(String)]));
+                    decorate();
+                }
                 if (Array.isArray(board?.teams) && noteTexts(board.teams.map((team) => ({
                     name: String(team.name ?? ''), school: board.contest?.options?.enable_organization === false ? '' : String(team.organization ?? ''),
                     star: Array.isArray(team.group) && team.group.includes('unofficial'),

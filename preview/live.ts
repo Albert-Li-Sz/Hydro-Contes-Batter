@@ -9,6 +9,7 @@ import {
     adminApi, adminChannel, adminRuntime, builtinMediaNames, defaultVisualConfig, liveUrls, overlayApi, overlayChannel, previewRuntime, readBuiltinMedia, shell, storeName,
 } from '../lib/live/api';
 import { LiveHub } from '../lib/live/hub';
+import { stateFromEntries, type LiveStateEntries } from '../lib/live/state';
 
 const verdicts = ['CORRECT', 'CORRECT', 'WRONG_ANSWER', 'TIME_LIMIT_EXCEEDED', 'RUNTIME_ERROR', 'COMPILATION_ERROR'];
 
@@ -52,7 +53,8 @@ export function createLivePreview(env: Environment, logoNames: Record<string, st
         mediaNames: async () => [...new Set([...await builtinMediaNames(), ...uploaded.keys()])].sort(),
         saveMedia: async (name: string, data: Buffer, mime: string) => { uploaded.set(name, { data, mime }); },
     };
-    let state = {};
+    const state: LiveStateEntries = {};
+    let revision = 0;
     const hub = new LiveHub({
         intervalMs: 2000,
         load: async () => {
@@ -63,7 +65,13 @@ export function createLivePreview(env: Environment, logoNames: Record<string, st
                 boards: resolverBoards(data, current, current.showIdentity),
             };
         },
-        persist: async (value) => { state = value; },
+        persist: async (patch) => {
+            for (const [key, value] of Object.entries(patch)) {
+                if (value === null) delete state[key];
+                else state[key] = value;
+            }
+            return ++revision;
+        },
         template: async (name) => {
             const file = uploaded.get(name) || await readBuiltinMedia(storeName(name));
             return file ? file.data.toString('utf8') : null;
@@ -183,5 +191,5 @@ export function createLivePreview(env: Environment, logoNames: Record<string, st
         });
     };
 
-    return { handle, attach, hub, state: () => state };
+    return { handle, attach, hub, state: () => stateFromEntries(state) };
 }

@@ -5,13 +5,15 @@ import {
     ContestModel, Context, ForbiddenError, getAlphabeticId, Handler, NotFoundError, ObjectId,
     param, PERM, Schema, STATUS, Tdoc, Types, UserModel, ValidationError,
 } from 'hydrooj';
-import { BoardData, BoardTeam, automaticBoards, enhanceBoard, problemColor, reservedBoardNames } from './lib/board';
+import { BoardData, BoardTeam, automaticBoards, enhanceBoard, problemColor, reservedBoardNames, schoolName } from './lib/board';
 import { BoardSettings, checkBoardNames, defaultSettings, normalizeSettings, pruneMembers, toScriptJson } from './lib/settings';
 import { buildRosterTeam, defaultProfileFields, FilterField, rosterFields } from './lib/roster';
 import { replacementRequest } from './lib/access';
+import { describeTeam, memberIds, type TeamEntry } from './lib/teams';
 import { applyResolver } from './lib/resolver-routes';
 import { applyScreens } from './lib/screens-routes';
 import { applyLive } from './lib/live/routes';
+import { applyMonitor } from './lib/monitor-routes';
 
 export const name = 'scoreboard-xcpcio-plus';
 export const Config = Schema.object({
@@ -53,16 +55,18 @@ const maskedResults = ['WRONG_ANSWER', 'TIME_LIMIT_EXCEEDED', 'MEMORY_LIMIT_EXCE
 /** `identity` adds the display name and school, which Hydro treats as private user information. */
 export async function loadContestData(tdoc: Tdoc, realtime: boolean, identity = false, staffResults = false): Promise<BoardData> {
     const entries = await ContestModel.getMultiStatus(tdoc.domainId, { docId: tdoc.docId }).toArray();
-    const users = await UserModel.getList(tdoc.domainId, entries.map((entry) => entry.uid));
+    // Team contests (Hydro 5.1): load the members along with the teams.
+    const users = await UserModel.getList(tdoc.domainId, [...entries.map((entry) => entry.uid), ...memberIds(tdoc, entries as TeamEntry[])]);
     const ended = ContestModel.isDone(tdoc);
     const frozen = ContestModel.isLocked(tdoc) && !realtime;
     const teams: BoardTeam[] = entries.filter((entry) => users[entry.uid]).map((entry) => {
-        const user = users[entry.uid];
+        const team = describeTeam(entry as TeamEntry, users, identity)!;
         return {
-            team_id: `${user._id}`,
-            name: (identity && user.displayName) || user.uname,
-            organization: identity ? user.school : undefined,
+            team_id: `${entry.uid}`,
+            name: team.name,
+            organization: team.school,
             group: [entry.unrank ? 'unofficial' : 'official'],
+            ...team.members?.length ? { members: team.members } : {},
         };
     });
     const knownIds = new Set(teams.map((team) => team.team_id));
@@ -117,8 +121,13 @@ export async function loadContestData(tdoc: Tdoc, realtime: boolean, identity = 
 
 export async function loadRoster(tdoc: Tdoc, fields: FilterField[] = defaultProfileFields) {
     const entries = await ContestModel.getMultiStatus(tdoc.domainId, { docId: tdoc.docId }).toArray();
-    const users = await UserModel.getList(tdoc.domainId, entries.map((entry) => entry.uid));
-    return entries.filter((entry) => users[entry.uid]).map((entry) => buildRosterTeam(users[entry.uid], !!entry.unrank, fields));
+    const users = await UserModel.getList(tdoc.domainId, [...entries.map((entry) => entry.uid), ...memberIds(tdoc, entries as TeamEntry[])]);
+    return entries.filter((entry) => users[entry.uid]).map((entry) => {
+        const roster = buildRosterTeam(users[entry.uid], !!entry.unrank, fields);
+        const team = describeTeam(entry as TeamEntry, users, true)!;
+        // A team's school comes from its members; the settings page is for contest managers.
+        return team.members ? { ...roster, name: team.name, organization: schoolName(team.school), members: team.members } : roster;
+    });
 }
 
 export async function apply(ctx: Context, config: ReturnType<typeof Config>) {
@@ -264,6 +273,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>) {
     ctx.Route('contest_xcpcio_plus_settings', '/contest/:tid/xcpcio-settings', SettingsHandler);
     applyResolver(ctx, { loadSettings, loadData: loadContestData, sessionDays: config.resolverSessionDays ?? 0 });
     applyScreens(ctx, { loadSettings, loadData: loadContestData });
+    applyMonitor(ctx);
     if (config.live !== false) applyLive(ctx, { loadSettings, loadData: loadContestData });
     ctx.Route('contest_xcpcio_plus_public', '/contest/:tid/xcpcio-public', PublicBoardHandler);
     ctx.i18n.load('zh', { 'XCPCIO Plus': 'XCPCIO 增强榜' });

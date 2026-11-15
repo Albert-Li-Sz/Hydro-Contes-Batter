@@ -13,6 +13,7 @@ import {
     pluginRoot, previewRuntime, readBuiltinMedia, shell, storeName,
 } from './api';
 import { LiveHub, type LiveState } from './hub';
+import { stateEntries, stateFromEntries, stateUpdate, type LiveStateEntries, type LiveStatePatch } from './state';
 
 interface LiveDoc {
     _id: string;
@@ -20,7 +21,9 @@ interface LiveDoc {
     /** Separate from the overlay token, so pictures placed in captions survive a token reset. */
     mediaKey: string;
     visualConfig: string;
-    state: LiveState;
+    state?: LiveState;
+    stateEntries?: LiveStateEntries;
+    stateRevision?: number;
     updatedAt: Date;
 }
 interface LiveMedia {
@@ -80,11 +83,17 @@ export function applyLive(ctx: Context, dependencies: {
     };
     ctx.on('xcpcio/live-sync', async (contestKey, kind, origin, payload) => {
         if (origin === instance) return;
-        if (kind === 'state' || kind === 'token') {
+        if (kind === 'state') {
+            const change = payload as { patch: LiveStatePatch; revision: number };
+            if (change?.patch && Number.isSafeInteger(change.revision)) {
+                await (await hubs.get(contestKey)?.catch(() => null))?.reload(change.patch, change.revision);
+            }
+            return;
+        }
+        if (kind === 'token') {
             const doc = await collection.findOne({ _id: contestKey });
             if (!doc) return;
-            if (kind === 'token') closeRevoked(contestKey, doc.token);
-            else await (await hubs.get(contestKey)?.catch(() => null))?.reload(doc.state || {});
+            closeRevoked(contestKey, doc.token);
             return;
         }
         const hub = await hubs.get(contestKey)?.catch(() => null);
@@ -97,11 +106,19 @@ export function applyLive(ctx: Context, dependencies: {
 
     async function loadDoc(tdoc: Tdoc): Promise<LiveDoc> {
         const doc: LiveDoc = {
-            _id: key(tdoc), token: newToken(), mediaKey: newToken(), visualConfig: defaultVisualConfig(tdoc.title), state: {}, updatedAt: new Date(),
+            _id: key(tdoc), token: newToken(), mediaKey: newToken(), visualConfig: defaultVisualConfig(tdoc.title), stateEntries: {}, stateRevision: 0, updatedAt: new Date(),
         };
         // Two administrators opening the page at once must end up with the same token.
         await collection.updateOne({ _id: doc._id }, { $setOnInsert: doc }, { upsert: true });
-        return (await collection.findOne({ _id: doc._id }))!;
+        let current = (await collection.findOne({ _id: doc._id }))!;
+        if (!current.stateEntries) {
+            // One-time, conditional migration. A second process cannot replace migrated edits.
+            await collection.updateOne({ _id: doc._id, stateEntries: { $exists: false } }, {
+                $set: { stateEntries: stateEntries(current.state || {}), stateRevision: 0 }, $unset: { state: '' },
+            });
+            current = (await collection.findOne({ _id: doc._id }))!;
+        }
+        return current;
     }
 
     async function readMedia(contestKey: string, name: string) {
@@ -146,16 +163,19 @@ export function applyLive(ctx: Context, dependencies: {
                         };
                     },
                     announce: (kind, payload) => announce(name, kind, payload),
-                    persist: async (state) => {
-                        await collection.updateOne({ _id: name }, { $set: { state, updatedAt: new Date() } });
-                        announce(name, 'state');
+                    persist: async (patch) => {
+                        const saved = await collection.findOneAndUpdate({ _id: name }, stateUpdate(patch), { returnDocument: 'after' });
+                        if (!saved) throw new Error('直播配置已删除');
+                        const revision = saved.stateRevision!;
+                        announce(name, 'state', { patch, revision });
+                        return revision;
                     },
                     template: async (template) => {
                         if (!template.endsWith('.svg')) return null;
                         const file = await readMedia(name, storeName(template));
                         return file ? file.data.toString('utf8') : null;
                     },
-                }, doc.state);
+                }, stateFromEntries(doc.stateEntries || {}), doc.stateRevision || 0);
                 await created.ready;
                 return created;
             });
@@ -170,15 +190,16 @@ export function applyLive(ctx: Context, dependencies: {
             const hub = await pending.catch(() => null);
             if (hub && hub.idleFor() > 30 * 60_000 && hubs.get(name) === pending) {
                 hubs.delete(name);
-                hub.dispose();
+                await hub.dispose();
             }
         }
     }, 5 * 60_000);
     sweeper.unref?.();
-    ctx.effect(() => () => {
+    ctx.effect(() => async () => {
         clearInterval(sweeper);
-        for (const hub of hubs.values()) hub.then((item) => item.dispose(), () => null);
+        const pending = [...hubs.values()];
         hubs.clear();
+        await Promise.all(pending.map((hub) => hub.then((item) => item.dispose(), () => null)));
     });
 
     async function checkAdmin(handler: Handler | ConnectionHandler, tid: ObjectId) {

@@ -4,7 +4,7 @@
  */
 import type { ContestInfo, MediaType, QueueRunInfo, RunInfo } from './types';
 import type { Ranking } from './scoreboard';
-import { ApiActionError } from './widgets';
+import { ApiActionError, type PresetId } from './widgets';
 
 type Listener = (event: unknown) => void;
 
@@ -154,7 +154,7 @@ export const chineseAnalyticsTemplates: AnalyticsTemplates = {
     acceptedWithSolvedProblemsRun: '{team.shortName} 通过 {problem.letter} 题，共通过 {result.solvedProblems} 题，当前排名第 {result.rank}',
 };
 
-export interface Preset { presetId: number; expirationTimeUnixMs: number | null }
+export interface Preset { presetId: PresetId; expirationTimeUnixMs: number | null }
 interface Comment {
     id: string;
     message: string;
@@ -175,10 +175,10 @@ export interface AnalyticsMessage {
 }
 
 export interface AnalyticsCompanions {
-    showAdvertisement: (text: string, ttlMs: number, onExpire: (presetId: number) => void) => number;
-    hideAdvertisement: (presetId: number) => void;
-    showTicker: (text: string, ttlMs: number, onExpire: (presetId: number) => void) => number;
-    hideTicker: (presetId: number) => void;
+    showAdvertisement: (text: string, ttlMs: number, onExpire: (presetId: PresetId) => void) => PresetId;
+    hideAdvertisement: (presetId: PresetId) => void;
+    showTicker: (text: string, ttlMs: number, onExpire: (presetId: PresetId) => void) => PresetId;
+    hideTicker: (presetId: PresetId) => void;
     feature: (run: RunInfo, mediaType: string) => AnalyticsMessage['featuredRun'];
     unfeature: (run: RunInfo) => void;
     /** A comment's companion caption or ticker line changed (for the other Hydro processes). */
@@ -348,7 +348,7 @@ export class AnalyticsService {
         const message = this.messages.get(messageId);
         if (!message?.runInfo) throw new ApiActionError(`Can't make run featured caused by message ${messageId}`);
         const featuredRun = this.companions.feature(message.runInfo, mediaType);
-        if (!featuredRun) throw new ApiActionError(`Can't make run ${message.runInfo.id} featured: the team has no ${mediaType} media`);
+        if (!featuredRun) throw new ApiActionError(`该队伍没有${mediaType === 'camera' ? '摄像头' : mediaType === 'screen' ? '屏幕' : mediaType}画面，无法使用 Featured run`);
         this.store({ ...message, featuredRun });
     }
 

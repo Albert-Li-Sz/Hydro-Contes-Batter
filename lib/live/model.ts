@@ -135,7 +135,9 @@ export function buildContestInfo(source: LiveSource): ContestInfo {
             id: team.team_id, name: team.name, shortName: team.name,
             groups: [...new Set([unofficial ? 'unofficial' : 'official', ...(membership.get(team.team_id) || [])])],
             hashTag: null, medias: {}, isHidden: false, isOutOfContest: unofficial,
-            organizationId, color: null, customFields: {}, reactionVideoTemplate: null, sourceTemplate: null,
+            organizationId, color: null, reactionVideoTemplate: null, sourceTemplate: null,
+            // Team contests: members for title templates ({team.customFields.members}) and the console.
+            customFields: (team.members?.length ? { members: team.members.join(' · ') } : {}) as Record<string, string>,
         };
     });
     return {

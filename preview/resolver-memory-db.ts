@@ -3,8 +3,22 @@ import type { Context } from 'hydrooj';
 /** Preview/test storage only. Production always uses Hydro's MongoDB service. */
 export function previewDatabase() {
     const tables = new Map<string, Map<string, Record<string, any>>>();
+    const field = (row: Record<string, any>, key: string): any => key.split('.').reduce((value, part) => value?.[part], row);
+    const changeField = (row: Record<string, any>, key: string, value: unknown, remove = false) => {
+        const parts = key.split('.');
+        const last = parts.pop()!;
+        const parent = parts.reduce((item, part) => (item[part] ||= {}), row);
+        if (remove) delete parent[last];
+        else parent[last] = structuredClone(value);
+    };
+    const updateRow = (row: Record<string, any>, update: Record<string, any>) => {
+        for (const [key, value] of Object.entries(update.$set || {})) changeField(row, key, value);
+        for (const [key, value] of Object.entries(update.$inc || {})) changeField(row, key, (field(row, key) ?? 0) + (value as number));
+        for (const key of Object.keys(update.$unset || {})) changeField(row, key, undefined, true);
+    };
     const matches = (row: Record<string, any>, filter: Record<string, any>) =>
         Object.entries(filter).every(([key, value]) => {
+            if (value && typeof value === 'object' && '$exists' in value) return (field(row, key) !== undefined) === value.$exists;
             if (value instanceof Date) return row[key] instanceof Date && row[key].getTime() === value.getTime();
             if (value && typeof value === 'object' && '$lt' in value) return row[key] < value.$lt;
             return row[key] === value;
@@ -38,14 +52,21 @@ export function previewDatabase() {
                 async updateOne(filter: Record<string, any>, update: Record<string, any>, options: { upsert?: boolean } = {}) {
                     const row = [...table.values()].find((item) => matches(item, filter));
                     if (!row && options.upsert) {
-                        const inserted = structuredClone({ ...filter, ...update.$setOnInsert, ...update.$set });
+                        const inserted = structuredClone({ ...filter, ...update.$setOnInsert });
+                        updateRow(inserted, update);
                         table.set(inserted._id, inserted);
                         return { matchedCount: 0, upsertedCount: 1 };
                     }
                     if (!row) return { matchedCount: 0 };
-                    Object.assign(row, structuredClone(update.$set || {}));
-                    for (const [key, value] of Object.entries(update.$inc || {})) row[key] += value;
+                    updateRow(row, update);
                     return { matchedCount: 1 };
+                },
+                async findOneAndUpdate(filter: Record<string, any>, update: Record<string, any>, options: { returnDocument?: string } = {}) {
+                    const row = [...table.values()].find((item) => matches(item, filter));
+                    if (!row) return null;
+                    const before = structuredClone(row);
+                    updateRow(row, update);
+                    return options.returnDocument === 'after' ? structuredClone(row) : before;
                 },
                 async deleteOne(filter: Record<string, any>) {
                     const row = [...table.values()].find((item) => matches(item, filter));

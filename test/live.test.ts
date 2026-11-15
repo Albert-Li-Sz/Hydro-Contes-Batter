@@ -6,6 +6,7 @@ import { buildContestInfo, buildRuns, contestStatus, type LiveSource } from '../
 import { computeScoreboard, ranking, runsByTeam, scoreboardDiff, statistics, timeline } from '../lib/live/scoreboard';
 import { LiveHub, substituteTemplate } from '../lib/live/hub';
 import { adminApi, defaultVisualConfig, overlayApi, overlayChannel, publicVisualConfig, storeName, type LiveStore } from '../lib/live/api';
+import { stateEntries, stateFromEntries, type LiveStateEntries } from '../lib/live/state';
 import { QueueService } from '../lib/live/services';
 import { demoData } from './fixture';
 
@@ -190,7 +191,7 @@ function memoryStore(): LiveStore & { saved: Map<string, Buffer> } {
     };
 }
 
-function makeHub(state = {}, persist = vi.fn(async (_state: unknown) => {})) {
+function makeHub(state = {}, persist = vi.fn(async (_state: unknown) => 1)) {
     let live = source();
     const hub = new LiveHub({
         load: async () => live,
@@ -271,24 +272,24 @@ describe('live hub and admin api', () => {
 
     it('persists widget state and restores it', async () => {
         vi.useFakeTimers();
-        const persist = vi.fn(async (_state: unknown) => {});
+        const persist = vi.fn(async (_state: unknown) => 1);
         const { hub } = makeHub({}, persist);
         await hub.ready;
         await hub.refresh();
         const store = memoryStore();
         await adminApi(hub, store, request('POST', 'queue/show'));
         await adminApi(hub, store, request('POST', 'picture', { url: '/m/a.png', name: 'a' }));
-        vi.advanceTimersByTime(600);
-        const saved = persist.mock.calls.at(-1)![0] as any;
+        await vi.advanceTimersByTimeAsync(600);
+        const saved = stateFromEntries(persist.mock.calls.at(-1)![0] as LiveStateEntries) as any;
         expect(saved.controllers.queue.showOrder).toBeGreaterThan(0);
-        expect(saved.presets.picture).toEqual([{ settings: { url: '/m/a.png', name: 'a' }, showOrder: null, id: 1, expiresAt: null }]);
+        expect(saved.presets.picture).toEqual([{ settings: { url: '/m/a.png', name: 'a' }, showOrder: null, id: expect.any(String), expiresAt: null }]);
         hub.dispose();
         const restored = makeHub(saved).hub;
         await restored.ready;
         const screen: any[] = [];
         restored.subscribe('mainScreen', (event) => screen.push(event));
         expect(screen[0].widgets.map((item: any) => item.widget.type)).toEqual(['QueueWidget']);
-        expect(JSON.parse((await adminApi(restored, store, request('GET', 'picture')))!.body)).toEqual([{ shown: false, settings: { url: '/m/a.png', name: 'a' }, id: 1 }]);
+        expect(JSON.parse((await adminApi(restored, store, request('GET', 'picture')))!.body)).toEqual([{ shown: false, settings: { url: '/m/a.png', name: 'a' }, id: saved.presets.picture[0].id }]);
         restored.dispose();
     });
 
@@ -313,7 +314,7 @@ describe('live hub and admin api', () => {
         await adminApi(hub, store, request('POST', `analytics/new/${message.comments[0].id}/tickerMessage`, {}, { ttl: '10000' }));
         const ticker = JSON.parse((await adminApi(hub, store, request('GET', 'tickerMessage')))!.body);
         // Listed while it lasts (like upstream), and saved with its expiry for the other Hydro processes.
-        expect(ticker).toEqual([{ shown: true, id: expect.any(Number), settings: expect.objectContaining({ type: 'text', text: message.comments[0].message }) }]);
+        expect(ticker).toEqual([{ shown: true, id: expect.any(String), settings: expect.objectContaining({ type: 'text', text: message.comments[0].message }) }]);
         expect(hub.state().presets!.tickerMessage).toEqual([expect.objectContaining({ id: ticker[0].id, expiresAt: expect.any(Number) })]);
         hub.dispose();
     });
@@ -392,7 +393,7 @@ describe('live consistency with the board', () => {
             { submission_id: 'later', team_id: '1', problem_id: 0, timestamp: 30_000, status: 'CORRECT' },
             { submission_id: 'more', team_id: '1', problem_id: 1, timestamp: 90_000, status: 'CORRECT' },
         ]);
-        const hub = new LiveHub({ load: async () => source({}, data), persist: async () => {}, template: async () => null, idleMs: 0 });
+        const hub = new LiveHub({ load: async () => source({}, data), persist: async () => 1, template: async () => null, idleMs: 0 });
         await hub.refresh();
         const comment = (id: string) => hub.analytics.list().find((message) => message.id === id)!.comments[0].message;
         expect(comment('early')).toBe('陆川 通过 A 题，共通过 1 题，当前排名第 2');
@@ -402,23 +403,143 @@ describe('live consistency with the board', () => {
 });
 
 describe('live fixes', () => {
+    afterEach(() => { vi.useRealTimers(); });
     it('reloads state saved elsewhere in place, without replaying shown items', async () => {
+        vi.useFakeTimers();
         const { hub } = makeHub();
         await hub.ready;
         const store = memoryStore();
-        await adminApi(hub, store, request('POST', 'advertisement', { text: '欢迎' }));
-        await adminApi(hub, store, request('POST', 'advertisement/1/show'));
+        const id = JSON.parse((await adminApi(hub, store, request('POST', 'advertisement', { text: '欢迎' })))!.body).response;
+        await adminApi(hub, store, request('POST', `advertisement/${id}/show`));
+        await vi.advanceTimersByTimeAsync(600);
         const screen: any[] = [];
         hub.subscribe('mainScreen', (event) => screen.push(event));
         const saved = hub.state();
-        await hub.reload(saved);
+        await hub.reload(stateEntries(saved), 2);
         expect(screen).toHaveLength(1); // snapshot only: nothing hidden or shown again
-        await hub.reload({ ...saved, presets: { ...saved.presets, advertisement: [{ ...saved.presets!.advertisement![0], settings: { text: '茶歇' } }] } });
+        await hub.reload({ [`preset/advertisement/${id}`]: { ...saved.presets!.advertisement![0], settings: { text: '茶歇' } } }, 3);
         expect(screen.at(-1)).toMatchObject({ type: 'ShowWidget', widget: { advertisement: { text: '茶歇' } } });
-        await hub.reload({ ...saved, presets: { ...saved.presets, advertisement: [] } });
+        await hub.reload({ [`preset/advertisement/${id}`]: null }, 4);
         expect(screen.at(-1)).toMatchObject({ type: 'HideWidget' });
-        expect(JSON.parse((await adminApi(hub, store, request('POST', 'advertisement', { text: 'x' })))!.body).response).toBe(2);
+        expect(JSON.parse((await adminApi(hub, store, request('POST', 'advertisement', { text: 'x' })))!.body).response).not.toBe(id);
         hub.dispose();
+    });
+
+    it.each([false, true])('orders remote writes arriving during an in-flight save (new local edit %s)', async (editAgain) => {
+        vi.useFakeTimers();
+        let acknowledge!: (revision: number) => void;
+        const persist = vi.fn(async (_patch: unknown) => 3)
+            .mockImplementationOnce(() => new Promise<number>((resolve) => { acknowledge = resolve; }));
+        const { hub } = makeHub({}, persist);
+        await hub.ready;
+        hub.controllers.queue.show();
+        await vi.advanceTimersByTimeAsync(500);
+        await hub.reload({ 'controller/queue': { settings: { horizontal: true }, showOrder: null } }, 2);
+        expect(hub.controllers.queue.status().shown).toBe(true);
+        if (editAgain) {
+            hub.controllers.queue.setSettings({ horizontal: true });
+            hub.controllers.queue.setSettings({ horizontal: false });
+        }
+        acknowledge(1);
+        await vi.advanceTimersByTimeAsync(600);
+        expect(hub.controllers.queue.status().shown).toBe(editAgain);
+        expect(hub.controllers.queue.settings.horizontal).toBe(!editAgain);
+        await hub.reload({ 'controller/queue': { settings: { horizontal: true }, showOrder: 99 } }, 1);
+        expect(hub.controllers.queue.status().shown).toBe(editAgain);
+        await hub.dispose();
+    });
+
+    it('clears a commentary mark when another process deletes its temporary item', async () => {
+        vi.useFakeTimers();
+        const { hub, persist } = makeHub(); await hub.refresh();
+        const message = hub.analytics.list()[0];
+        const comment = message.comments[0];
+        hub.analytics.showAdvertisement(message.id, comment.id, 30_000);
+        await vi.advanceTimersByTimeAsync(600);
+        const id = hub.advertisement.status()[0].id;
+        await hub.reload({ [`preset/advertisement/${id}`]: null }, 2);
+        expect(hub.analytics.list().find((item) => item.id === message.id)!.comments[0].advertisement).toBeNull();
+        await vi.advanceTimersByTimeAsync(600);
+        expect(persist).toHaveBeenCalledTimes(1);
+        await hub.dispose();
+    });
+
+    it('keeps a newer deletion while loading a remote title template', async () => {
+        let finishTemplate!: (value: string) => void;
+        let started!: () => void;
+        const loading = new Promise<void>((resolve) => { started = resolve; });
+        const hub = new LiveHub({
+            load: async () => null, persist: async () => 3,
+            template: () => { started(); return new Promise<string>((resolve) => { finishTemplate = resolve; }); },
+        });
+        await hub.ready;
+        const first = hub.reload({ 'preset/title/1': { id: 1, settings: { preset: 'slow.svg', data: {} }, showOrder: 1 } }, 1);
+        await loading;
+        const second = hub.reload({ 'preset/title/1': null }, 2);
+        hub.controllers.queue.show();
+        finishTemplate('<svg/>');
+        await Promise.all([first, second]);
+        expect(hub.title.status()).toEqual([]);
+        expect(hub.controllers.queue.status().shown).toBe(true);
+        await hub.dispose();
+    });
+
+    it('retries failed patches and only flushes locally changed entries on disposal', async () => {
+        vi.useFakeTimers();
+        const persist = vi.fn(async (_patch: unknown) => 2).mockRejectedValueOnce(new Error('connection lost'));
+        const { hub } = makeHub({}, persist);
+        await hub.ready;
+        hub.controllers.queue.show();
+        await vi.advanceTimersByTimeAsync(500);
+        await hub.reload({ 'preset/picture/8': { id: 8, settings: { url: '/8.png', name: 'remote' }, showOrder: null } }, 1);
+        await vi.advanceTimersByTimeAsync(500);
+        expect(persist).toHaveBeenCalledTimes(2);
+        expect(Object.keys(persist.mock.calls[1][0] as object)).toEqual(['controller/queue']);
+        expect(hub.picture.status()).toHaveLength(1);
+        hub.controllers.statistics.show();
+        await hub.dispose();
+        expect(Object.keys(persist.mock.calls.at(-1)![0] as object)).toEqual(['controller/statistics']);
+    });
+
+    it('ignores delayed notifications older than the snapshot loaded at startup', async () => {
+        const hub = new LiveHub({ load: async () => source(), persist: async () => 11, template: async () => null }, {
+            controllers: { queue: { settings: { horizontal: true }, showOrder: null } },
+        }, 10);
+        await hub.ready;
+        await hub.reload({ 'controller/queue': { settings: {}, showOrder: 5 }, 'preset/picture/1': { id: 1, settings: { url: '/old.png' }, showOrder: null } }, 9);
+        expect(hub.controllers.queue.status().shown).toBe(false);
+        expect(hub.picture.status()).toEqual([]);
+        await hub.dispose();
+    });
+
+    it('accepts JSON-wrapped visual config beyond the text limit and counts UTF-8 bytes', async () => {
+        const { hub } = makeHub(); await hub.ready;
+        const store = memoryStore();
+        for (const bytes of [56 * 1024 + 1, 200_000]) {
+            const value = JSON.stringify({ caption: 'x'.repeat(bytes - 14) });
+            expect(Buffer.byteLength(value)).toBe(bytes);
+            expect((await adminApi(hub, store, request('POST', 'visualConfig', { visualConfig: value })))!.status).toBe(200);
+            expect(await store.visualConfig()).toBe(value);
+        }
+        const before = await store.visualConfig();
+        for (const value of [JSON.stringify({ caption: 'x'.repeat(200_000) }), JSON.stringify({ caption: '中'.repeat(70_000) })]) {
+            const response = (await adminApi(hub, store, request('POST', 'visualConfig', { visualConfig: value })))!;
+            expect(response.status).toBe(400);
+            expect(JSON.parse(response.body).message).toContain('200 KB');
+            expect(await store.visualConfig()).toBe(before);
+        }
+        expect((await adminApi(hub, store, request('POST', 'visualConfig', { visualConfig: '{invalid' })))!.status).toBe(400);
+        await hub.dispose();
+    });
+
+    it('returns the missing camera message for object-form Featured run requests', async () => {
+        const { hub } = makeHub(); await hub.refresh();
+        const message = hub.analytics.list()[0];
+        const response = (await adminApi(hub, memoryStore(), request('POST', `analytics/${message.id}/featuredRun`, { mediaType: 'camera' })))!;
+        expect(response.status).toBe(400);
+        expect(JSON.parse(response.body).message).toBe('该队伍没有摄像头画面，无法使用 Featured run');
+        expect(hub.analytics.list()[0].featuredRun).toBeNull();
+        await hub.dispose();
     });
 
     it('keeps file names readable, backend addresses fixed and the clock on the server', async () => {
@@ -469,14 +590,14 @@ describe('live sub-boards and processes', () => {
         const announced: [string, unknown][] = [];
         let template = '<svg>{name} v1</svg>';
         const hub = new LiveHub({
-            load: async () => source(), persist: async () => {}, idleMs: 0,
+            load: async () => source(), persist: async () => 1, idleMs: 0,
             template: async () => template,
             announce: (kind, payload) => { announced.push([kind, payload]); },
         });
         await hub.refresh();
         const actions: string[] = [];
         hub.subscribe('adminActions', (uri) => actions.push(uri as string));
-        await hub.reload({ controllers: { 'teamView/PVP_TOP': { settings: { teamId: '1' }, showOrder: 3 }, queue: { settings: {}, showOrder: null } }, presets: { picture: [{ id: 4, settings: { url: '/a.png', name: 'a' }, showOrder: null }] } });
+        await hub.reload(stateEntries({ controllers: { 'teamView/PVP_TOP': { settings: { teamId: '1' }, showOrder: 3 }, queue: { settings: {}, showOrder: null } }, presets: { picture: [{ id: 4, settings: { url: '/a.png', name: 'a' }, showOrder: null }] } }), 1);
         expect(actions).toEqual(['/api/admin/teamPVP/PVP_TOP', '/api/admin/picture']);
         expect(announced).toEqual([]); // applying another process's state is not announced again
 
@@ -498,14 +619,14 @@ describe('live sub-boards and processes', () => {
 
         const message = hub.analytics.list()[0];
         await adminApi(hub, store, request('POST', `analytics/${message.id}/${message.comments[0].id}/advertisement`, {}, { ttl: '60000' }));
-        expect(announced.at(-1)).toEqual(['mark', expect.objectContaining({ messageId: message.id, field: 'advertisement', value: expect.objectContaining({ presetId: expect.any(Number) }) })]);
+        expect(announced.at(-1)).toEqual(['mark', expect.objectContaining({ messageId: message.id, field: 'advertisement', value: expect.objectContaining({ presetId: expect.any(String) }) })]);
         hub.applyMark({ messageId: message.id, commentId: message.comments[0].id, field: 'advertisement', value: null });
         expect(hub.analytics.list()[0].comments[0].advertisement).toBeNull();
         hub.dispose();
     });
 
     it('lets the director see the teams before the start while the overlay does not', async () => {
-        const hub = new LiveHub({ load: async () => source({ hidden: true }), persist: async () => {}, template: async () => null, idleMs: 0 });
+        const hub = new LiveHub({ load: async () => source({ hidden: true }), persist: async () => 1, template: async () => null, idleMs: 0 });
         await hub.refresh();
         expect(hub.info!.teams).toEqual([]);
         expect(hub.teams()).toHaveLength(8);

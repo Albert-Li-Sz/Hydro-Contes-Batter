@@ -1,0 +1,21 @@
+#hydro-monitor .monitor-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+#hydro-monitor .monitor-card { border: 1px solid rgba(127, 127, 127, .25); border-radius: 6px; padding: 12px 14px; }
+#hydro-monitor .monitor-card__value { font-size: 24px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+#hydro-monitor .monitor-card__label { margin-top: 4px; font-size: 13px; }
+#hydro-monitor .monitor-card__note { margin-top: 2px; font-size: 12px; opacity: .7; }
+#hydro-monitor .monitor-warning { border-color: #e6a23c; }
+#hydro-monitor .monitor-error { border-color: #e05d44; }
+#hydro-monitor .monitor-alerts { list-style: none; margin: 0 0 12px; padding: 0; }
+#hydro-monitor .monitor-alerts:empty { display: none; }
+#hydro-monitor .monitor-alert { padding: 8px 12px; border-radius: 4px; margin-bottom: 6px; border: 1px solid; }
+#hydro-monitor .monitor-alert.monitor-warning { background: rgba(230, 162, 60, .12); }
+#hydro-monitor .monitor-alert.monitor-error { background: rgba(224, 93, 68, .12); }
+#hydro-monitor .monitor-chart { display: block; width: 100%; height: auto; max-height: 220px; }
+#hydro-monitor .monitor-bar { fill: #5f9fd6; }
+#hydro-monitor .monitor-bar--ok { fill: #3cba54; }
+#hydro-monitor .monitor-axis { font-size: 11px; fill: currentColor; opacity: .65; }
+#hydro-monitor .monitor-scroll { overflow-x: auto; }
+#hydro-monitor .data-table { width: 100%; }
+#hydro-monitor .data-table td, #hydro-monitor .data-table th { white-space: nowrap; font-variant-numeric: tabular-nums; }
+#hydro-monitor .monitor-late { color: #e05d44; font-weight: 600; }
+#hydro-monitor .monitor-online { color: #3cba54; }

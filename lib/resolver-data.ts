@@ -102,6 +102,7 @@ export function prepareResolver(
         return {
             id: team.team_id, name: team.name, displayName: config.showSchool && school ? `${team.name}（${school}）` : team.name,
             organizationName: school, unrank,
+            ...team.members?.length ? { members: team.members } : {},
             logo: logoId && /^[a-f\d]{12}$/.test(logoId) ? `${resolverAssetBase}/logos/${logoId}.webp` : `${resolverAssetBase}/assets/img/icpc-logo.png`,
         };
     });

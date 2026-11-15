@@ -10,21 +10,18 @@ import { AnalyticsService, chineseAnalyticsTemplates, QueueService, SpotlightSer
 import type { ContestInfo, OptimismLevel, RunInfo, TeamInfo } from './types';
 import { optimismLevels } from './types';
 import {
-    ApiActionError, generateId, PresetsController, type PresetState, ShowOrderCounter, TickerManager, type TickerMessage, type Widget,
-    WidgetController, WidgetManager, type WidgetState,
+    ApiActionError, generateId, PresetsController, type PresetId, type PresetState, ShowOrderCounter, TickerManager, type TickerMessage, type Widget,
+    WidgetController, WidgetManager,
 } from './widgets';
 import * as S from './widget-settings';
+import { stateEntries, type LiveState, type LiveStateEntries, type LiveStatePatch } from './state';
+export type { LiveState } from './state';
 
 type Listener = (payload: unknown) => void;
 
-export interface LiveState {
-    controllers?: Record<string, WidgetState<unknown>>;
-    presets?: Record<string, PresetState<unknown>[]>;
-}
-
 export interface HubDependencies {
     load: () => Promise<LiveSource | null>;
-    persist: (state: LiveState) => Promise<void>;
+    persist: (patch: LiveStatePatch) => Promise<number>;
     /** SVG title templates by media name. */
     template: (name: string) => Promise<string | null>;
     /** Tell the other Hydro processes about an in-memory change (spotlight scores, commentary marks, templates). */
@@ -105,13 +102,20 @@ export class LiveHub {
     private spotlightTimer: NodeJS.Timeout | null = null;
     private rotationTimer: NodeJS.Timeout | null = null;
     private saveTimer: NodeJS.Timeout | null = null;
+    private observed: LiveStateEntries = {};
+    private pending: LiveStatePatch = {};
+    private inFlight: LiveStatePatch = {};
+    private saving: Promise<boolean> | null = null;
+    private versions = new Map<string, number>();
+    private remote = new Map<string, { revision: number; value: LiveStatePatch[string] }>();
+    private applyingRemote: Promise<void> | null = null;
     private lastActivity = 0;
     private refreshing: Promise<void> | null = null;
     private disposed = false;
     readonly ready: Promise<void>;
 
-    constructor(private deps: HubDependencies, state: LiveState = {}) {
-        const changed = () => this.scheduleSave();
+    constructor(private deps: HubDependencies, state: LiveState = {}, private baseRevision = 0) {
+        const changed = () => this.changed();
         const single = <T>(name: string, defaults: T, normalize: (input: unknown) => T, construct: (settings: T) => Widget | null, dynamic = false) => {
             const controller = new WidgetController<T, Widget>(defaults, this.widgets, this.counter, construct, (input) => normalize(input), changed, null, dynamic);
             this.controllers[name] = controller;
@@ -177,7 +181,14 @@ export class LiveHub {
         });
         this.queueService.subscribe((event) => this.publish('queue', event));
         this.spotlight.onChange(() => this.publishInteresting());
-        this.ready = this.restore(state);
+        this.ready = this.restore(state).then(() => {
+            this.observed = structuredClone(stateEntries(this.state()));
+            for (const [key, value] of Object.entries(stateEntries(state))) {
+                if (key.startsWith('preset/') && typeof (value as PresetState<unknown>).expiresAt === 'number'
+                    && (value as PresetState<unknown>).expiresAt! <= Date.now()) this.pending[key] = null;
+            }
+            if (Object.keys(this.pending).length) this.scheduleSave();
+        });
     }
 
     private async restore(state: LiveState) {
@@ -193,30 +204,59 @@ export class LiveHub {
         this.tickerMessage.load(state.presets?.tickerMessage);
     }
 
-    /**
-     * State saved by another Hydro process: apply it in place, without saving it again, and tell
-     * the consoles connected here which controls to reload.
-     */
-    async reload(state: LiveState) {
+    /** Apply committed entries only. Local unsaved changes keep their place until saved. */
+    async reload(patch: LiveStatePatch, revision: number) {
         await this.ready;
-        const before = this.state();
-        const titles = Array.isArray(state.presets?.title) ? state.presets!.title : [];
-        for (const item of titles) {
-            const name = (item?.settings as { preset?: unknown } | undefined)?.preset;
-            if (typeof name === 'string') await this.loadTemplate(name).catch(() => null);
+        if (this.disposed) return;
+        for (const [key, value] of Object.entries(patch)) {
+            if (revision <= (this.versions.get(key) ?? this.baseRevision) || revision <= (this.remote.get(key)?.revision ?? -1)) continue;
+            this.remote.set(key, { revision, value });
         }
-        for (const [name, controller] of Object.entries(this.controllers)) controller.load(state.controllers?.[name]);
-        this.advertisement.replace(state.presets?.advertisement);
-        this.picture.replace(state.presets?.picture);
-        this.title.replace(titles);
-        this.tickerMessage.replace(state.presets?.tickerMessage);
-        const after = this.state();
-        for (const name of Object.keys(this.controllers)) {
-            if (JSON.stringify(before.controllers?.[name]) !== JSON.stringify(after.controllers?.[name])) this.publish('adminActions', `/api/admin/${adminPath(name)}`);
+        await this.applyRemote();
+    }
+
+    private applyRemote(): Promise<void> {
+        if (this.applyingRemote) return this.applyingRemote;
+        this.applyingRemote = this.drainRemote().finally(() => { this.applyingRemote = null; });
+        return this.applyingRemote;
+    }
+
+    private async drainRemote() {
+        while (!this.disposed) {
+            const available = [...this.remote].find(([key]) => !(key in this.pending) && !(key in this.inFlight));
+            if (!available) return;
+            const [key, change] = available;
+            if (key.startsWith('preset/title/') && change.value) {
+                const name = (change.value.settings as { preset?: string })?.preset;
+                if (typeof name === 'string') await this.loadTemplate(name).catch(() => null);
+            }
+            // Loading a title may yield to another update, or a local edit.
+            if (this.disposed) return;
+            if (key in this.pending || key in this.inFlight) continue;
+            if (this.remote.get(key) !== change) continue;
+            this.remote.delete(key);
+            if (change.revision <= (this.versions.get(key) ?? this.baseRevision)) continue;
+            const before = this.observed[key];
+            let uri = '';
+            if (key.startsWith('controller/')) {
+                const name = key.slice(11);
+                this.controllers[name]?.load(change.value);
+                uri = `/api/admin/${adminPath(name)}`;
+            } else if (key.startsWith('preset/')) {
+                const [, name, idText] = key.split('/');
+                const presets = this.presetControllers()[name];
+                const id = /^\d+$/.test(idText) ? Number(idText) : idText;
+                presets?.apply(id, change.value as PresetState<unknown> | null);
+                uri = `/api/admin/${name}`;
+            }
+            this.versions.set(key, change.revision);
+            this.observed = structuredClone(stateEntries(this.state()));
+            if (uri && JSON.stringify(before) !== JSON.stringify(this.observed[key])) this.publish('adminActions', uri);
         }
-        for (const name of ['advertisement', 'picture', 'title', 'tickerMessage'] as const) {
-            if (JSON.stringify(before.presets?.[name]) !== JSON.stringify(after.presets?.[name])) this.publish('adminActions', `/api/admin/${name}`);
-        }
+    }
+
+    private presetControllers(): Record<string, typeof this.advertisement | typeof this.picture | typeof this.title | typeof this.tickerMessage> {
+        return { advertisement: this.advertisement, picture: this.picture, title: this.title, tickerMessage: this.tickerMessage };
     }
 
     /** A media file was uploaded again: titles using it are drawn with the new template. */
@@ -235,7 +275,7 @@ export class LiveHub {
     }
 
     /** A commentary mark made in another process. */
-    applyMark(payload: { messageId: string; commentId: string; field: 'advertisement' | 'tickerMessage'; value: { presetId: number; expirationTimeUnixMs: number | null } | null }) {
+    applyMark(payload: { messageId: string; commentId: string; field: 'advertisement' | 'tickerMessage'; value: { presetId: PresetId; expirationTimeUnixMs: number | null } | null }) {
         this.analytics.applyMark(payload.messageId, payload.commentId, payload.field, payload.value);
     }
 
@@ -280,13 +320,48 @@ export class LiveHub {
 
     // ---- persistence -------------------------------------------------------------------
 
+    private changed() {
+        const next = stateEntries(this.state());
+        for (const key of new Set([...Object.keys(this.observed), ...Object.keys(next)])) {
+            if (JSON.stringify(this.observed[key]) !== JSON.stringify(next[key])) this.pending[key] = structuredClone(next[key] ?? null);
+        }
+        this.observed = structuredClone(next);
+        this.scheduleSave();
+    }
+
     private scheduleSave() {
-        if (this.saveTimer || this.disposed) return;
+        if (this.saveTimer || this.saving || this.disposed) return;
         this.saveTimer = setTimeout(() => {
             this.saveTimer = null;
-            this.deps.persist(this.state()).catch((error) => this.log(`保存直播控件状态失败：${error?.message || error}`));
+            void this.flush();
         }, 500);
         this.saveTimer.unref?.();
+    }
+
+    private flush(): Promise<boolean> {
+        if (this.saving) return this.saving;
+        if (!Object.keys(this.pending).length) return Promise.resolve(true);
+        const patch = this.pending;
+        this.pending = {};
+        this.inFlight = patch;
+        this.saving = (async () => {
+            try {
+                const revision = await this.deps.persist(patch);
+                for (const key of Object.keys(patch)) this.versions.set(key, Math.max(revision, this.versions.get(key) ?? this.baseRevision));
+                return true;
+            } catch (error) {
+                // Keep newer edits and retry the failed fields, without overwriting unrelated state.
+                this.pending = { ...patch, ...this.pending };
+                this.log(`保存直播控件状态失败：${(error as Error)?.message || error}`);
+                return false;
+            } finally {
+                this.inFlight = {};
+                this.saving = null;
+                await this.applyRemote();
+                if (Object.keys(this.pending).length) this.scheduleSave();
+            }
+        })();
+        return this.saving;
     }
 
     state(): LiveState {
@@ -558,16 +633,16 @@ export class LiveHub {
 
     usageStatistics() { return this.widgets.usageStatistics(); }
 
-    dispose() {
+    async dispose() {
         this.disposed = true;
         if (this.timer) clearTimeout(this.timer);
         if (this.saveTimer) {
             clearTimeout(this.saveTimer);
             this.saveTimer = null;
-            this.deps.persist(this.state()).catch(() => null);
         }
         this.stopTimers();
         for (const presets of [this.advertisement, this.picture, this.title, this.tickerMessage]) presets.dispose();
         this.channels.clear();
+        if (await this.flush()) await this.flush();
     }
 }

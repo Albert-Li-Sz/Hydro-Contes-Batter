@@ -54,3 +54,9 @@
 
 - 滚榜观众画面按场馆使用需求不再脱敏，与主持端显示相同的身份。
 - `public/js/render/presentation-view.js` 的 `formatClock()` 与 `public/js/render/java-contest.js` 的 `formatTime()` 去掉按 48 小时取余，多日比赛的时钟、倒计时和榜单顶部时间显示完整小时数。新增 `java-contest.d.ts` 类型声明供插件测试使用。
+
+## 0.8.2 的调整（组队比赛）
+
+- `server/lib/engine.js` 的 `normalizeContest()` 保留队伍的 `members`（最多 10 个名字，各不超过 64 个字符），`publicContest()` 随队伍一起输出。
+- `public/js/render/resolver-view.js` 的 `_renderTeamAward()` 在队名下方以小号灰字显示队员（仅当队伍有队员时），其余绘制不变。
+

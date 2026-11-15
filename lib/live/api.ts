@@ -211,8 +211,8 @@ export async function adminApi(hub: LiveHub, store: LiveStore, request: ApiReque
                 return controller.createTemporaryFromInput(body, ms);
             });
         }
-        const id = Number(idText);
-        if (!Number.isInteger(id)) return action(() => { throw new ApiActionError('Error load preset by id'); });
+        const id = /^\d+$/.test(idText) ? Number(idText) : idText;
+        if (!/^[\w-]+$/.test(idText) || (typeof id === 'number' && !Number.isSafeInteger(id))) return action(() => { throw new ApiActionError('Error load preset by id'); });
         if (!op && method === 'POST') return action(async () => { await before?.(body); controller.edit(id, body); });
         if (!op && method === 'DELETE') return action(() => controller.delete(id));
         if (op === 'show' && method === 'POST') return action(() => controller.show(id));
@@ -258,7 +258,7 @@ export async function adminApi(hub: LiveHub, store: LiveStore, request: ApiReque
         const [messageId, second, third] = rest;
         if (second === 'featuredRun' && rest.length === 2) {
             // The body names a TeamMediaType; Hydro teams carry no camera or screen media.
-            if (method === 'POST') return action(() => hub.analytics.makeFeatured(messageId, typeof body === 'string' ? body : 'camera'));
+            if (method === 'POST') return action(() => hub.analytics.makeFeatured(messageId, typeof body === 'string' ? body : (body as { mediaType?: string })?.mediaType || 'camera'));
             if (method === 'DELETE') return action(() => hub.analytics.makeNotFeatured(messageId));
         }
         if ((third === 'advertisement' || third === 'tickerMessage') && rest.length === 3) {
@@ -307,8 +307,9 @@ export async function adminApi(hub: LiveHub, store: LiveStore, request: ApiReque
         if (method === 'GET') return text(await store.visualConfig() || '{}');
         if (method === 'POST') {
             return action(async () => {
-                const value = typeof body === 'string' ? body : JSON.stringify(body);
-                if (value.length > 200000) throw new ApiActionError('Visual config is too large');
+                const wrapped = (body as { visualConfig?: unknown })?.visualConfig;
+                const value = typeof wrapped === 'string' ? wrapped : typeof body === 'string' ? body : JSON.stringify(body);
+                if (Buffer.byteLength(value, 'utf8') > 200_000) throw new ApiActionError('画面配置不能超过 200 KB（UTF-8 编码）');
                 let parsed: unknown;
                 try {
                     parsed = JSON.parse(value);

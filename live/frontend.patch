@@ -1,5 +1,5 @@
 diff --git a/src/frontend/admin-configuration/src/components/ConfigurationEditor.tsx b/src/frontend/admin-configuration/src/components/ConfigurationEditor.tsx
-index 127f40f..c48360a 100644
+index 127f40f..de946c7 100644
 --- a/src/frontend/admin-configuration/src/components/ConfigurationEditor.tsx
 +++ b/src/frontend/admin-configuration/src/components/ConfigurationEditor.tsx
 @@ -13,7 +13,6 @@ import Typography from "@mui/material/Typography";
@@ -9,10 +9,10 @@ index 127f40f..c48360a 100644
 -import Editor from "@monaco-editor/react";
  import { BASE_URL_BACKEND } from "../config.ts";
  import CsvCodeEditor from "./atoms/CsvEditor.tsx";
- 
+
 @@ -81,12 +80,17 @@ function ExamplesContainer({
              </FormControl>
- 
+
              {currentExample && (
 -                <Editor
 -                    options={{ readOnly: true }}
@@ -34,6 +34,21 @@ index 127f40f..c48360a 100644
              )}
          </Container>
      );
+@@ -137,8 +141,12 @@ export function ConfigurationEditor({
+
+     const onSubmit = () => {
+         if (content === undefined) return;
+-        apiPost("", content, "POST", true).catch(
+-            errorHandler("Failed to save advanced json data"),
++        if (new TextEncoder().encode(content).length > 200_000) {
++            enqueueSnackbar("画面配置不能超过 200 KB（UTF-8 编码）", { variant: "error" });
++            return;
++        }
++        apiPost("", { visualConfig: content }).catch(
++            errorHandler("保存画面配置失败"),
+         );
+     };
+
 diff --git a/src/frontend/admin-configuration/src/components/atoms/CsvEditor.tsx b/src/frontend/admin-configuration/src/components/atoms/CsvEditor.tsx
 index 98d9652..93f6cd2 100644
 --- a/src/frontend/admin-configuration/src/components/atoms/CsvEditor.tsx
@@ -43,14 +58,14 @@ index 98d9652..93f6cd2 100644
 -import Editor, { OnMount, OnChange, Monaco } from "@monaco-editor/react";
 +import React from "react";
 +import { TextCodeEditor } from "./TextCodeEditor";
- 
+
  interface CsvEditorProps {
      defaultValue: string;
 -    onChange: OnChange;
 +    onChange: (value: string) => void;
      readonly: boolean;
  }
- 
+
 -function CsvCodeEditor({
 -    defaultValue,
 -    onChange,
@@ -95,7 +110,7 @@ index 98d9652..93f6cd2 100644
 +function CsvCodeEditor(props: CsvEditorProps): React.ReactElement {
 +    return <TextCodeEditor {...props} />;
  }
- 
+
  export default CsvCodeEditor;
 diff --git a/src/frontend/admin-configuration/src/components/atoms/JsonEditor.tsx b/src/frontend/admin-configuration/src/components/atoms/JsonEditor.tsx
 index 6d226b5..33027c5 100644
@@ -106,9 +121,9 @@ index 6d226b5..33027c5 100644
 -import Editor, { OnMount, OnChange, Monaco } from "@monaco-editor/react";
 +import React from "react";
 +import { TextCodeEditor } from "./TextCodeEditor";
- 
+
  type JSONSchema = Record<string, unknown>;
- 
+
  interface JsonEditorProps {
      schema: JSONSchema;
      defaultValue: string;
@@ -116,7 +131,7 @@ index 6d226b5..33027c5 100644
 +    onChange: (value: string) => void;
      readonly: boolean;
  }
- 
+
 +function validateJson(value: string): string | null {
 +    try {
 +        JSON.parse(value);
@@ -298,7 +313,7 @@ index 03b9977..753f257 100644
 -    SettingsJsonPage,
 -} from "./components/ConfigurationEditor";
 +import { VisualConfigPage } from "./components/ConfigurationEditor";
- 
+
  export interface AdminConfigurationPage {
      name: string;
 @@ -22,31 +16,11 @@ export const adminConfigurationPages: AdminConfigurationPage[] = [
@@ -331,7 +346,7 @@ index 03b9977..753f257 100644
 -        element: <OrgCustomFieldsPage />,
 -    },
  ];
- 
+
  export function getAdminConfigurationMenuItems(
 diff --git a/src/frontend/admin-home-page/src/AdminHomePage.tsx b/src/frontend/admin-home-page/src/AdminHomePage.tsx
 index fbc4cba..10f286d 100644
@@ -341,19 +356,19 @@ index fbc4cba..10f286d 100644
  import { Box, Typography, Link, List, ListItem, Paper } from "@mui/material";
  import { useEffect, useState } from "react";
 +import { ADMIN_BACKEND_ROOT } from "./branding";
- 
+
  export const AdminHomePage = () => {
      const [gitInfo, setGitInfo] = useState<{
 @@ -12,12 +13,12 @@ export const AdminHomePage = () => {
      >([]);
- 
+
      useEffect(() => {
 -        fetch("/main-page/git")
 +        fetch(`${ADMIN_BACKEND_ROOT}/main-page/git`)
              .then((response) => response.json())
              .then((data) => setGitInfo(data))
              .catch((error) => console.error("Error fetching git info:", error));
- 
+
 -        fetch("/main-page/links")
 +        fetch(`${ADMIN_BACKEND_ROOT}/main-page/links`)
              .then((response) => response.json())
@@ -365,19 +380,19 @@ index e2e4fc1..09549a9 100644
 +++ b/src/frontend/admin-home-page/src/branding.tsx
 @@ -7,7 +7,7 @@ const BACKEND_PROTO =
      window.location.protocol === "https:" ? "https://" : "http://";
- 
+
  export const ADMIN_BACKEND_ROOT =
 -    import.meta.env.VITE_BACKEND_ROOT ??
 +    (window as unknown as { __HYDRO_LIVE__?: { root: string } }).__HYDRO_LIVE__?.root ??
      BACKEND_PROTO + window.location.hostname + ":" + window.location.port;
- 
+
  const hexToRgb = (hex: string) => {
 diff --git a/src/frontend/admin-overlay/src/App.tsx b/src/frontend/admin-overlay/src/App.tsx
 index f265976..917135e 100644
 --- a/src/frontend/admin-overlay/src/App.tsx
 +++ b/src/frontend/admin-overlay/src/App.tsx
 @@ -114,7 +114,7 @@ export function AdminApp() {
- 
+
  function App() {
      return (
 -        <BrowserRouter basename={import.meta.env.BASE_URL ?? ""}>
@@ -420,6 +435,36 @@ index e176c60..bf528df 100644
 +export const BASE_URL_WS = HYDRO_LIVE.adminWs;
  export const WEBSOCKET_RECONNECT_TIME = 5000;
  export const ADMIN_ACTIONS_WS_URL = BASE_URL_WS + "/adminActions";
+diff --git a/src/frontend/admin-overlay/src/services/analytics.ts b/src/frontend/admin-overlay/src/services/analytics.ts
+index 7ddf644..940a7c2 100644
+--- a/src/frontend/admin-overlay/src/services/analytics.ts
++++ b/src/frontend/admin-overlay/src/services/analytics.ts
+@@ -1,4 +1,6 @@
+ import { useCallback, useEffect, useMemo, useState } from "react";
++import { useSnackbar } from "notistack";
++import { errorHandlerWithSnackbar } from "@shared/errors.ts";
+ import { useWebsocket } from "@admin/utils";
+ import { BASE_URL_BACKEND, BASE_URL_WS } from "@admin/config";
+ import {
+@@ -21,6 +23,7 @@ export type FeaturedRunStatus = {
+     teamInfo: TeamInfo;
+ };
+ export const useAnalyticsService = () => {
++    const { enqueueSnackbar } = useSnackbar();
+     const [messages, setMessages] = useState<{
+         [id: string]: AnalyticsMessage;
+     }>({});
+@@ -123,7 +126,9 @@ export const useAnalyticsService = () => {
+         );
+
+     const makeFeaturedRun = (messageId: string, mediaType: TeamMediaType) =>
+-        apiPost("/" + messageId + "/featuredRun", mediaType, "POST");
++        apiPost("/" + messageId + "/featuredRun", { mediaType }, "POST").catch(
++            errorHandlerWithSnackbar(enqueueSnackbar)("放大播放失败"),
++        );
+     const makeNotFeaturedRun = (messageId: string) =>
+         apiPost("/" + messageId + "/featuredRun", undefined, "DELETE");
+
 diff --git a/src/frontend/admin-overlay/src/services/controlsWidget.ts b/src/frontend/admin-overlay/src/services/controlsWidget.ts
 index 99cc341..7bb166b 100644
 --- a/src/frontend/admin-overlay/src/services/controlsWidget.ts
@@ -432,11 +477,11 @@ index 99cc341..7bb166b 100644
 +
 +
 +const HYDRO_OVERLAY_API = (window as unknown as { __HYDRO_LIVE__: { overlayApi: string } }).__HYDRO_LIVE__.overlayApi;
- 
+
  interface ControlElement {
      text: string;
 @@ -52,8 +54,8 @@ export class ControlsWidgetService extends AbstractWidgetImpl<ControlElementSett
- 
+
      private async loadVisualConfig(): Promise<string[]> {
          try {
 -            const config = await createApiGet(BACKEND_ROOT)(
@@ -446,19 +491,44 @@ index 99cc341..7bb166b 100644
              );
              return config.ADMIN_HIDE_CONTROL ?? [];
          } catch (error) {
+diff --git a/src/frontend/common/src/errors.ts b/src/frontend/common/src/errors.ts
+index 799a87c..79851ad 100644
+--- a/src/frontend/common/src/errors.ts
++++ b/src/frontend/common/src/errors.ts
+@@ -11,6 +11,6 @@ export const errorHandlerWithSnackbar =
+     (snackBarEnqueue: SnackBarEnqueue) => (cause: string) => {
+         return (error: Error) => {
+             console.error(cause + ": " + error);
+-            snackBarEnqueue(cause, { variant: "error" });
++            snackBarEnqueue(error.message ? `${cause} · ${error.message}` : cause, { variant: "error" });
+         };
+     };
+diff --git a/src/frontend/common/src/utils.ts b/src/frontend/common/src/utils.ts
+index e0c89a5..4fb8075 100644
+--- a/src/frontend/common/src/utils.ts
++++ b/src/frontend/common/src/utils.ts
+@@ -23,7 +23,7 @@ export const createApiPost: (apiUrl: string) => ApiPostClient = (apiUrl) => {
+             .then((response) => response.json())
+             .then((response) => {
+                 if (response.status !== "ok") {
+-                    throw new Error("Server return not ok status: " + response);
++                    throw new Error(response.message || "Server returned an unsuccessful response");
+                 }
+                 return response;
+             });
 diff --git a/src/frontend/overlay/src/components/organisms/widgets/scoreboard/ScoreboardContainer.tsx b/src/frontend/overlay/src/components/organisms/widgets/scoreboard/ScoreboardContainer.tsx
 index 79cee2c..9f77f8f 100644
 --- a/src/frontend/overlay/src/components/organisms/widgets/scoreboard/ScoreboardContainer.tsx
 +++ b/src/frontend/overlay/src/components/organisms/widgets/scoreboard/ScoreboardContainer.tsx
 @@ -61,6 +61,9 @@ interface ScoreboardRowsProps {
- 
+
  const ScoreboardRows = ({ settings, onPage }: ScoreboardRowsProps) => {
      const rows = useScoreboardRows(settings.optimismLevel, settings.group);
 +    // Hydro: a sub-board shows its own ranks and medals.
 +    const group =
 +        settings.group && settings.group !== "all" ? settings.group : null;
      const rowHeight = c.SCOREBOARD_ROW_HEIGHT + c.SCOREBOARD_ROW_PADDING;
- 
+
      const targetScrollPos = useScroller(
 @@ -142,8 +145,18 @@ const ScoreboardRows = ({ settings, onPage }: ScoreboardRowsProps) => {
                      subscribeScroll={subscribe}
@@ -490,7 +560,7 @@ index ce030a2..eb2e5a8 100644
  import type { OverlayConfig, OverlayConfigOverride } from "./config.interface";
  import { AwardEffect } from "@/utils/awards";
 +import { Settings } from "luxon";
- 
+
 -const WS_PROTO = window.location.protocol === "https:" ? "wss://" : "ws://";
 -const HTTP_PROTO =
 -    window.location.protocol === "https:" ? "https://" : "http://";
@@ -503,7 +573,7 @@ index ce030a2..eb2e5a8 100644
 +const VISUAL_CONFIG_URL = `${HYDRO_LIVE.overlayApi}/visualConfig.json`;
 +// Hydro: clocks follow the server's time (the page keeps HYDRO_LIVE.clockOffset measured).
 +Settings.now = () => Date.now() + (HYDRO_LIVE.clockOffset ?? 0);
- 
+
  const urlParams = new URLSearchParams(window.location.search);
  const queryVisualConfig = JSON.parse(
 @@ -41,19 +40,8 @@ function getDefaultConfig(): EvaluatableTo<OverlayConfig> {
@@ -525,7 +595,7 @@ index ce030a2..eb2e5a8 100644
 -            "/api/overlay",
 +        BASE_URL_WS: HYDRO_LIVE.overlayWs,
 +        BASE_URL_BACKEND: HYDRO_LIVE.overlayApi,
- 
+
          // Non Styling configs
          WEBSOCKET_RECONNECT_TIME: 5000, // ms
 diff --git a/src/frontend/overlay/src/redux/contest/scoreboard.ts b/src/frontend/overlay/src/redux/contest/scoreboard.ts
@@ -540,7 +610,7 @@ index d8fd89d..46a0040 100644
 +    groupRankById: Record<string, Record<TeamId, number>>;
 +    groupIdAwards: Record<string, Record<TeamId, Exclude<Award, "teams">[]>>;
  };
- 
+
  export type ScoreboardState = {
 @@ -33,6 +36,8 @@ const initialState: ScoreboardState = Object.fromEntries(
              awards: [],
@@ -554,7 +624,7 @@ index d8fd89d..46a0040 100644
 @@ -88,6 +93,39 @@ const scoreboardSlice = createSlice({
                  s.rankById = nextRankById;
              }
- 
+
 +            const hydroGroups =
 +                (
 +                    diff as ScoreboardDiff & {

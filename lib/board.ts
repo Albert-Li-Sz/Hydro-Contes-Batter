@@ -8,6 +8,8 @@ export interface BoardTeam {
     name: string;
     organization?: string;
     group: string[];
+    /** Members of a Hydro team (team contests only); XCPCIO shows them with the team. */
+    members?: string[];
     [key: string]: unknown;
 }
 

@@ -689,6 +689,12 @@ function normalizeDurationValue(value, fallback) {
   return fallback;
 }
 
+// Hydro: up to ten member names of a team, as plain text.
+function teamMembers(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((name) => typeof name === 'string' && name.trim()).slice(0, 10).map((name) => name.trim().slice(0, 64));
+}
+
 function groupIdsOf(team) {
   const ids = team.groupIds ?? team.group_ids;
   return Array.isArray(ids) ? ids.slice(0, 20).map((id) => String(id).slice(0, 100)) : [];
@@ -771,6 +777,8 @@ export function normalizeContest(input) {
       logo: normalizeLogo(t.logo ?? org?.logo),
       logoSource: t.logo ? (['hydro', 'default', 'organization', 'manual', 'library'].includes(t.logoSource) ? t.logoSource : undefined) : 'organization',
       photo: normalizeLogo(t.photo),
+      // Hydro: members of a team (team contests), shown on the award page.
+      ...(teamMembers(t.members).length ? { members: teamMembers(t.members) } : {}),
       ...(groupIdsOf(t).length ? { groupIds: groupIdsOf(t) } : {}),
       ...(floorLocation(t.location) ? { location: floorLocation(t.location) } : {}),
     };
@@ -1151,6 +1159,7 @@ function publicContest(contest) {
       logo: t.logo,
       logoSource: t.logoSource,
       photo: t.photo,
+      ...(t.members ? { members: t.members.slice() } : {}),
     })),
     awards: contest.awards.map((a) => ({
       id: a.id,

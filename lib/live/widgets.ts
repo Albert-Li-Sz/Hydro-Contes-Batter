@@ -2,7 +2,9 @@
  * Overlay widget state, ported from ICPC Live v3 backend (data/*Manager.kt, controllers/*.kt, MIT).
  * Kotlin flows become plain listeners: everything runs on Node's single thread.
  */
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
+
+export type PresetId = number | string;
 
 export class ApiActionError extends Error {}
 
@@ -159,7 +161,7 @@ export class WidgetController<S, W extends Identified> {
         private construct: (settings: S) => W | null,
         private normalize: (input: unknown, current: S) => S,
         private onChange: () => void,
-        public readonly id: number | null = null,
+        public readonly id: PresetId | null = null,
         /** Items whose content depends on contest data compare by content, not by id. */
         private dynamic = false,
     ) {
@@ -246,7 +248,7 @@ export class WidgetController<S, W extends Identified> {
 }
 
 export interface PresetState<S> extends WidgetState<S> {
-    id?: number;
+    id?: PresetId;
     /** Temporary items (shown with a time to live) disappear at this time. */
     expiresAt?: number | null;
 }
@@ -256,7 +258,7 @@ export interface PresetState<S> extends WidgetState<S> {
  * saved with the items, so every Hydro process (and a restart) refers to an item by the same id.
  */
 export class PresetsController<S, W extends Identified> {
-    private entries: { controller: WidgetController<S, W>; expiresAt: number | null; timer?: NodeJS.Timeout; onDelete?: (id: number) => void }[] = [];
+    private entries: { controller: WidgetController<S, W>; expiresAt: number | null; timer?: NodeJS.Timeout; onDelete?: (id: PresetId) => void }[] = [];
     private lastId = 0;
 
     constructor(
@@ -267,8 +269,8 @@ export class PresetsController<S, W extends Identified> {
         private onChange: () => void,
     ) {}
 
-    private create(settings: S, id = this.lastId + 1, expiresAt: number | null = null) {
-        this.lastId = Math.max(this.lastId, id);
+    private create(settings: S, id: PresetId = randomUUID(), expiresAt: number | null = null) {
+        if (typeof id === 'number') this.lastId = Math.max(this.lastId, id);
         const controller = new WidgetController<S, W>(settings, this.manager, this.counter, this.construct,
             (input, current) => this.normalize(input, current), this.onChange, id);
         const entry: PresetsController<S, W>['entries'][number] = { controller, expiresAt };
@@ -283,12 +285,13 @@ export class PresetsController<S, W extends Identified> {
     /** Saved items: created, updated in place (same id) or removed, without reporting a change. */
     load(states: unknown) {
         if (!Array.isArray(states)) return;
-        const keep = new Set<number>();
+        const keep = new Set<PresetId>();
         for (const state of states as PresetState<unknown>[]) {
             try {
                 const expiresAt = typeof state?.expiresAt === 'number' ? state.expiresAt : null;
                 if (expiresAt !== null && expiresAt <= Date.now()) continue;
-                const id = Number.isSafeInteger(state?.id) && state.id! > 0 && !keep.has(state.id!) ? state.id! : this.lastId + 1;
+                const valid = typeof state?.id === 'string' ? /^[\w-]+$/.test(state.id) : Number.isSafeInteger(state?.id) && state.id! > 0;
+                const id = valid && !keep.has(state.id!) ? state.id! : this.lastId + 1;
                 const settings = this.normalize(state?.settings);
                 keep.add(id);
                 const existing = this.entries.find((entry) => entry.controller.id === id);
@@ -301,12 +304,26 @@ export class PresetsController<S, W extends Identified> {
 
     /** Replace every item with the saved list (another Hydro process changed it). */
     replace(states: unknown) {
-        const keep = this.load(Array.isArray(states) ? states : []) || new Set<number>();
+        const keep = this.load(Array.isArray(states) ? states : []) || new Set<PresetId>();
         for (const entry of this.entries.filter((candidate) => !keep.has(candidate.controller.id!))) {
             if (entry.timer) clearTimeout(entry.timer);
             entry.controller.destroySilently();
         }
         this.entries = this.entries.filter((entry) => keep.has(entry.controller.id!));
+    }
+
+    /** Apply just the preset changed by another process. */
+    apply(id: PresetId, state: PresetState<unknown> | null) {
+        if (state) {
+            this.load([state]);
+            return;
+        }
+        const entry = this.entries.find((item) => item.controller.id === id);
+        if (!entry) return;
+        if (entry.timer) clearTimeout(entry.timer);
+        entry.controller.destroySilently();
+        this.entries = this.entries.filter((item) => item !== entry);
+        entry.onDelete?.(id);
     }
 
     get persistentState(): PresetState<S>[] {
@@ -320,7 +337,7 @@ export class PresetsController<S, W extends Identified> {
         for (const entry of this.entries) if (matches(entry.controller.settings)) entry.controller.sync(true);
     }
 
-    private find(id: number) {
+    private find(id: PresetId) {
         const entry = this.entries.find((candidate) => candidate.controller.id === id);
         if (!entry) throw new ApiActionError('No such id');
         return entry;
@@ -333,8 +350,8 @@ export class PresetsController<S, W extends Identified> {
     }
 
     /** An item that deletes itself after `ttlMs`. */
-    createTemporary(settings: S, ttlMs: number, onDelete?: (id: number) => void) {
-        const entry = this.create(settings, this.lastId + 1, Date.now() + ttlMs);
+    createTemporary(settings: S, ttlMs: number, onDelete?: (id: PresetId) => void) {
+        const entry = this.create(settings, randomUUID(), Date.now() + ttlMs);
         entry.onDelete = onDelete;
         this.onChange();
         return entry.controller.id!;
@@ -347,12 +364,12 @@ export class PresetsController<S, W extends Identified> {
         return id;
     }
 
-    edit(id: number, input: unknown) { this.find(id).controller.setSettings(input); }
-    show(id: number) { this.find(id).controller.show(); }
-    hide(id: number) { this.find(id).controller.hide(); }
-    preview(id: number) { return this.find(id).controller.preview(); }
+    edit(id: PresetId, input: unknown) { this.find(id).controller.setSettings(input); }
+    show(id: PresetId) { this.find(id).controller.show(); }
+    hide(id: PresetId) { this.find(id).controller.hide(); }
+    preview(id: PresetId) { return this.find(id).controller.preview(); }
 
-    delete(id: number) {
+    delete(id: PresetId) {
         const entry = this.entries.find((candidate) => candidate.controller.id === id);
         if (!entry) return;
         this.entries = this.entries.filter((candidate) => candidate !== entry);

@@ -8,7 +8,7 @@ import { defaultProfileFields } from '../lib/roster';
 import { ResolverSessions } from '../lib/resolver-sessions';
 import { previewDatabase } from '../preview/resolver-memory-db';
 
-const state = vi.hoisted(() => ({ entries: [] as any[], users: {} as Record<number, any>, locked: false, ended: true, started: true, contest: null as any, director: null as any }));
+const state = vi.hoisted(() => ({ entries: [] as any[], users: {} as Record<number, any>, locked: false, ended: true, started: true, contest: null as any, director: null as any, records: [] as any[], judges: [] as any[] }));
 vi.mock('hydrooj', () => {
     class ObjectId {
         constructor(public value: string) {}
@@ -43,7 +43,9 @@ vi.mock('hydrooj', () => {
             isDone: () => state.ended, isLocked: () => state.locked,
             canShowScoreboard(this: any, tdoc: any) { return state.started || this.user.own(tdoc) || this.user.hasPerm(2n); },
         },
-        UserModel: { getList: vi.fn(async () => state.users), getById: vi.fn(async () => state.director) },
+        RecordModel: { getMulti: vi.fn(() => ({ toArray: async () => state.records })) },
+        TaskModel: { count: vi.fn(async () => 2) },
+        UserModel: { getList: vi.fn(async (_domainId: string, uids: number[]) => Object.fromEntries(uids.filter((uid) => state.users[uid]).map((uid) => [uid, state.users[uid]]))), getById: vi.fn(async () => state.director) },
     };
 });
 import { ObjectId, STATUS } from 'hydrooj';
@@ -53,8 +55,7 @@ function record(second: number, status = STATUS.STATUS_ACCEPTED, suffix = 1) {
     return { rid: `${Math.floor(second).toString(16)}${suffix.toString(16).padStart(16, '0')}`, pid: 100, status };
 }
 
-function setup(saved = new Map<string, any>(), config: Record<string, unknown> = {}) {
-    const resolverDb = previewDatabase();
+function setup(saved = new Map<string, any>(), config: Record<string, unknown> = {}, resolverDb = previewDatabase()) {
     const routes = new Map<string, any>();
     let view: any;
     let middleware: any;
@@ -63,7 +64,8 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
         updateOne: async ({ _id }: { _id: string }, { $set }: any) => { saved.set(_id, structuredClone($set)); },
     };
     const ctx: any = {
-        db: { collection: (name: string) => name.startsWith('xcpcio.resolver.') || name === 'xcpcio.screens' || name.startsWith('xcpcio.live') ? resolverDb.db.collection(name as any) : collection },
+        db: { collection: (name: string) => (name === 'status' ? { find: () => ({ toArray: async () => state.judges }) }
+            : name.startsWith('xcpcio.resolver.') || name === 'xcpcio.screens' || name.startsWith('xcpcio.live') ? resolverDb.db.collection(name as any) : collection) },
         Route: (name: string, _path: string, handler: any) => { routes.set(name, handler); },
         Connection: (name: string, _path: string, handler: any) => { routes.set(name, handler); },
         effect: vi.fn(),
@@ -85,6 +87,7 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
         resolver: (name = '') => new (routes.get(`contest_resolver${name}`))(),
         screens: (name = 's') => new (routes.get(`contest_xcpcio_screen${name}`))(),
         live: (name = '') => new (routes.get(`contest_xcpcio_live${name}`))(),
+        monitor: (name = '') => new (routes.get(`contest_xcpcio_monitor${name}`))(),
         resolverTables: resolverDb.tables,
         hooks: ctx.on,
         broadcast: ctx.broadcast,
@@ -105,6 +108,58 @@ beforeEach(() => {
 });
 
 describe('Hydro 数据与权限', () => {
+    it('评测监控：只有比赛管理员可看，按队伍统计组队比赛的提交', async () => {
+        state.contest.allowTeam = true;
+        const begin = state.contest.beginAt.getTime() / 1000;
+        state.entries = [{ uid: -1001, unrank: false, displayName: '星火队', members: [2, 3], journal: [] }];
+        state.users = { [-1001]: { _id: -1001, uname: 'team:2:ab', displayName: '星火队' }, 2: { _id: 2, uname: 'lin', displayName: '林澈' }, 3: { _id: 3, uname: 'zhou' } };
+        const rid = (second: number, n: number) => `${Math.floor(begin + second).toString(16)}${n.toString(16).padStart(16, '0')}`;
+        state.records = [
+            { _id: rid(600, 1), status: 1, uid: 2, pid: 100, lang: 'cc', judgeAt: new Date((begin + 610) * 1000) },
+            { _id: rid(700, 2), status: 0 /* Hydro STATUS_WAITING (the mock numbers its STATUS differently) */, uid: 3, pid: 100, lang: 'py' },
+        ];
+        state.judges = [{ mid: 'judge-1', updateAt: new Date() }];
+        const app = setup(); await app.init();
+        const guest = app.monitor('_data'); guest.user._id = 0;
+        await expect(guest.prepare('system', state.contest.docId)).rejects.toThrow('PrivilegeError');
+        await expect(app.monitor('_data').prepare('system', state.contest.docId)).rejects.toThrow('Forbidden');
+        const page = app.monitor(); page.user.own = () => true;
+        await page.prepare('system', state.contest.docId); await page.get();
+        expect(JSON.parse(page.response.body.runtimeJson).dataUrl).toBe(`/d/system/contest/${state.contest.docId}/monitor/data`);
+        const data = app.monitor('_data'); data.user.own = () => true;
+        await data.prepare('system', state.contest.docId); await data.get();
+        const body = JSON.parse(data.response.body);
+        expect(body.summary).toMatchObject({ total: 2, accepted: 1, pending: 1, queueLength: 2, judgesOnline: 1 });
+        expect(body.pending[0]).toMatchObject({ team: '星火队', problem: 'A', lang: 'py' });
+        expect(body.perProblem[0]).toMatchObject({ label: 'A', solvedTeams: 1 });
+    });
+    it('组队比赛：队伍用公开队名，队员按身份规则显示，单人参赛仍是一人一队', async () => {
+        state.contest.allowTeam = true;
+        const begin = state.contest.beginAt.getTime() / 1000;
+        state.entries = [
+            { uid: -1001, unrank: false, displayName: '星火队', members: [2, 3], journal: [record(begin + 600)] },
+            { uid: 1, unrank: false, journal: [record(begin + 900, STATUS.STATUS_ACCEPTED, 2)] },
+        ];
+        state.users = {
+            [-1001]: { _id: -1001, uname: 'team:2:ab12cd', displayName: '星火队' },
+            1: { _id: 1, uname: '测试选手', school: '南京晓庄学院', avatar: '' },
+            2: { _id: 2, uname: 'lin', displayName: '林澈', school: '东南大学' },
+            3: { _id: 3, uname: 'zhou', displayName: '周宁', school: '东南大学' },
+        };
+        const pub = await loadContestData(state.contest as Tdoc, false);
+        expect(pub.teams).toEqual([
+            { team_id: '-1001', name: '星火队', organization: undefined, group: ['official'], members: ['lin', 'zhou'] },
+            { team_id: '1', name: '测试选手', organization: undefined, group: ['official'] },
+        ]);
+        expect(pub.submissions.map((item) => item.team_id)).toEqual(['-1001', '1']);
+        const full = await loadContestData(state.contest as Tdoc, false, true);
+        expect(full.teams[0]).toMatchObject({ organization: '东南大学', members: ['林澈', '周宁'] });
+        const roster = await loadRoster(state.contest as Tdoc);
+        expect(roster[0]).toMatchObject({ team_id: '-1001', name: '星火队', organization: '东南大学', members: ['林澈', '周宁'] });
+        // Not a team contest: members are not loaded, nobody gets a member list.
+        state.contest.allowTeam = false;
+        expect((await loadContestData(state.contest as Tdoc, false)).teams.every((team) => !team.members)).toBe(true);
+    });
     it('匿名用户可访问公开 HTML 和 JSON，不需要域或比赛权限', async () => {
         const app = setup(); await app.init(); const handler = app.publicBoard();
         handler.user._id = 0;
@@ -543,8 +598,9 @@ describe('Hydro Resolver routes', () => {
 
         // Another Hydro process saved a change: this one applies it without saving it again.
         const sync = app.hooks.mock.calls.find(([event]: [string]) => event === 'xcpcio/live-sync')![1];
-        doc().state = { controllers: { queue: { settings: { horizontal: true }, showOrder: 7 } }, presets: {} };
-        await sync(contestKey, 'state', 'another-process');
+        doc().stateEntries = { 'controller/queue': { settings: { horizontal: true }, showOrder: 7 } };
+        doc().stateRevision = 1;
+        await sync(contestKey, 'state', 'another-process', { patch: doc().stateEntries, revision: 1 });
         expect(socket.send).toHaveBeenLastCalledWith(expect.stringContaining('"type":"QueueWidget"'));
         expect(app.broadcast).not.toHaveBeenCalled();
         // A change made here is saved and announced.
@@ -553,8 +609,8 @@ describe('Hydro Resolver routes', () => {
         Object.assign(api.request, { method: 'POST', path: `/contest/${tid()}/live/api/admin/queue/hide`, body: {}, query: {}, querystring: '' });
         await api.all();
         await new Promise((resolve) => setTimeout(resolve, 600));
-        expect(doc().state.controllers.queue.showOrder).toBeNull();
-        expect(app.broadcast).toHaveBeenCalledWith('xcpcio/live-sync', contestKey, 'state', expect.any(String), undefined);
+        expect(doc().stateEntries['controller/queue'].showOrder).toBeNull();
+        expect(app.broadcast).toHaveBeenCalledWith('xcpcio/live-sync', contestKey, 'state', expect.any(String), expect.objectContaining({ revision: 2, patch: { 'controller/queue': expect.objectContaining({ showOrder: null }) } }));
 
         await admin.postResetToken();
         expect(socket.close).toHaveBeenCalledWith(4004, '直播链接已作废');
@@ -628,6 +684,86 @@ describe('Hydro Resolver routes', () => {
             vi.useRealTimers();
         }
     });
+    it('merges concurrent directors per item, migrates legacy state and restores a new process', async () => {
+        vi.useFakeTimers();
+        const database = previewDatabase();
+        const sharedSettings = new Map<string, any>();
+        const apps = [setup(sharedSettings, {}, database), setup(sharedSettings, {}, database)];
+        await Promise.all(apps.map((app) => app.init()));
+        const contestKey = `system/${tid()}`;
+        const table = database.tables.get('xcpcio.live')!;
+        table.set(contestKey, {
+            _id: contestKey, token: 'old-token', mediaKey: 'old-media', visualConfig: '{}',
+            state: { presets: { picture: [{ id: 1, settings: { url: '/old.png', name: '旧图片' }, showOrder: null }] } },
+        });
+        const delivery: Promise<unknown>[] = [];
+        for (const sender of apps) sender.broadcast.mockImplementation((event: string, ...args: any[]) => {
+            for (const receiver of apps) {
+                const hook = receiver.hooks.mock.calls.find(([name]: [string]) => name === event)?.[1];
+                if (hook) delivery.push(hook(...args));
+            }
+        });
+        const api = async (app: typeof apps[number], subpath: string, method = 'GET', body = {}, query = {}) => {
+            const handler = app.live('_admin_api'); handler.user.own = () => true;
+            await handler.prepare('system', tid());
+            Object.assign(handler.request, { method, path: `/contest/${tid()}/live/api/admin/${subpath}`, body, query, querystring: '' });
+            await handler.all();
+            expect(handler.response.status).toBe(200);
+            return JSON.parse(handler.response.body);
+        };
+        const settle = async (ms = 600) => {
+            await vi.advanceTimersByTimeAsync(ms);
+            await Promise.all(delivery.splice(0));
+        };
+        try {
+            await Promise.all(apps.map((app) => api(app, 'picture')));
+            expect(table.get(contestKey)!.state).toBeUndefined();
+            expect(table.get(contestKey)!.stateEntries['preset/picture/1'].settings.name).toBe('旧图片');
+            // Exact reported reproduction: different workers act 100 ms apart, before either save.
+            await api(apps[0], 'queue/show', 'POST');
+            await settle(100);
+            const image = (await api(apps[1], 'picture', 'POST', { url: '/new.png', name: '新图片' })).response;
+            await settle();
+            for (const app of apps) {
+                expect((await api(app, 'queue')).shown).toBe(true);
+                expect((await api(app, 'picture')).map((item: any) => item.id)).toEqual(expect.arrayContaining([1, image]));
+            }
+            expect(table.get(contestKey)!.stateEntries[`preset/picture/${image}`]).toBeDefined();
+            // Simultaneous creation in each list uses different IDs, including temporary commentary.
+            const created = await Promise.all(apps.map(async (app, index) => ({
+                picture: (await api(app, 'picture', 'POST', { url: `/p${index}.png`, name: `p${index}` })).response,
+                title: (await api(app, 'title', 'POST', { preset: 'lower_third_icpc_left.svg', data: { text: `t${index}` } })).response,
+                ticker: (await api(app, 'tickerMessage/create_and_show_with_ttl', 'POST', { type: 'text', part: 'long', periodMs: 1000, text: `tick${index}` }, { ttl: '3000' })).response,
+                ad: (await api(app, 'advertisement/create_and_show_with_ttl', 'POST', { text: `ad${index}` }, { ttl: '3000' })).response,
+            })));
+            for (const group of ['picture', 'title', 'ticker', 'ad'] as const) expect(created[0][group]).not.toBe(created[1][group]);
+            await settle();
+            for (const group of ['picture', 'title', 'tickerMessage', 'advertisement']) {
+                const sort = (items: any[]) => items.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+                expect(sort(await api(apps[0], group))).toEqual(sort(await api(apps[1], group)));
+            }
+            // Editing one image and deleting another cannot bring the deleted image back.
+            await api(apps[0], 'picture/1', 'POST', { url: '/edited.png', name: '编辑旧图片' });
+            await api(apps[1], `picture/${image}`, 'DELETE');
+            await settle();
+            for (const app of apps) {
+                const pictures = await api(app, 'picture');
+                expect(pictures.find((item: any) => item.id === 1).settings.name).toBe('编辑旧图片');
+                expect(pictures.some((item: any) => item.id === image)).toBe(false);
+            }
+            const restarted = setup(sharedSettings, {}, database); await restarted.init();
+            expect(await api(restarted, 'picture')).toEqual(expect.arrayContaining(await api(apps[0], 'picture')));
+            await settle(3500);
+            for (const app of apps) {
+                expect(await api(app, 'tickerMessage')).toEqual([]);
+                expect(await api(app, 'advertisement')).toEqual([]);
+            }
+            expect(Object.keys(table.get(contestKey)!.stateEntries).some((key) => key.startsWith('preset/tickerMessage/'))).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('leaves the live module out when it is switched off', async () => {
         const app = setup(new Map(), { live: false }); await app.init();
         expect(app.routeNames().some((name) => name.startsWith('contest_xcpcio_live'))).toBe(false);

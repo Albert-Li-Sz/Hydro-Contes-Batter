@@ -22,11 +22,11 @@
 
 需要 Node.js 22 或以上版本及 Hydro 5.x。使用运行 Hydro 的系统用户操作；命令中的 `$HOME` 对应这个用户。自 0.8.1 起，安装包包含供 Hydro 直接加载的源码和完整预构建资源。
 
-下载 `hydro-scoreboard-xcpcio-plus-0.8.1.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
+下载 `hydro-scoreboard-xcpcio-plus-0.8.2.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
 
 ```bash
 mkdir -p "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
-tar -xzf hydro-scoreboard-xcpcio-plus-0.8.1.tgz \
+tar -xzf hydro-scoreboard-xcpcio-plus-0.8.2.tgz \
   -C "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus" --strip-components=1
 hydrooj addon add "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
 pm2 restart hydrooj
@@ -38,7 +38,7 @@ pm2 restart hydrooj
 
 ```bash
 mkdir -p xcpcio-update
-tar -xzf hydro-scoreboard-xcpcio-plus-0.8.1.tgz -C xcpcio-update
+tar -xzf hydro-scoreboard-xcpcio-plus-0.8.2.tgz -C xcpcio-update
 bash xcpcio-update/package/install.sh install
 # 已有安装时
 bash xcpcio-update/package/install.sh upgrade
@@ -245,6 +245,27 @@ pnpm preview
 - 画面语言可选中文或英文，作用于全部画面。大屏打开后先用系统中文字体显示，随包的 17 MB 中文字体在后台加载完成后自动替换，字形可能有细微变化。
 - 赛场平面、世界地图、队伍巡礼及判题耗时类画面需要 Hydro 没有的座位、坐标或判题时间数据，暂未提供；统计图表、分组排行、Logo 墙等可按需增加。
 
+## 组队比赛
+
+Hydro 5.1 起支持组队比赛（比赛设置中允许组队）。组队参赛时，队伍在榜单、滚榜、大屏和直播中按队名显示，并附带队员：
+
+- 队名是公开信息，始终显示；队员姓名与学校跟随“向所有观众显示真实姓名与学校”：开启时显示真实姓名，否则显示用户名。队伍的学校取多数队员所在的学校。
+- 增强榜：表头显示“队伍 / 学校”，鼠标悬停在队名上显示队员，点开队伍详情可看到队员列表。
+- 滚榜：队伍获奖画面在队名下方显示队员。
+- 直播：队员写入队伍的自定义字段，标题字幕模板可用 `{team.customFields.members}` 引用，导播台的比赛信息中也能看到。
+- 组队比赛中单独参赛的选手，以及非组队比赛，仍是一人一队，显示方式不变。Hydro 5.0 没有组队比赛，插件在两个版本上都能使用。
+
+## 评测监控
+
+比赛所有者和有“编辑比赛”权限的管理员可在比赛侧边栏的“评测监控”进入（`/contest/<比赛ID>/monitor`），页面每 5 秒刷新：
+
+- 概览：待评测数量与全站评测队列长度、最久等待时间、最近 15 分钟的平均与 P95 评测耗时（不含重测）、系统错误数、在线评测机、总提交与通过数。
+- 告警：没有在线评测机、某台评测机五分钟未上报、有提交等待超过 3 分钟、5 分钟内出现 3 次以上系统错误时，在页面顶部提示。暂不推送到外部（飞书等）。
+- 提交趋势：最近 60 分钟每分钟的提交数与其中通过数。
+- 待评测提交、各题结果分布（含通过队数）、评测机状态、各语言提交数和最近的系统错误；提交编号可点开 Hydro 的评测记录。
+- 组队比赛按队伍统计，队员的提交计入所在队伍。真实姓名只对能查看私有资料的管理员显示。
+- 评测机状态来自 Hydro 的评测机上报（与 `/status` 页一致），评测队列为整个 Hydro 的待评测任务，其余数据只统计本场比赛。
+
 ## 直播
 
 直播移植自 [ICPC Live v3.5.1](https://github.com/icpc/live-v3)（MIT）。原版是独立的 Java 服务，这里把后端改写为 Node.js，直接运行在 Hydro 进程中，读取 Hydro 的比赛数据，不需要另装 Java 或配置 CDS 数据源。前端（OBS 画面与导播台）沿用 ICPC Live 原版界面。
@@ -266,12 +287,12 @@ pnpm preview
 
 - 画面状态（显示中的组件、字幕、标题、图片）保存在 MongoDB，Hydro 重启后自动恢复；评测队列和解说列表在重启后按比赛历史重新生成。
 - 后端在有画面或导播台打开时读取比赛数据：比赛进行中每 2 秒一次，赛前和赛后每 5 秒一次；无人使用 30 分钟后释放内存。
-- 多进程（PM2 集群）部署时，每个进程都有一份直播后端；导播台的操作保存后通过 Hydro 的进程间广播通知其他进程，各进程的画面和连在各进程上的导播台保持一致。重新上传的字幕模板、Spotlight 加分与解说的“已推送”标记也会同步。
+- 多进程（PM2 集群）部署时，每个进程都有一份直播后端；导播台的操作保存后通过 Hydro 的进程间广播通知其他进程，各进程的画面和连在各进程上的导播台保持一致。每个控件和每条字幕、图片独立保存，并发修改不同项会合并；同一项以数据库最后保存的操作为准。新内容使用 UUID，旧数字编号继续有效。重新上传的字幕模板、Spotlight 加分与解说的“已推送”标记也会同步。
 - 画面上的比赛时钟按 Hydro 服务器时间显示，打开时及之后每分钟校准一次，OBS 电脑的系统时间不准也不影响。
 - 导播被撤销比赛管理权限后，已打开的导播台连接在一分钟内断开。
 - 插件配置中的“启用直播模块”关闭后，直播的页面、接口和侧边栏入口都不再提供，已保存的直播设置保留。
-- Hydro 中没有队伍摄像头、屏幕录像、按键记录和评测时间数据，TeamView 的视频画面、Featured run、队伍定位（Locator）的摄像机场景等依赖这些数据的功能可配置但不会有内容。
-- ICPC Live 的 settings.json、advanced.json 和自定义字段由 Hydro 比赛数据取代，导播台的 Configuration 中只保留 Contest Info（只读）和 Visual config（画面颜色、标题文字等，保存后刷新 OBS 画面生效）。后端地址由 Hydro 决定，Visual config 中不能设置以 `BASE_URL` 开头的项。
+- Hydro 中没有队伍摄像头、屏幕录像、按键记录和评测时间数据，TeamView 的视频画面、Featured run、队伍定位（Locator）的摄像机场景等依赖这些数据的功能缺少对应素材。Featured run 会明确提示该队伍缺少所选视频画面。
+- ICPC Live 的 settings.json、advanced.json 和自定义字段由 Hydro 比赛数据取代，导播台的 Configuration 中只保留 Contest Info（只读）和 Visual config（画面颜色、标题文字等，保存后刷新 OBS 画面生效）。画面配置通过 JSON 对象提交，上限为 200 KB（200000 字节，按 UTF-8 计算），超限时显示明确提示。后端地址由 Hydro 决定，Visual config 中不能设置以 `BASE_URL` 开头的项。
 - 上传的媒体文件单个不超过 12 MB，支持图片、视频、SVG 和 JSON；文件名保留中文、字母和数字，其他字符替换为下划线，同名文件会覆盖；SVG 字幕模板中的 `{name}` 等占位符由标题设置中的数据替换，`teamId` 可引用队伍名与学校（`{team.name}`、`{org.displayName}`）。
 
 ### 直播来源与许可

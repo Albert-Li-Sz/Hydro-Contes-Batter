@@ -6,6 +6,8 @@ export interface ResolverTeam {
     displayName: string;
     organizationName: string;
     unrank: boolean;
+    /** Team contests: member names, shown on the team's award page. */
+    members?: string[];
     logo: string;
 }
 

@@ -23,3 +23,16 @@ export function wideData() {
     }
     return data;
 }
+
+/** A Hydro 5.1 team contest: the demo teams get team names and three members each. */
+export function teamData() {
+    const data = demoData();
+    data.contest.contest_name = 'Hydro 组队赛 · 队员信息演示';
+    const names = ['星火队', '破晓队', '启明队', '远航队', '晨曦队', '长风队', '青云队', '北辰队'];
+    const people = ['林澈', '周宁', '陈言', '苏禾', '许青', '江屿', '沈星', '陆川', '顾遥', '叶舟', '温岚', '宋知'];
+    data.teams = data.teams.map((team, index) => ({
+        ...team, name: names[index % names.length],
+        members: [0, 1, 2].map((offset) => people[(index * 3 + offset) % people.length]),
+    }));
+    return data;
+}
