@@ -1,0 +1,340 @@
+/**
+ * The HTTP side of ICPC Live's /api/admin and /api/overlay (backend admin/*.kt, overlay/Routing.kt,
+ * server-shared ConfigurationRouting.kt, MIT), independent of the web framework serving it.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { toScriptJson } from '../settings';
+import type { LiveHub } from './hub';
+import { ApiActionError } from './widgets';
+import { teamViewPositions, type TeamViewPosition } from './widget-settings';
+
+export const pluginRoot = path.join(__dirname, '../..');
+const liveAssets = path.join(pluginRoot, 'public/hydro-live');
+const builtinMedia = path.join(pluginRoot, 'live/media');
+
+export const mediaTypes: Record<string, string> = {
+    '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+    '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8',
+};
+export const maxMediaBytes = 12 * 1024 * 1024;
+/** PartData.FileItem.storeName: keep word characters and dots. */
+export const storeName = (name: string) => name.replace(/[^\w.]/g, '_').replace(/^\.+/, '_').slice(0, 120);
+
+/** Chinese captions; the queue column is too narrow for the contest name next to its title. */
+export function defaultVisualConfig(title: string) {
+    return `${JSON.stringify({
+        CONTEST_CAPTION: title, QUEUE_TITLE: '评测队列', QUEUE_CAPTION: '', STATISTICS_TITLE: '题目统计',
+        SCOREBOARD_HEADER_NAME_TITLE: '队伍', SCOREBOARD_HEADER_PENALTY_TITLE: '罚时',
+        // The header reads "<level name> <standings name>".
+        SCOREBOARD_NORMAL_NAME: '实时排名', SCOREBOARD_OPTIMISTIC_NAME: '乐观排名', SCOREBOARD_PESSIMISTIC_NAME: '悲观排名', SCOREBOARD_STANDINGS_NAME: '',
+    }, null, 2)}\n`;
+}
+
+export async function builtinMediaNames() {
+    try { return (await fs.promises.readdir(builtinMedia)).filter((name) => !name.startsWith('.')).sort(); } catch { return []; }
+}
+
+export async function readBuiltinMedia(name: string) {
+    if (!(await builtinMediaNames()).includes(name)) return null;
+    return { data: await fs.promises.readFile(path.join(builtinMedia, name)), mime: mediaTypes[path.extname(name).toLowerCase()] || 'application/octet-stream' };
+}
+
+export interface LiveUrls {
+    root: string;
+    adminBase: string;
+    adminApi: string;
+    /** Path only; the page prefixes its own ws:// or wss:// origin. */
+    adminWs: string;
+    overlay: string;
+    overlayApi: string;
+    overlayWs: string;
+    media: string;
+}
+
+export function liveUrls(contestBase: string, token: string, mediaKey: string): LiveUrls {
+    return {
+        root: `${contestBase}/live`,
+        adminBase: `${contestBase}/live/admin`,
+        adminApi: `${contestBase}/live/api/admin`,
+        adminWs: `${contestBase}/live/ws/admin`,
+        overlay: `${contestBase}/live-overlay/${token}`,
+        overlayApi: `${contestBase}/live-overlay/${token}/api/overlay`,
+        overlayWs: `${contestBase}/live-overlay/${token}/ws/overlay`,
+        media: `${contestBase}/live-media/${mediaKey}`,
+    };
+}
+
+/** A built ICPC Live page, told where its backend lives. */
+export function shell(app: 'overlay' | 'admin', runtime: LiveUrls, title: string) {
+    const html = fs.readFileSync(path.join(liveAssets, app, 'index.html'), 'utf8');
+    const injected = '<meta name="referrer" content="no-referrer"><meta name="robots" content="noindex">'
+        // WebSocket addresses follow the page's own scheme and host (also behind an HTTPS proxy).
+        + `<script>window.__HYDRO_LIVE__=${toScriptJson(runtime)};(function(c){var o=(location.protocol==='https:'?'wss://':'ws://')+location.host;`
+        + 'c.adminWs=o+c.adminWs;c.overlayWs=o+c.overlayWs;})(window.__HYDRO_LIVE__);'
+        // Hydro's websocket layer sends a text "ping" to quiet clients and closes them after 80 s
+        // without a reply. ICPC Live clients never send anything, so answer here and keep the
+        // ping away from their JSON handlers (this listener runs before any added later).
+        + '(function(){var N=window.WebSocket;function W(u,p){var s=p===undefined?new N(u):new N(u,p);'
+        + "s.addEventListener('message',function(e){if(e.data==='ping'){e.stopImmediatePropagation();try{s.send('pong');}catch(x){}}});return s;}"
+        + 'W.prototype=N.prototype;W.CONNECTING=0;W.OPEN=1;W.CLOSING=2;W.CLOSED=3;window.WebSocket=W;})();</script>';
+    return html
+        .replace(/<link rel="manifest"[^>]*>/g, '')
+        .replace(/<link\s+rel="icon"[^>]*>/gs, '')
+        .replace(/<title>[^<]*<\/title>/, `<title>${title.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`)}</title>`)
+        .replace('<head>', `<head>${injected}`);
+}
+
+export interface LiveStore {
+    visualConfig(): Promise<string>;
+    saveVisualConfig(text: string): Promise<void>;
+    /** Uploaded and built-in media file names. */
+    mediaNames(): Promise<string[]>;
+    saveMedia(name: string, data: Buffer, mime: string): Promise<void>;
+}
+
+export interface UploadedFile {
+    name: string;
+    size: number;
+    read: () => Promise<Buffer>;
+}
+
+export interface ApiRequest {
+    method: string;
+    /** Path below /api/admin, without the leading slash. */
+    subpath: string;
+    query: Record<string, unknown>;
+    querystring: string;
+    body: unknown;
+    files: UploadedFile[];
+    user: string;
+}
+
+export interface ApiResponse {
+    status: number;
+    type: string;
+    body: string;
+}
+
+const json = (value: unknown, status = 200): ApiResponse => ({ status, type: 'application/json', body: JSON.stringify(value) });
+const text = (value: string): ApiResponse => ({ status: 200, type: 'text/plain; charset=utf-8', body: value || ' ' });
+
+export const adminChannels = ['analytics', 'teamSpotlight', 'social', 'contestInfo', 'backendLog', 'adminActions'];
+
+const teamViewGroups: Record<string, readonly TeamViewPosition[]> = {
+    teamView: ['SINGLE'], teamPVP: ['PVP_TOP', 'PVP_BOTTOM'], splitScreen: ['TOP_LEFT', 'TOP_RIGHT', 'BOTTOM_LEFT', 'BOTTOM_RIGHT'],
+};
+
+/** /api/admin/* — `null` when nothing matches (404). */
+export async function adminApi(hub: LiveHub, store: LiveStore, request: ApiRequest): Promise<ApiResponse | null> {
+    const parts = request.subpath.split('/').filter(Boolean).map(decodeURIComponent);
+    const method = request.method.toUpperCase();
+    const { body } = request;
+    const action = async (run: () => unknown): Promise<ApiResponse> => {
+        try {
+            const result = await run();
+            // adminApiAction: tell every open console which state to reload.
+            hub.adminAction(`/api/admin/${request.subpath}${request.querystring ? `?${request.querystring}` : ''}`, request.user);
+            return json({ status: 'ok', response: result ?? null });
+        } catch (error) {
+            if (!(error instanceof ApiActionError)) throw error;
+            return json({ status: 'error', message: error.message }, 400);
+        }
+    };
+    const ttl = () => {
+        const value = Number(request.query.ttl);
+        if (!Number.isFinite(value) || value <= 0) throw new ApiActionError('ttl should be set');
+        return value;
+    };
+    const single = (controller: (typeof hub.controllers)[string], tail: string[]) => {
+        const [op, ...more] = tail;
+        if (more.length) return null;
+        if (method === 'GET' && !op) return json(controller.status());
+        if (method === 'GET' && op === 'preview') return action(() => controller.preview());
+        if (method !== 'POST') return null;
+        if (!op) return action(() => controller.setSettings(body));
+        if (op === 'show') return action(() => controller.show());
+        if (op === 'hide') return action(() => controller.hide());
+        if (op === 'show_with_settings') return action(() => { controller.setSettings(body); controller.show(); });
+        if (op === 'preview') return action(() => controller.preview(body));
+        return null;
+    };
+    type Presets = typeof hub.advertisement | typeof hub.picture | typeof hub.title | typeof hub.tickerMessage;
+    const presets = (controller: Presets, tail: string[], before?: (input: unknown) => Promise<void>) => {
+        const [idText, op, ...more] = tail;
+        if (more.length) return null;
+        if (!idText) {
+            if (method === 'GET') return json(controller.status());
+            if (method === 'POST') return action(async () => { await before?.(body); return controller.createWidget(body); });
+            return null;
+        }
+        if (idText === 'create_and_show_with_ttl') {
+            if (method !== 'POST' || op) return null;
+            return action(async () => {
+                const ms = ttl();
+                await before?.(body);
+                return controller.createTemporaryFromInput(body, ms);
+            });
+        }
+        const id = Number(idText);
+        if (!Number.isInteger(id)) return action(() => { throw new ApiActionError('Error load preset by id'); });
+        if (!op && method === 'POST') return action(async () => { await before?.(body); controller.edit(id, body); });
+        if (!op && method === 'DELETE') return action(() => controller.delete(id));
+        if (op === 'show' && method === 'POST') return action(() => controller.show(id));
+        if (op === 'hide' && method === 'POST') return action(() => controller.hide(id));
+        if (op === 'preview' && method === 'GET') return action(() => controller.preview(id));
+        return null;
+    };
+    const loadTitle = async (input: unknown) => {
+        const preset = (input as { preset?: unknown } | null)?.preset;
+        if (typeof preset !== 'string') throw new ApiActionError('Failed to deserialize data: preset');
+        hub.forgetTemplate(preset); // pick up a re-uploaded template
+        await hub.loadTemplate(preset);
+    };
+
+    const [head, ...rest] = parts;
+    if (['queue', 'statistics', 'ticker', 'fullScreenClock', 'teamLocator'].includes(head)) return single(hub.controllers[head], rest);
+    if (head === 'scoreboard') {
+        if (rest[0] === 'regions' && rest.length === 1 && method === 'GET') return json(hub.regions());
+        return single(hub.controllers.scoreboard, rest);
+    }
+    if (teamViewGroups[head]) {
+        const positions = teamViewGroups[head];
+        const [op] = rest;
+        if (positions.includes(op as TeamViewPosition)) return single(hub.teamViews[op as TeamViewPosition], rest.slice(1));
+        if (rest.length > 1) return null;
+        if (method === 'GET' && !op) return json(Object.fromEntries(positions.map((position) => [position, hub.teamViews[position].status()])));
+        if (method === 'GET' && op === 'teams') return json(hub.teams());
+        if (method === 'GET' && op === 'usage_stats') return json(hub.usageStatistics().entries.teamView || { type: 'per_team', byTeam: {} });
+        if (method === 'POST' && op === 'show') return action(() => positions.forEach((position) => hub.teamViews[position].show()));
+        if (method === 'POST' && op === 'hide') return action(() => positions.forEach((position) => hub.teamViews[position].hide()));
+        return null;
+    }
+    if (head === 'advertisement') return presets(hub.advertisement, rest);
+    if (head === 'picture') return presets(hub.picture, rest);
+    if (head === 'tickerMessage') return presets(hub.tickerMessage, rest);
+    if (head === 'title') {
+        if (rest[0] === 'templates' && rest.length === 1 && method === 'GET') return json((await store.mediaNames()).filter((name) => name.endsWith('.svg')));
+        return presets(hub.title, rest, loadTitle);
+    }
+    if (head === 'analytics') {
+        if (!rest.length && method === 'GET') return json(hub.analytics.list());
+        if (rest[0] === 'contestInfo' && rest.length === 1 && method === 'GET') return json(hub.info);
+        const [messageId, second, third] = rest;
+        if (second === 'featuredRun' && rest.length === 2) {
+            // The body names a TeamMediaType; Hydro teams carry no camera or screen media.
+            if (method === 'POST') return action(() => hub.analytics.makeFeatured(messageId, typeof body === 'string' ? body : 'camera'));
+            if (method === 'DELETE') return action(() => hub.analytics.makeNotFeatured(messageId));
+        }
+        if ((third === 'advertisement' || third === 'tickerMessage') && rest.length === 3) {
+            if (method === 'POST') {
+                return action(() => {
+                    const ms = ttl();
+                    if (third === 'advertisement') hub.analytics.showAdvertisement(messageId, second, ms);
+                    else hub.analytics.showTicker(messageId, second, ms);
+                });
+            }
+            if (method === 'DELETE') {
+                return action(() => (third === 'advertisement' ? hub.analytics.hideAdvertisement(messageId, second) : hub.analytics.hideTicker(messageId, second)));
+            }
+        }
+        return null;
+    }
+    if (head === 'teamSpotlight' && rest[0] === 'addScore' && rest.length === 1 && method === 'POST') {
+        return action(() => {
+            if (!Array.isArray(body)) throw new ApiActionError('Failed to deserialize data: expected a list');
+            const requests = body.map((item: { teamId?: unknown; score?: unknown }) => {
+                if (typeof item?.teamId !== 'string' || typeof item.score !== 'number' || !Number.isFinite(item.score)) {
+                    throw new ApiActionError('Failed to deserialize data: teamId and score');
+                }
+                return { teamId: item.teamId, score: item.score };
+            });
+            for (const item of requests) hub.spotlight.addScore(item.teamId, item.score);
+        });
+    }
+    if (head === 'social' && !rest.length && method === 'POST') {
+        return action(() => {
+            const input = body as { chatmessage?: unknown; chatname?: unknown; type?: unknown; teamIds?: unknown } | null;
+            if (typeof input?.chatmessage !== 'string' || typeof input.chatname !== 'string') throw new ApiActionError('Failed to deserialize data: chat message');
+            const teamIds = Array.isArray(input.teamIds) ? input.teamIds.filter((id): id is string => typeof id === 'string') : [];
+            hub.social({ chatmessage: input.chatmessage, chatname: input.chatname, type: typeof input.type === 'string' ? input.type : 'unknown', teamIds });
+        });
+    }
+    if (rest.length === 0 && method === 'GET') {
+        if (head === 'users') return json([]);
+        if (head === 'usage_stats') return json(hub.usageStatistics());
+        if (head === 'contestInfo') return json(hub.info);
+        if (head === 'advancedJsonPreview') return json([]);
+    }
+    if (head === 'visualConfig') {
+        if (rest[0] === 'schema' || rest[0] === 'examples') return method === 'GET' ? json({}) : null;
+        if (rest.length) return null;
+        if (method === 'GET') return text(await store.visualConfig() || '{}');
+        if (method === 'POST') {
+            return action(async () => {
+                const value = typeof body === 'string' ? body : JSON.stringify(body);
+                if (value.length > 200000) throw new ApiActionError('Visual config is too large');
+                try {
+                    const parsed = JSON.parse(value);
+                    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('expected an object');
+                } catch (error) {
+                    throw new ApiActionError(`Failed to parse visual config: ${(error as Error).message}`);
+                }
+                await store.saveVisualConfig(value);
+            });
+        }
+        return null;
+    }
+    if (head === 'media') {
+        if (!rest.length && method === 'GET') return json(await store.mediaNames());
+        if (rest[0] === 'upload' && rest.length === 1 && method === 'POST') {
+            return action(async () => {
+                const names: string[] = [];
+                for (const file of request.files) {
+                    const name = storeName(file.name);
+                    if (file.size > maxMediaBytes) throw new ApiActionError(`${name} 超过 12 MB`);
+                    const mime = mediaTypes[path.extname(name).toLowerCase()];
+                    if (!mime) throw new ApiActionError(`${name}：仅支持图片、视频、SVG 与 JSON 文件`);
+                    await store.saveMedia(name, await file.read(), mime);
+                    hub.forgetTemplate(name);
+                    names.push(name);
+                }
+                return names;
+            });
+        }
+        return null;
+    }
+    // Settings, tuning and custom fields belong to the Java server; Hydro is the data source here.
+    if (['settings', 'advancedJson', 'customFields', 'orgCustomFields'].includes(head) && method === 'GET') {
+        if (rest.length) return json({});
+        return text(head === 'advancedJson' ? '[]' : head === 'settings' ? '{"type":"hydro"}' : '');
+    }
+    return null;
+}
+
+/** Websocket and HTTP flow endpoints of /api/overlay. */
+export function overlayChannel(subpath: string) {
+    const parts = subpath.split('/').filter(Boolean).map(decodeURIComponent);
+    if (parts.length === 1 && ['mainScreen', 'contestInfo', 'runs', 'queue', 'statistics', 'ticker'].includes(parts[0])) return parts[0];
+    if (parts.length === 2 && parts[0] === 'scoreboard' && ['normal', 'optimistic', 'pessimistic'].includes(parts[1])) return `scoreboard:${parts[1]}`;
+    if (parts.length === 2 && parts[0] === 'teamRuns' && /^[\w-]{1,64}$/.test(parts[1])) return `teamRuns:${parts[1]}`;
+    return null;
+}
+
+/** /api/overlay/* over plain HTTP: the first value of each flow, and the visual config. */
+export async function overlayApi(hub: LiveHub, subpath: string, visualConfig: string): Promise<ApiResponse | null> {
+    if (subpath === 'visualConfig.json') {
+        let config: unknown = {};
+        try { config = JSON.parse(visualConfig || '{}'); } catch { /* rejected on save */ }
+        return json(config);
+    }
+    const channel = overlayChannel(subpath);
+    if (!channel) return null;
+    hub.touch();
+    if (!hub.info) await hub.refresh();
+    let first: unknown = null;
+    hub.subscribe(channel, (payload) => { first ??= payload; })();
+    return json(first);
+}
+
+export { teamViewPositions };

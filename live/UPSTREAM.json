@@ -1,0 +1,29 @@
+{
+  "repository": "https://github.com/icpc/live-v3.git",
+  "tag": "v3.5.1",
+  "commit": "200c82f81ffdea91ffec9cc17b314ffc72436a0f",
+  "license": "MIT",
+  "frontend": [
+    "src/frontend/overlay",
+    "src/frontend/admin-overlay",
+    "src/frontend/admin-configuration",
+    "src/frontend/admin-home-page",
+    "src/frontend/common"
+  ],
+  "media": [
+    "config/_media/lower_third_icpc_left.svg",
+    "config/_media/lower_third_icpc_right.svg",
+    "config/_media/awards-gold.svg",
+    "config/_media/awards-silver.svg",
+    "config/_media/awards-bronze.svg",
+    "config/_media/awards-trophy.svg",
+    "config/_media/awards-plaque.svg"
+  ],
+  "portedToTypeScript": [
+    "src/backend (services, controllers, admin and overlay routing) -> lib/live/hub.ts, services.ts, widgets.ts, routes.ts",
+    "src/cds/core scoreboard calculators, FirstToSolve/AfterFirstOk adapters -> lib/live/scoreboard.ts, model.ts",
+    "src/backend-api settings and widgets -> lib/live/widget-settings.ts, types.ts"
+  ],
+  "patchSha256": "eb05ff4d14ea554869c3a2f99342cd3fa4606dce783be98f86955bb97cd0fd93",
+  "builtAt": "2026-11-15T07:39:05.120Z"
+}

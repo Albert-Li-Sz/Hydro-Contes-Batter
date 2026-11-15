@@ -9,6 +9,7 @@ import { defaultProfileFields, rosterFields } from '../lib/roster';
 import { wideData } from '../preview/fixtures';
 import { createResolverPreview } from '../preview/resolver';
 import { createScreensPreview } from '../preview/screens';
+import { createLivePreview } from '../preview/live';
 import { previewDatabase } from '../preview/resolver-memory-db';
 
 async function main() {
@@ -25,6 +26,7 @@ const pluginVersion = JSON.parse(await fs.readFile(path.join(root, 'package.json
 const previewDb = previewDatabase().db;
 const resolverPreview = createResolverPreview(env, logoNames, pluginVersion, previewDb);
 const screensPreview = createScreensPreview(env, logoNames, pluginVersion, previewDb);
+const livePreview = createLivePreview(env, logoNames, pluginVersion, demoData, () => settings);
 const base = '/contest/demo';
 const boardUrl = `${base}/scoreboard/xcpcio-plus`;
 const settingsUrl = `${base}/xcpcio-settings`;
@@ -33,7 +35,7 @@ const data = demoData();
 const teams = demoRoster();
 const manifest = JSON.parse(await fs.readFile(path.join(root, 'public/hydro-xcpcio/manifest.json'), 'utf8'));
 const defaults = { process: { env: {} }, UiContext: { cdn_prefix: '/' }, assetBase: manifest.base, tdoc: { title: data.contest.contest_name } };
-const contentTypes: Record<string, string> = { '.webp': 'image/webp', '.ttf': 'font/ttf', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.html': 'text/html', '.json': 'application/json', '.txt': 'text/plain' };
+const contentTypes: Record<string, string> = { '.webp': 'image/webp', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.html': 'text/html', '.json': 'application/json', '.txt': 'text/plain' };
 const server = http.createServer(async (request, response) => {
     try {
         const url = new URL(request.url || '/', 'http://localhost');
@@ -42,6 +44,7 @@ const server = http.createServer(async (request, response) => {
         const fixtureQuery = url.searchParams.get('fixture') === 'wide' ? '&fixture=wide' : '';
         if (await resolverPreview(request, response, url, displayData, settings)) return;
         if (await screensPreview(request, response, url, displayData, settings)) return;
+        if (await livePreview.handle(request, response, url)) return;
         if (request.method === 'POST' && url.pathname === settingsUrl) {
             let body = '';
             for await (const chunk of request) { body += chunk; if (body.length > 1000000) throw new Error('设置内容过大'); }
@@ -84,7 +87,7 @@ const server = http.createServer(async (request, response) => {
                 ...displayDefaults, ...manifest, settingsUrl, runtimeJson: toScriptJson({ dataSource: '/api/board#allInOne=true', refreshInterval: 5000 }),
             })); return;
         }
-        if (url.pathname.startsWith('/hydro-xcpcio/') || url.pathname.startsWith('/hydro-resolver/')) {
+        if (url.pathname.startsWith('/hydro-xcpcio/') || url.pathname.startsWith('/hydro-resolver/') || url.pathname.startsWith('/hydro-live/')) {
             const publicRoot = path.join(root, 'public');
             const file = path.resolve(publicRoot, `.${decodeURIComponent(url.pathname)}`);
             if (!file.startsWith(`${publicRoot}${path.sep}`)) { response.writeHead(403).end(); return; }
@@ -103,7 +106,8 @@ const server = http.createServer(async (request, response) => {
         response.writeHead((error as NodeJS.ErrnoException).code === 'ENOENT' ? 404 : 400, { 'Content-Type': 'text/plain; charset=utf-8' }).end(error instanceof Error ? error.message : 'Invalid request');
     }
 });
+livePreview.attach(server);
 const port = Number(process.env.XCPCIO_PREVIEW_PORT || 18900);
-server.listen(port, '127.0.0.1', () => console.log(`Preview: http://127.0.0.1:${port}${boardUrl}\nSettings: http://127.0.0.1:${port}${settingsUrl}`));
+server.listen(port, '127.0.0.1', () => console.log(`Preview: http://127.0.0.1:${port}${boardUrl}\nSettings: http://127.0.0.1:${port}${settingsUrl}\nLive: http://127.0.0.1:${port}${base}/live`));
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

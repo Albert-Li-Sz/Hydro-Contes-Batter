@@ -63,3 +63,9 @@ for (const file of await readdir(path.join(root, 'resolver/public'))) {
 await cp(logoSource, path.join(resolverTarget, 'logos'), { recursive: true, filter: (source) => path.basename(source) !== 'thumb' });
 await cp(path.join(root, 'licenses'), path.join(resolverTarget, 'licenses'), { recursive: true });
 console.log('Resolver assets ready: v1.4.0 with Hydro adapters');
+// ICPC Live overlay and director console, built by scripts/build-live.mjs (hashed file names).
+const liveTarget = path.join(root, 'public/hydro-live');
+await rm(liveTarget, { recursive: true, force: true });
+await cp(path.join(root, 'live/dist'), liveTarget, { recursive: true });
+await cp(path.join(root, 'live/LICENSE.txt'), path.join(liveTarget, 'LICENSE.txt'));
+console.log('ICPC Live assets ready: v3.5.1 with Hydro adapters');

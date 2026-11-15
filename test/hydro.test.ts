@@ -19,12 +19,13 @@ vi.mock('hydrooj', () => {
         response: any = { addHeader: vi.fn() };
         checkPerm(perm: bigint) { if (!this.user.hasPerm(perm)) throw new Error('Forbidden'); }
     }
+    class ConnectionHandler extends Handler {}
     const schema = () => new Proxy({}, { get: () => (..._args: any[]) => schema() });
     const names = ['ACCEPTED', 'WRONG_ANSWER', 'COMPILING', 'WAITING', 'JUDGING', 'TIME_LIMIT_EXCEEDED', 'MEMORY_LIMIT_EXCEEDED', 'RUNTIME_ERROR', 'SYSTEM_ERROR', 'COMPILE_ERROR', 'FETCHED', 'OUTPUT_LIMIT_EXCEEDED', 'ETC', 'CANCELED', 'HACKED', 'FORMAT_ERROR', 'IGNORED'];
     return {
-        ObjectId, Handler, Schema: { object: schema, boolean: schema, number: schema, string: schema, array: schema },
+        ObjectId, Handler, ConnectionHandler, Schema: { object: schema, boolean: schema, number: schema, string: schema, array: schema },
         param: () => () => {},
-        Types: { ObjectId: [(value: any) => new ObjectId(value)], Boolean: [(value: unknown) => value === true || value === 'true'] },
+        Types: { ObjectId: [(value: any) => new ObjectId(value)], Boolean: [(value: unknown) => value === true || value === 'true'], String: [(value: unknown) => String(value)] },
         STATUS: Object.fromEntries(names.map((name, index) => [`STATUS_${name}`, index + 1])),
         PERM: { PERM_EDIT_CONTEST: 1n, PERM_VIEW_CONTEST_HIDDEN_SCOREBOARD: 2n, PERM_VIEW_USER_PRIVATE_INFO: 4n },
         avatar: () => '/avatar.png', getAlphabeticId: (index: number) => String.fromCharCode(65 + index),
@@ -55,8 +56,10 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
         updateOne: async ({ _id }: { _id: string }, { $set }: any) => { saved.set(_id, structuredClone($set)); },
     };
     const ctx: any = {
-        db: { collection: (name: string) => name.startsWith('xcpcio.resolver.') || name === 'xcpcio.screens' ? resolverDb.db.collection(name as any) : collection },
+        db: { collection: (name: string) => name.startsWith('xcpcio.resolver.') || name === 'xcpcio.screens' || name.startsWith('xcpcio.live') ? resolverDb.db.collection(name as any) : collection },
         Route: (name: string, _path: string, handler: any) => { routes.set(name, handler); },
+        Connection: (name: string, _path: string, handler: any) => { routes.set(name, handler); },
+        effect: vi.fn(),
         i18n: { load: vi.fn() },
         inject: (_deps: string[], callback: any) => callback({
             scoreboard: { addView: (_id: string, _name: string, args: any, next: any) => { view = { ...next, args }; } },
@@ -73,6 +76,7 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
         view: () => view,
         resolver: (name = '') => new (routes.get(`contest_resolver${name}`))(),
         screens: (name = 's') => new (routes.get(`contest_xcpcio_screen${name}`))(),
+        live: (name = '') => new (routes.get(`contest_xcpcio_live${name}`))(),
         resolverTables: resolverDb.tables,
         hooks: ctx.on,
     };
@@ -462,6 +466,53 @@ describe('Hydro Resolver routes', () => {
         await admin.postResetToken();
         expect(admin.response.body.linkBase).not.toContain(token);
         await expect(app.screens('_view').prepare('system', tid(), token, 'clock')).rejects.toThrow('作废');
+    });
+    it('runs the live module: console for managers only, a revocable token for OBS, public data', async () => {
+        state.locked = true;
+        state.entries[0].journal = [record(state.contest.lockAt.getTime() / 1000 + 20)];
+        const app = setup(); await app.init();
+        const base = `/d/system/contest/${tid()}`;
+        await expect(app.live().prepare('system', tid())).rejects.toThrow('Forbidden');
+        const guest = app.live(); guest.user._id = 0;
+        await expect(guest.prepare('system', tid())).rejects.toThrow('请登录');
+        const admin = app.live(); admin.user.own = () => true;
+        await admin.prepare('system', tid()); await admin.get();
+        const runtime = JSON.parse(admin.response.body.runtimeJson);
+        const token = runtime.overlay.split('/').pop();
+        expect(runtime.overlay).toBe(`${base}/live-overlay/${token}`);
+        expect(runtime.admin).toBe(`${base}/live/admin`);
+
+        const api = app.live('_admin_api'); api.user.own = () => true; api.user.uname = 'director';
+        await api.prepare('system', tid());
+        Object.assign(api.request, { method: 'POST', path: `/contest/${tid()}/live/api/admin/queue/show`, body: {}, query: {}, querystring: '' });
+        await api.all();
+        expect(JSON.parse(api.response.body)).toEqual({ status: 'ok', response: null });
+        const info = app.live('_admin_api'); info.user.own = () => true;
+        await info.prepare('system', tid());
+        Object.assign(info.request, { method: 'GET', path: `/contest/${tid()}/live/api/admin/contestInfo`, body: {}, query: {}, querystring: '' });
+        await info.all();
+        const contest = JSON.parse(info.response.body);
+        // Ended but not unlocked: over, still frozen.
+        expect(contest.status).toMatchObject({ type: 'over', frozenAtUnixMs: state.contest.lockAt.getTime() });
+        // Same identity rule as the public board: no private names or schools.
+        expect(JSON.stringify(contest)).not.toMatch(/张三|南京晓庄学院/);
+        await expect(app.live('_admin_api').prepare('system', tid())).rejects.toThrow('Forbidden');
+
+        const overlay = app.live('_overlay_api'); overlay.user._id = 0;
+        expect(overlay.noCheckPermView).toBe(true);
+        await expect(overlay.get('system', tid(), 'x'.repeat(48))).rejects.toThrow('作废');
+        overlay.request.path = `/contest/${tid()}/live-overlay/${token}/api/overlay/runs`;
+        await overlay.get('system', tid(), token);
+        // Frozen submission: in progress, its result not revealed.
+        expect(JSON.parse(overlay.response.body)).toEqual([expect.objectContaining({ teamId: '1', result: { type: 'IN_PROGRESS', testedPart: 0, isAfterFirstOk: false } })]);
+        const screen = app.live('_overlay_api'); screen.request.path = `/contest/${tid()}/live-overlay/${token}/api/overlay/mainScreen`;
+        await screen.get('system', tid(), token);
+        expect(JSON.parse(screen.response.body).widgets.map((item: any) => item.widget.type)).toEqual(['QueueWidget']);
+
+        await admin.postResetToken();
+        expect(admin.response.body.overlay).not.toContain(token);
+        await expect(app.live('_overlay').get('system', tid(), token)).rejects.toThrow('作废');
+        await expect(app.live('_media').get('system', tid(), 'wrong', 'awards-gold.svg')).rejects.toThrow('media');
     });
     it('shows a resolver session read-only to the audience screen, without future steps', async () => {
         const app = setup(); await app.init();

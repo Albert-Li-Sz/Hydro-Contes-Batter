@@ -1,0 +1,491 @@
+diff --git a/src/frontend/admin-configuration/src/components/ConfigurationEditor.tsx b/src/frontend/admin-configuration/src/components/ConfigurationEditor.tsx
+index 127f40f..c48360a 100644
+--- a/src/frontend/admin-configuration/src/components/ConfigurationEditor.tsx
++++ b/src/frontend/admin-configuration/src/components/ConfigurationEditor.tsx
+@@ -13,7 +13,6 @@ import Typography from "@mui/material/Typography";
+ import { createApiGet, createApiPost } from "shared-code/utils";
+ import JsonEditor, { JSONSchema } from "./atoms/JsonEditor";
+ import Box from "@mui/material/Box";
+-import Editor from "@monaco-editor/react";
+ import { BASE_URL_BACKEND } from "../config.ts";
+ import CsvCodeEditor from "./atoms/CsvEditor.tsx";
+ 
+@@ -81,12 +80,17 @@ function ExamplesContainer({
+             </FormControl>
+ 
+             {currentExample && (
+-                <Editor
+-                    options={{ readOnly: true }}
+-                    height="75vh"
+-                    language="json"
+-                    value={currentExample}
+-                />
++                <pre
++                    style={{
++                        height: "75vh",
++                        overflow: "auto",
++                        padding: 12,
++                        border: "1px solid #c4c4c4",
++                        borderRadius: 4,
++                    }}
++                >
++                    {currentExample}
++                </pre>
+             )}
+         </Container>
+     );
+diff --git a/src/frontend/admin-configuration/src/components/atoms/CsvEditor.tsx b/src/frontend/admin-configuration/src/components/atoms/CsvEditor.tsx
+index 98d9652..93f6cd2 100644
+--- a/src/frontend/admin-configuration/src/components/atoms/CsvEditor.tsx
++++ b/src/frontend/admin-configuration/src/components/atoms/CsvEditor.tsx
+@@ -1,53 +1,14 @@
+-import React, { useEffect, useRef } from "react";
+-import Editor, { OnMount, OnChange, Monaco } from "@monaco-editor/react";
++import React from "react";
++import { TextCodeEditor } from "./TextCodeEditor";
+ 
+ interface CsvEditorProps {
+     defaultValue: string;
+-    onChange: OnChange;
++    onChange: (value: string) => void;
+     readonly: boolean;
+ }
+ 
+-function CsvCodeEditor({
+-    defaultValue,
+-    onChange,
+-    readonly,
+-}: CsvEditorProps): React.ReactElement {
+-    const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
+-    const monacoRef = useRef<Monaco | null>(null);
+-
+-    const handleMount: OnMount = (editor, monaco) => {
+-        editorRef.current = editor;
+-        monacoRef.current = monaco;
+-
+-        const modelUri = "foo://admin/custom-fields.csv";
+-        const model = monaco.editor.createModel(
+-            defaultValue,
+-            "csv",
+-            monaco.Uri.parse(modelUri),
+-        );
+-        editor.setModel(model);
+-    };
+-
+-    // Update the editor content when defaultValue changes (e.g., apiRoot switched)
+-    useEffect(() => {
+-        const editor = editorRef.current;
+-        const monaco = monacoRef.current;
+-        if (!editor || !monaco) return;
+-        const model = editor.getModel();
+-        if (!model) return;
+-        if (model.getValue() !== defaultValue) {
+-            model.setValue(defaultValue);
+-        }
+-    }, [defaultValue]);
+-
+-    return (
+-        <Editor
+-            language="csv"
+-            onMount={handleMount}
+-            onChange={onChange}
+-            options={{ readOnly: readonly }}
+-        />
+-    );
++function CsvCodeEditor(props: CsvEditorProps): React.ReactElement {
++    return <TextCodeEditor {...props} />;
+ }
+ 
+ export default CsvCodeEditor;
+diff --git a/src/frontend/admin-configuration/src/components/atoms/JsonEditor.tsx b/src/frontend/admin-configuration/src/components/atoms/JsonEditor.tsx
+index 6d226b5..33027c5 100644
+--- a/src/frontend/admin-configuration/src/components/atoms/JsonEditor.tsx
++++ b/src/frontend/admin-configuration/src/components/atoms/JsonEditor.tsx
+@@ -1,72 +1,35 @@
+-import React, { useEffect, useRef, useState } from "react";
+-import Editor, { OnMount, OnChange, Monaco } from "@monaco-editor/react";
++import React from "react";
++import { TextCodeEditor } from "./TextCodeEditor";
+ 
+ type JSONSchema = Record<string, unknown>;
+ 
+ interface JsonEditorProps {
+     schema: JSONSchema;
+     defaultValue: string;
+-    onChange: OnChange;
++    onChange: (value: string) => void;
+     readonly: boolean;
+ }
+ 
++function validateJson(value: string): string | null {
++    try {
++        JSON.parse(value);
++        return null;
++    } catch (error) {
++        return error instanceof Error ? error.message : String(error);
++    }
++}
++
+ function JsonCodeEditor({
+-    schema,
+     defaultValue,
+     onChange,
+     readonly,
+ }: JsonEditorProps): React.ReactElement {
+-    const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
+-    const [monaco, setMonaco] = useState<Monaco | null>(null);
+-
+-    const handleMount: OnMount = (editor, monacoInstance) => {
+-        editorRef.current = editor;
+-
+-        const modelUri = "foo://admin/advanced.json";
+-        const model = monacoInstance.editor.createModel(
+-            defaultValue,
+-            "json",
+-            monacoInstance.Uri.parse(modelUri),
+-        );
+-        editor.setModel(model);
+-        setMonaco(monacoInstance);
+-    };
+-
+-    // Update the editor content when defaultValue changes (e.g., apiRoot switched)
+-    useEffect(() => {
+-        const editor = editorRef.current;
+-        if (!editor || !monaco) return;
+-        const model = editor.getModel();
+-        if (!model) return;
+-        if (model.getValue() !== defaultValue) {
+-            model.setValue(defaultValue);
+-        }
+-    }, [defaultValue, monaco]);
+-
+-    // Update JSON schema diagnostics when schema changes
+-    useEffect(() => {
+-        if (!monaco) return;
+-        monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+-            ...monaco.languages.json.jsonDefaults.diagnosticsOptions,
+-            comments: "ignore",
+-            trailingCommas: "ignore",
+-            schemas: [
+-                {
+-                    uri: "foo://app/advanced",
+-                    fileMatch: ["*.json"],
+-                    schema,
+-                },
+-            ],
+-            validate: true,
+-        });
+-    }, [monaco, schema]);
+-
+     return (
+-        <Editor
+-            language="json"
+-            onMount={handleMount}
++        <TextCodeEditor
++            defaultValue={defaultValue}
+             onChange={onChange}
+-            options={{ readOnly: readonly }}
++            readonly={readonly}
++            validate={validateJson}
+         />
+     );
+ }
+diff --git a/src/frontend/admin-configuration/src/components/atoms/TextCodeEditor.tsx b/src/frontend/admin-configuration/src/components/atoms/TextCodeEditor.tsx
+new file mode 100644
+index 0000000..e910553
+--- /dev/null
++++ b/src/frontend/admin-configuration/src/components/atoms/TextCodeEditor.tsx
+@@ -0,0 +1,51 @@
++import React, { useEffect, useState } from "react";
++
++// Hydro: the Monaco editor loads its code from a CDN, which venue networks often block.
++// A plain text area keeps the configuration pages usable offline.
++interface TextCodeEditorProps {
++    defaultValue: string;
++    onChange: (value: string) => void;
++    readonly: boolean;
++    validate?: (value: string) => string | null;
++}
++
++export function TextCodeEditor({
++    defaultValue,
++    onChange,
++    readonly,
++    validate,
++}: TextCodeEditorProps): React.ReactElement {
++    const [value, setValue] = useState(defaultValue);
++    useEffect(() => setValue(defaultValue), [defaultValue]);
++    const error = validate?.(value) ?? null;
++    return (
++        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
++            <textarea
++                value={value}
++                readOnly={readonly}
++                spellCheck={false}
++                onChange={(event) => {
++                    setValue(event.target.value);
++                    onChange(event.target.value);
++                }}
++                style={{
++                    flex: 1,
++                    width: "100%",
++                    boxSizing: "border-box",
++                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
++                    fontSize: 13,
++                    lineHeight: 1.5,
++                    padding: 12,
++                    border: `1px solid ${error ? "#d32f2f" : "#c4c4c4"}`,
++                    borderRadius: 4,
++                    resize: "none",
++                }}
++            />
++            {error && (
++                <div style={{ color: "#d32f2f", fontSize: 13, marginTop: 4 }}>
++                    {error}
++                </div>
++            )}
++        </div>
++    );
++}
+diff --git a/src/frontend/admin-configuration/src/config.ts b/src/frontend/admin-configuration/src/config.ts
+index e176c60..bf528df 100644
+--- a/src/frontend/admin-configuration/src/config.ts
++++ b/src/frontend/admin-configuration/src/config.ts
+@@ -1,21 +1,11 @@
+-const BACKEND_PROTO =
+-    window.location.protocol === "https:" ? "https://" : "http://";
+-export const BACKEND_PORT =
+-    import.meta.env.VITE_BACKEND_PORT ?? window.location.port;
+-export const BACKEND_ROOT =
+-    import.meta.env.VITE_BACKEND_ROOT ??
+-    BACKEND_PROTO + window.location.hostname + ":" + BACKEND_PORT;
+-export const BASE_URL_BACKEND =
+-    import.meta.env.VITE_BACKEND_URL ?? BACKEND_ROOT + "/api/admin";
+-export const OVERLAY_LOCATION =
+-    import.meta.env.VITE_OVERLAY_LOCATION ?? BACKEND_ROOT + "/overlay";
+-export const MEDIAS_LOCATION =
+-    import.meta.env.VITE_MEDIAS_LOCATION ?? BACKEND_ROOT + "/media";
+-
+-export const WS_PROTO =
+-    window.location.protocol === "https:" ? "wss://" : "ws://";
+-export const BASE_URL_WS =
+-    import.meta.env.VITE_WEBSOCKET_URL ??
+-    WS_PROTO + window.location.hostname + ":" + BACKEND_PORT + "/api/admin";
++// Hydro: the admin is served under a contest path; the page tells us where everything lives.
++const HYDRO_LIVE = (window as unknown as {
++    __HYDRO_LIVE__: { root: string; adminApi: string; adminWs: string; overlay: string; media: string };
++}).__HYDRO_LIVE__;
++export const BACKEND_ROOT = HYDRO_LIVE.root;
++export const BASE_URL_BACKEND = HYDRO_LIVE.adminApi;
++export const OVERLAY_LOCATION = HYDRO_LIVE.overlay;
++export const MEDIAS_LOCATION = HYDRO_LIVE.media;
++export const BASE_URL_WS = HYDRO_LIVE.adminWs;
+ export const WEBSOCKET_RECONNECT_TIME = 5000;
+ export const ADMIN_ACTIONS_WS_URL = BASE_URL_WS + "/adminActions";
+diff --git a/src/frontend/admin-configuration/src/feature.tsx b/src/frontend/admin-configuration/src/feature.tsx
+index 03b9977..753f257 100644
+--- a/src/frontend/admin-configuration/src/feature.tsx
++++ b/src/frontend/admin-configuration/src/feature.tsx
+@@ -2,13 +2,7 @@ import React from "react";
+ import { Navigate, RouteObject } from "react-router-dom";
+ import { MenuItem } from "admin-home-page";
+ import ContestLog from "./components/pages/ContestInfo";
+-import {
+-    AdvancedJsonPage,
+-    VisualConfigPage,
+-    CustomFieldsPage,
+-    OrgCustomFieldsPage,
+-    SettingsJsonPage,
+-} from "./components/ConfigurationEditor";
++import { VisualConfigPage } from "./components/ConfigurationEditor";
+ 
+ export interface AdminConfigurationPage {
+     name: string;
+@@ -22,31 +16,11 @@ export const adminConfigurationPages: AdminConfigurationPage[] = [
+         path: "/contestInfo",
+         element: <ContestLog />,
+     },
+-    {
+-        name: "Settings JSON",
+-        path: "/settings",
+-        element: <SettingsJsonPage />,
+-    },
+-    {
+-        name: "Advanced JSON",
+-        path: "/advancedJson",
+-        element: <AdvancedJsonPage />,
+-    },
+     {
+         name: "Visual config",
+         path: "/visualConfig",
+         element: <VisualConfigPage />,
+     },
+-    {
+-        name: "Teams custom fields",
+-        path: "/customFields",
+-        element: <CustomFieldsPage />,
+-    },
+-    {
+-        name: "Org custom fields",
+-        path: "/orgCustomFields",
+-        element: <OrgCustomFieldsPage />,
+-    },
+ ];
+ 
+ export function getAdminConfigurationMenuItems(
+diff --git a/src/frontend/admin-home-page/src/AdminHomePage.tsx b/src/frontend/admin-home-page/src/AdminHomePage.tsx
+index fbc4cba..10f286d 100644
+--- a/src/frontend/admin-home-page/src/AdminHomePage.tsx
++++ b/src/frontend/admin-home-page/src/AdminHomePage.tsx
+@@ -1,5 +1,6 @@
+ import { Box, Typography, Link, List, ListItem, Paper } from "@mui/material";
+ import { useEffect, useState } from "react";
++import { ADMIN_BACKEND_ROOT } from "./branding";
+ 
+ export const AdminHomePage = () => {
+     const [gitInfo, setGitInfo] = useState<{
+@@ -12,12 +13,12 @@ export const AdminHomePage = () => {
+     >([]);
+ 
+     useEffect(() => {
+-        fetch("/main-page/git")
++        fetch(`${ADMIN_BACKEND_ROOT}/main-page/git`)
+             .then((response) => response.json())
+             .then((data) => setGitInfo(data))
+             .catch((error) => console.error("Error fetching git info:", error));
+ 
+-        fetch("/main-page/links")
++        fetch(`${ADMIN_BACKEND_ROOT}/main-page/links`)
+             .then((response) => response.json())
+             .then((data) => setUsefulLinks(data))
+             .catch((error) => console.error("Error fetching links:", error));
+diff --git a/src/frontend/admin-home-page/src/branding.tsx b/src/frontend/admin-home-page/src/branding.tsx
+index e2e4fc1..09549a9 100644
+--- a/src/frontend/admin-home-page/src/branding.tsx
++++ b/src/frontend/admin-home-page/src/branding.tsx
+@@ -7,7 +7,7 @@ const BACKEND_PROTO =
+     window.location.protocol === "https:" ? "https://" : "http://";
+ 
+ export const ADMIN_BACKEND_ROOT =
+-    import.meta.env.VITE_BACKEND_ROOT ??
++    (window as unknown as { __HYDRO_LIVE__?: { root: string } }).__HYDRO_LIVE__?.root ??
+     BACKEND_PROTO + window.location.hostname + ":" + window.location.port;
+ 
+ const hexToRgb = (hex: string) => {
+diff --git a/src/frontend/admin-overlay/src/App.tsx b/src/frontend/admin-overlay/src/App.tsx
+index f265976..917135e 100644
+--- a/src/frontend/admin-overlay/src/App.tsx
++++ b/src/frontend/admin-overlay/src/App.tsx
+@@ -114,7 +114,7 @@ export function AdminApp() {
+ 
+ function App() {
+     return (
+-        <BrowserRouter basename={import.meta.env.BASE_URL ?? ""}>
++        <BrowserRouter basename={(window as unknown as { __HYDRO_LIVE__: { adminBase: string } }).__HYDRO_LIVE__.adminBase}>
+             <AdminApp />
+         </BrowserRouter>
+     );
+diff --git a/src/frontend/admin-overlay/src/config.ts b/src/frontend/admin-overlay/src/config.ts
+index e176c60..bf528df 100644
+--- a/src/frontend/admin-overlay/src/config.ts
++++ b/src/frontend/admin-overlay/src/config.ts
+@@ -1,21 +1,11 @@
+-const BACKEND_PROTO =
+-    window.location.protocol === "https:" ? "https://" : "http://";
+-export const BACKEND_PORT =
+-    import.meta.env.VITE_BACKEND_PORT ?? window.location.port;
+-export const BACKEND_ROOT =
+-    import.meta.env.VITE_BACKEND_ROOT ??
+-    BACKEND_PROTO + window.location.hostname + ":" + BACKEND_PORT;
+-export const BASE_URL_BACKEND =
+-    import.meta.env.VITE_BACKEND_URL ?? BACKEND_ROOT + "/api/admin";
+-export const OVERLAY_LOCATION =
+-    import.meta.env.VITE_OVERLAY_LOCATION ?? BACKEND_ROOT + "/overlay";
+-export const MEDIAS_LOCATION =
+-    import.meta.env.VITE_MEDIAS_LOCATION ?? BACKEND_ROOT + "/media";
+-
+-export const WS_PROTO =
+-    window.location.protocol === "https:" ? "wss://" : "ws://";
+-export const BASE_URL_WS =
+-    import.meta.env.VITE_WEBSOCKET_URL ??
+-    WS_PROTO + window.location.hostname + ":" + BACKEND_PORT + "/api/admin";
++// Hydro: the admin is served under a contest path; the page tells us where everything lives.
++const HYDRO_LIVE = (window as unknown as {
++    __HYDRO_LIVE__: { root: string; adminApi: string; adminWs: string; overlay: string; media: string };
++}).__HYDRO_LIVE__;
++export const BACKEND_ROOT = HYDRO_LIVE.root;
++export const BASE_URL_BACKEND = HYDRO_LIVE.adminApi;
++export const OVERLAY_LOCATION = HYDRO_LIVE.overlay;
++export const MEDIAS_LOCATION = HYDRO_LIVE.media;
++export const BASE_URL_WS = HYDRO_LIVE.adminWs;
+ export const WEBSOCKET_RECONNECT_TIME = 5000;
+ export const ADMIN_ACTIONS_WS_URL = BASE_URL_WS + "/adminActions";
+diff --git a/src/frontend/admin-overlay/src/services/controlsWidget.ts b/src/frontend/admin-overlay/src/services/controlsWidget.ts
+index 99cc341..7bb166b 100644
+--- a/src/frontend/admin-overlay/src/services/controlsWidget.ts
++++ b/src/frontend/admin-overlay/src/services/controlsWidget.ts
+@@ -2,7 +2,9 @@ import { useMemo } from "react";
+ import { createApiGet } from "shared-code/utils";
+ import { AbstractWidgetImpl } from "./abstractWidgetImpl";
+ import { ErrorHandler } from "@shared/abstractWidget";
+-import { BACKEND_ROOT } from "../config";
++
++
++const HYDRO_OVERLAY_API = (window as unknown as { __HYDRO_LIVE__: { overlayApi: string } }).__HYDRO_LIVE__.overlayApi;
+ 
+ interface ControlElement {
+     text: string;
+@@ -52,8 +54,8 @@ export class ControlsWidgetService extends AbstractWidgetImpl<ControlElementSett
+ 
+     private async loadVisualConfig(): Promise<string[]> {
+         try {
+-            const config = await createApiGet(BACKEND_ROOT)(
+-                "/api/overlay/visualConfig.json",
++            const config = await createApiGet(HYDRO_OVERLAY_API)(
++                "/visualConfig.json",
+             );
+             return config.ADMIN_HIDE_CONTROL ?? [];
+         } catch (error) {
+diff --git a/src/frontend/overlay/src/config.ts b/src/frontend/overlay/src/config.ts
+index ce030a2..4573158 100644
+--- a/src/frontend/overlay/src/config.ts
++++ b/src/frontend/overlay/src/config.ts
+@@ -5,13 +5,9 @@ import { LocationRectangle } from "@/utils/location-rectangle";
+ import type { OverlayConfig, OverlayConfigOverride } from "./config.interface";
+ import { AwardEffect } from "@/utils/awards";
+ 
+-const WS_PROTO = window.location.protocol === "https:" ? "wss://" : "ws://";
+-const HTTP_PROTO =
+-    window.location.protocol === "https:" ? "https://" : "http://";
+-const WS_PORT = import.meta.env.VITE_WEBSOCKET_PORT ?? window.location.port;
+-const VISUAL_CONFIG_URL =
+-    import.meta.env.VITE_VISUAL_CONFIG_URL ??
+-    `${window.location.protocol}//${window.location.hostname}:${WS_PORT}/api/overlay/visualConfig.json`;
++// Hydro: the overlay is served under a contest path; the page tells us where its API lives.
++const HYDRO_LIVE = (window as unknown as { __HYDRO_LIVE__: { overlayApi: string; overlayWs: string } }).__HYDRO_LIVE__;
++const VISUAL_CONFIG_URL = `${HYDRO_LIVE.overlayApi}/visualConfig.json`;
+ 
+ const urlParams = new URLSearchParams(window.location.search);
+ const queryVisualConfig = JSON.parse(
+@@ -41,19 +37,8 @@ function getDefaultConfig(): EvaluatableTo<OverlayConfig> {
+     return {
+         CONTEST_COLOR: "#4C83C3",
+         CONTEST_CAPTION: "",
+-        BASE_URL_WS:
+-            import.meta.env.VITE_WEBSOCKET_URL ??
+-            WS_PROTO +
+-                window.location.hostname +
+-                ":" +
+-                WS_PORT +
+-                "/api/overlay",
+-        BASE_URL_BACKEND:
+-            HTTP_PROTO +
+-            window.location.hostname +
+-            ":" +
+-            WS_PORT +
+-            "/api/overlay",
++        BASE_URL_WS: HYDRO_LIVE.overlayWs,
++        BASE_URL_BACKEND: HYDRO_LIVE.overlayApi,
+ 
+         // Non Styling configs
+         WEBSOCKET_RECONNECT_TIME: 5000, // ms

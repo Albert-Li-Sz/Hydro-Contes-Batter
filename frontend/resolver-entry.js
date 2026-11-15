@@ -1,7 +1,8 @@
-const entryIds = ['xcpcio-resolver-entry', 'xcpcio-screens-entry'];
+const entryIds = ['xcpcio-resolver-entry', 'xcpcio-screens-entry', 'xcpcio-live-entry'];
 const entries = (url) => [
     [entryIds[0], url, 'icon-statistics', '滚榜'],
     [entryIds[1], url.replace(/\/resolver$/, '/screens'), 'icon-preview', '大屏'],
+    [entryIds[2], url.replace(/\/resolver$/, '/live'), 'icon-play', '直播'],
 ];
 const removeEntries = () => { for (const id of entryIds) document.getElementById(id)?.remove(); };
 
@@ -24,7 +25,7 @@ export function installResolverEntry(url) {
         const management = document.querySelector(`a[href$="/contest/${currentContest}/management"]`);
         const anchor = (ccs || management)?.closest('li');
         if (!anchor) return;
-        // 滚榜, then 大屏 (same permission), both right after CCS / management.
+        // 滚榜, 大屏 and 直播 (same permission), right after CCS / management.
         let previous = anchor;
         for (const [id, href, iconName, label] of entries(url)) {
             let entry = document.getElementById(id);

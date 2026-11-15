@@ -11,6 +11,7 @@ import { buildRosterTeam, defaultProfileFields, FilterField, rosterFields } from
 import { replacementRequest } from './lib/access';
 import { applyResolver } from './lib/resolver-routes';
 import { applyScreens } from './lib/screens-routes';
+import { applyLive } from './lib/live/routes';
 
 export const name = 'scoreboard-xcpcio-plus';
 export const Config = Schema.object({
@@ -262,6 +263,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>) {
     ctx.Route('contest_xcpcio_plus_settings', '/contest/:tid/xcpcio-settings', SettingsHandler);
     applyResolver(ctx, { loadSettings, loadData: loadContestData, sessionDays: config.resolverSessionDays ?? 0 });
     applyScreens(ctx, { loadSettings, loadData: loadContestData });
+    applyLive(ctx, { loadSettings, loadData: loadContestData });
     ctx.Route('contest_xcpcio_plus_public', '/contest/:tid/xcpcio-public', PublicBoardHandler);
     ctx.i18n.load('zh', { 'XCPCIO Plus': 'XCPCIO 增强榜' });
     ctx.inject(['scoreboard', 'server'], ({ scoreboard, server }) => {

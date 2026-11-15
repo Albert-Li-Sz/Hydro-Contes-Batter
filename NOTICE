@@ -53,3 +53,19 @@ balloon and map images); they are covered by the same terms as above.
 The Hydro adapter, independent session storage and configuration UI retain this
 plugin's AGPL-3.0-or-later license. Each third-party component retains its own
 terms, copyright and trademark ownership.
+
+ICPC Live integration (added in Hydro XCPCIO Plus 0.8.0)
+Source: https://github.com/icpc/live-v3/tree/v3.5.1
+Commit: 200c82f81ffdea91ffec9cc17b314ffc72436a0f
+MIT License, Copyright (c) 2022-2023 ICPC Live Team, preserved in
+licenses/ICPC-Live-MIT.txt and published as public/hydro-live/LICENSE.txt.
+The overlay and admin frontends (src/frontend) are built from that commit with
+live/frontend.patch applied: backend locations are read from the page Hydro
+serves, unsupported configuration pages are removed, and the Monaco editor
+(loaded from a CDN) is replaced by a plain text editor. scripts/build-live.mjs
+reproduces live/dist; live/UPSTREAM.json records the source and patch hash.
+The backend (src/backend, src/backend-api and the ICPC scoreboard, first-to-solve
+and after-first-OK logic of src/cds/core) is ported to TypeScript in lib/live/,
+reading Hydro contest data instead of a CDS feed. Title templates in live/media/
+are copied unchanged from config/_media of the same commit.
+
