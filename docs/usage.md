@@ -20,27 +20,52 @@
 
 ## 安装
 
-需要 Node.js 22 或以上版本及 Hydro 5.x。本次类型检查和实际部署验收使用 Hydro 5.0.7，详细记录见 `verification.md`。
+需要 Node.js 22 或以上版本及 Hydro 5.x。使用运行 Hydro 的系统用户操作；命令中的 `$HOME` 对应这个用户。自 0.8.1 起，安装包包含供 Hydro 直接加载的源码和完整预构建资源。
 
-在开发目录安装、检查并打包：
-
-```bash
-pnpm install --frozen-lockfile
-pnpm build
-pnpm typecheck
-pnpm test
-pnpm pack --pack-destination ./dist
-```
-
-将生成的 `hydro-scoreboard-xcpcio-plus-0.7.8.tgz` 上传至 Hydro 主服务所在环境，然后执行：
+下载 `hydro-scoreboard-xcpcio-plus-0.8.1.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
 
 ```bash
-yarn global add /绝对路径/hydro-scoreboard-xcpcio-plus-0.7.8.tgz
-hydrooj addon add hydro-scoreboard-xcpcio-plus
+mkdir -p "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
+tar -xzf hydro-scoreboard-xcpcio-plus-0.8.1.tgz \
+  -C "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus" --strip-components=1
+hydrooj addon add "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
 pm2 restart hydrooj
 ```
 
-容器部署时，在 Hydro 主服务容器内按其原有插件安装方式执行，并持久化插件目录。
+### 脚本安装与升级
+
+在新的临时目录中解压安装包，然后运行包内脚本。升级时运行新安装包中的脚本。
+
+```bash
+mkdir -p xcpcio-update
+tar -xzf hydro-scoreboard-xcpcio-plus-0.8.1.tgz -C xcpcio-update
+bash xcpcio-update/package/install.sh install
+# 已有安装时
+bash xcpcio-update/package/install.sh upgrade
+```
+
+脚本先检查完整资源并准备新目录，再备份旧目录和 addon 列表、注册新路径，最后重启 Hydro。旧版通过 `yarn global add` 安装时，脚本会将包名注册迁移到目录注册；也会解除同名插件旧目录的注册。原来由包管理器安装的文件仍由该包管理器管理。
+
+| 参数 | 用途 |
+| --- | --- |
+| `--dir /绝对路径` | 设置安装目录，默认当前 Hydro 配置目录下的 `addons/hydro-scoreboard-xcpcio-plus` |
+| `--service hydrooj` | 设置要重启的 PM2 进程名 |
+| `--no-restart` | 由容器或其他服务管理器执行重启 |
+| `--help` | 查看脚本用法 |
+
+指定自定义安装目录后，升级和卸载时继续传入相同的 `--dir`。Hydro profile 使用对应的 `HYDRO_PROFILE`，并通过 `--service` 指定该 profile 的 PM2 进程。容器内使用持久化目录和 `--no-restart`，操作完成后重启 Hydro 主服务。
+
+### 卸载与恢复
+
+```bash
+bash "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus/install.sh" uninstall
+```
+
+卸载会解除本插件的 addon 注册，将安装目录和发布的静态资源移入备份，然后重启 Hydro。MongoDB 中的比赛设置、滚榜会话、直播配置和媒体保留，再次安装后可继续使用。旧版尚无脚本时，可以下载新包并运行其中的 `install.sh uninstall`。
+
+备份位于安装目录旁的 `.hydro-addon-backups/hydro-scoreboard-xcpcio-plus/<时间戳>/`。`addon.json` 记录操作前的注册列表，`operation.json` 记录安装目录和服务名，`plugin/` 保存操作前的目录安装。正常执行期间若注册或重启命令失败，脚本会恢复旧目录和注册，并尝试重新启动原服务。发生进程被强制终止等异常时，可依据这些备份恢复原注册和插件目录，再重启服务。
+
+在源码目录执行 `pnpm install --frozen-lockfile` 和 `pnpm pack --pack-destination ./dist` 可生成同样的完整安装包。`prepack` 会生成所需静态资源。
 
 ## 使用
 
@@ -121,7 +146,7 @@ profileFields:
 
 Logo 来自 Hydro 的学校 Logo 注册表 <https://avatar.hydrooj.com/>，保留源图分辨率，随包发布在 `logos/` 目录。已有 WebP 保留原始文件，其他格式无损转换为 WebP，并保留透明通道。Resolver 使用这套原图，适用于高清屏幕和奖项大图；增强榜只把校徽显示为行内图标，使用 `logos/thumb/` 中 128px 高的缩略图，每张约 7 KB，避免观众为小图标下载原图。源图地址及文件哈希记录在 `logos/index.json`。
 
-安装包里校徽原图只带 `logos/` 这一份，`public/hydro-resolver/logos` 下供滚榜页访问的副本由安装时的 `postinstall` 脚本生成；榜单用的缩略图随包自带。如果安装环境禁用了安装脚本，请在插件目录手动执行一次 `node scripts/assets.mjs`，否则滚榜统一显示 ICPC 图标，其余功能不受影响。
+自 0.8.1 起，安装包同时包含 `logos/` 原图、榜单缩略图和 `public/hydro-resolver/logos/` 下供滚榜、大屏及直播使用的副本，解压后即可使用。源码开发时运行 `pnpm build` 或 `pnpm pack` 会重新生成这些资源。
 
 校徽按学校名称（含注册表中的别名和英文名，忽略全半角、大小写和多余空格）匹配。增强榜中名称不在注册表的学校不显示 Logo，未填写学校显示 XCPCIO 自带的 ICPC 标志。Resolver 缺失校徽时使用本地 ICPC 图标。未开启“向所有观众显示真实姓名与学校”时增强榜的学校列和 Logo 均隐藏。
 
@@ -227,25 +252,29 @@ pnpm preview
 比赛所有者和有“编辑比赛”权限的管理员可在比赛侧边栏的“直播”进入设置页（`/contest/<比赛ID>/live`），页面上有两个入口：
 
 - **导播台**（`/contest/<比赛ID>/live/admin`）：ICPC Live 的管理界面，需要 Hydro 登录。可在 Controls 中显示或隐藏榜单、评测队列、题目统计、滚动字幕和全屏时钟；Titles 中添加标题字幕（下三分之一条）、文字公告和图片；TeamView 中显示单队、两队对比或四分屏的队伍做题进度与时间轴；Scoreboard 中切换分榜和滚动方向；Ticker 中编排滚动字幕（文字、时钟、榜单片段、图片）；Analytics 中查看自动生成的中文解说，一键推送为字幕或公告；Spotlight 中查看系统推荐的关注队伍；Media 中上传图片与 SVG 字幕模板。多名导播可同时打开，任何一处的操作都会同步到其他导播台和画面。
-- **直播画面**（`/contest/<比赛ID>/live-overlay/<令牌>`）：在 OBS 中添加“浏览器”来源，宽 1920、高 1080，链接后加 `?noStatus` 隐藏状态条，在“自定义 CSS”中填入 `body { background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden; }` 使背景透明。链接自带访问凭证，无需登录，可在设置页作废重建，作废后旧链接立即失效。
+- **直播画面**（`/contest/<比赛ID>/live-overlay/<令牌>`）：在 OBS 中添加“浏览器”来源，宽 1920、高 1080，链接后加 `?noStatus` 隐藏状态条，在“自定义 CSS”中填入 `body { background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden; }` 使背景透明。链接自带访问凭证，无需登录，可在设置页作废重建，作废后旧链接立即失效，已打开的 OBS 画面也会立即断开（多进程部署时同样如此），需要在 OBS 中换成新链接。
 
 数据规则：
 
-- 与公开榜一致：封榜后的提交在画面上显示为待定，比赛中错误结果只显示为未通过（RJ），比赛结束后显示具体结果；是否显示真实姓名与学校跟随“向所有观众显示真实姓名与学校”。
-- 排名按 Hydro ACM 规则：罚时按秒累加，每次错误加 20 分钟，编译错误、格式错误和取消的提交不计罚时；同题数同罚时再按最后一次通过时间先后排列。打星选手显示为 `*`，不参与排名和奖牌。
-- 奖牌（金银铜）和一血使用主榜的奖项设置；分榜对应 ICPC Live 的分组，可在 Scoreboard 中选择只显示某个分榜。
+- 与公开榜一致：比赛开始前只显示比赛时钟和题目，不显示队伍；封榜后的提交在画面上显示为待定，比赛中错误结果只显示为未通过（RJ），比赛结束后显示具体结果；是否显示真实姓名与学校跟随“向所有观众显示真实姓名与学校”。
+- 排名、奖牌和一血与增强榜、滚榜、大屏使用同一套规则：罚时按秒累加，每次错误加 20 分钟，编译错误、格式错误和取消的提交不计罚时；题数和罚时都相同的队伍并列，并列队伍按队名排列。打星选手显示为 `*`，不参与排名和奖牌。
+- 奖牌（金银铜）和一血使用主榜的奖项设置：开启“同分同奖”时并列队伍得到同一奖牌，否则按名次顺序发放；只有通过至少一题的正式队伍获奖。一血为各题最早通过的提交，同一时刻通过的都算，打星选手按设置决定是否计入。分榜对应 ICPC Live 的分组，可在 Scoreboard 中选择只显示某个分榜。
 - 乐观榜和悲观榜分别把待定提交视为通过和错误，用于封榜后的悬念展示。
-- 自动解说使用中文模板（提交、通过、未通过、一血），排名为该提交首次出现时的名次。
+- 自动解说使用中文模板（提交、通过、未通过、一血），其中的名次和通过题数为该提交刚完成时的情况；Hydro 重启后按比赛历史重新生成的解说也按当时的情况计算。
 
 说明与限制：
 
 - 画面状态（显示中的组件、字幕、标题、图片）保存在 MongoDB，Hydro 重启后自动恢复；评测队列和解说列表在重启后按比赛历史重新生成。
-- 后端在有画面或导播台打开时每 2 秒读取一次比赛数据，无人使用 30 分钟后释放内存。直播状态保存在单个 Hydro 进程中，多进程（集群）部署时请让直播相关请求固定到同一进程。
+- 后端在有画面或导播台打开时读取比赛数据：比赛进行中每 2 秒一次，赛前和赛后每 5 秒一次；无人使用 30 分钟后释放内存。
+- 多进程（PM2 集群）部署时，每个进程都有一份直播后端；导播台的操作保存后通过 Hydro 的进程间广播通知其他进程，各进程的画面保持一致。
+- 画面上的比赛时钟按 Hydro 服务器时间显示，打开时及之后每分钟校准一次，OBS 电脑的系统时间不准也不影响。
+- 导播被撤销比赛管理权限后，已打开的导播台连接在一分钟内断开。
+- 插件配置中的“启用直播模块”关闭后，直播的页面、接口和侧边栏入口都不再提供，已保存的直播设置保留。
 - Hydro 中没有队伍摄像头、屏幕录像、按键记录和评测时间数据，TeamView 的视频画面、Featured run、队伍定位（Locator）的摄像机场景等依赖这些数据的功能可配置但不会有内容。
-- ICPC Live 的 settings.json、advanced.json 和自定义字段由 Hydro 比赛数据取代，导播台的 Configuration 中只保留 Contest Info（只读）和 Visual config（画面颜色、标题文字等，保存后刷新 OBS 画面生效）。
-- 上传的媒体文件单个不超过 12 MB，支持图片、视频、SVG 和 JSON；SVG 字幕模板中的 `{name}` 等占位符由标题设置中的数据替换，`teamId` 可引用队伍名与学校（`{team.name}`、`{org.displayName}`）。
+- ICPC Live 的 settings.json、advanced.json 和自定义字段由 Hydro 比赛数据取代，导播台的 Configuration 中只保留 Contest Info（只读）和 Visual config（画面颜色、标题文字等，保存后刷新 OBS 画面生效）。后端地址由 Hydro 决定，Visual config 中不能设置以 `BASE_URL` 开头的项。
+- 上传的媒体文件单个不超过 12 MB，支持图片、视频、SVG 和 JSON；文件名保留中文、字母和数字，其他字符替换为下划线，同名文件会覆盖；SVG 字幕模板中的 `{name}` 等占位符由标题设置中的数据替换，`teamId` 可引用队伍名与学校（`{team.name}`、`{org.displayName}`）。
 
 ### 直播来源与许可
 
-ICPC Live 的 MIT 许可证见 `licenses/ICPC-Live-MIT.txt`。前端由 `scripts/build-live.mjs` 从固定提交 `200c82f81ffdea91ffec9cc17b314ffc72436a0f` 打上 `live/frontend.patch` 后构建，修改内容为：后端地址改为从 Hydro 页面读取、移除依赖 Java 服务配置文件的页面、用本地文本编辑器替换从 CDN 加载的 Monaco 编辑器。后端移植位置见 `live/UPSTREAM.json`。
+ICPC Live 的 MIT 许可证见 `licenses/ICPC-Live-MIT.txt`。前端由 `scripts/build-live.mjs` 从固定提交 `200c82f81ffdea91ffec9cc17b314ffc72436a0f` 打上 `live/frontend.patch` 后构建，修改内容为：后端地址改为从 Hydro 页面读取、画面时钟改用 Hydro 服务器时间、移除依赖 Java 服务配置文件的页面、用本地文本编辑器替换从 CDN 加载的 Monaco 编辑器。排名、奖牌与一血改用本插件统一的规则，不再使用 ICPC Live 按最后通过时间区分并列和按奖项链整组发放的做法。后端移植位置见 `live/UPSTREAM.json`。
 

@@ -1,13 +1,13 @@
 const entryIds = ['xcpcio-resolver-entry', 'xcpcio-screens-entry', 'xcpcio-live-entry'];
-const entries = (url) => [
+const entries = (url, { live = true } = {}) => [
     [entryIds[0], url, 'icon-statistics', '滚榜'],
     [entryIds[1], url.replace(/\/resolver$/, '/screens'), 'icon-preview', '大屏'],
-    [entryIds[2], url.replace(/\/resolver$/, '/live'), 'icon-play', '直播'],
+    ...live ? [[entryIds[2], url.replace(/\/resolver$/, '/live'), 'icon-play', '直播']] : [],
 ];
 const removeEntries = () => { for (const id of entryIds) document.getElementById(id)?.remove(); };
 
 /** Add the entries after CCS, including when CCS finishes loading later. */
-export function installResolverEntry(url) {
+export function installResolverEntry(url, options = {}) {
     let stopped = false;
     let scheduled = false;
     const update = () => {
@@ -27,7 +27,7 @@ export function installResolverEntry(url) {
         if (!anchor) return;
         // 滚榜, 大屏 and 直播 (same permission), right after CCS / management.
         let previous = anchor;
-        for (const [id, href, iconName, label] of entries(url)) {
+        for (const [id, href, iconName, label] of entries(url, options)) {
             let entry = document.getElementById(id);
             if (!entry) {
                 entry = document.createElement('li');

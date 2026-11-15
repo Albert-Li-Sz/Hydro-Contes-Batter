@@ -18,8 +18,21 @@ export const mediaTypes: Record<string, string> = {
     '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8',
 };
 export const maxMediaBytes = 12 * 1024 * 1024;
-/** PartData.FileItem.storeName: keep word characters and dots. */
-export const storeName = (name: string) => name.replace(/[^\w.]/g, '_').replace(/^\.+/, '_').slice(0, 120);
+/**
+ * PartData.FileItem.storeName, keeping letters and digits of any script so that Chinese file
+ * names stay distinct ("校徽.png" and "队徽.png" must not both become "__.png").
+ */
+export const storeName = (name: string) => [...name.normalize('NFC').replace(/[^\p{L}\p{N}_.-]/gu, '_').replace(/^[.-]+/, '_')]
+    .slice(0, 120).join('');
+
+/** Visual config keys that would move the overlay's backend elsewhere. */
+const reservedVisualKeys = /^BASE_URL/;
+export function publicVisualConfig(text: string): Record<string, unknown> {
+    let config: unknown = {};
+    try { config = JSON.parse(text || '{}'); } catch { /* rejected on save */ }
+    if (!config || typeof config !== 'object' || Array.isArray(config)) return {};
+    return Object.fromEntries(Object.entries(config).filter(([key]) => !reservedVisualKeys.test(key)));
+}
 
 /** Chinese captions; the queue column is too narrow for the contest name next to its title. */
 export function defaultVisualConfig(title: string) {
@@ -66,12 +79,17 @@ export function liveUrls(contestBase: string, token: string, mediaKey: string): 
 }
 
 /** A built ICPC Live page, told where its backend lives. */
-export function shell(app: 'overlay' | 'admin', runtime: LiveUrls, title: string) {
+export function shell(app: 'overlay' | 'admin', runtime: LiveUrls, title: string, serverNow = Date.now()) {
     const html = fs.readFileSync(path.join(liveAssets, app, 'index.html'), 'utf8');
     const injected = '<meta name="referrer" content="no-referrer"><meta name="robots" content="noindex">'
         // WebSocket addresses follow the page's own scheme and host (also behind an HTTPS proxy).
         + `<script>window.__HYDRO_LIVE__=${toScriptJson(runtime)};(function(c){var o=(location.protocol==='https:'?'wss://':'ws://')+location.host;`
-        + 'c.adminWs=o+c.adminWs;c.overlayWs=o+c.overlayWs;})(window.__HYDRO_LIVE__);'
+        + 'c.adminWs=o+c.adminWs;c.overlayWs=o+c.overlayWs;'
+        // Clocks follow the Hydro server, not the (possibly unsynchronised) OBS computer: offset
+        // from the render time, then measured against /serverTime every minute.
+        + `c.clockOffset=${serverNow}-Date.now();function s(){var t=Date.now();fetch(c.overlayApi+'/serverTime',{cache:'no-store'})`
+        + '.then(function(r){return r.json();}).then(function(v){var e=Date.now();if(typeof v.now==="number"&&e-t<5000)c.clockOffset=v.now+(e-t)/2-e;}).catch(function(){});}'
+        + 's();setInterval(s,60000);})(window.__HYDRO_LIVE__);'
         // Hydro's websocket layer sends a text "ping" to quiet clients and closes them after 80 s
         // without a reply. ICPC Live clients never send anything, so answer here and keep the
         // ping away from their JSON handlers (this listener runs before any added later).
@@ -274,12 +292,15 @@ export async function adminApi(hub: LiveHub, store: LiveStore, request: ApiReque
             return action(async () => {
                 const value = typeof body === 'string' ? body : JSON.stringify(body);
                 if (value.length > 200000) throw new ApiActionError('Visual config is too large');
+                let parsed: unknown;
                 try {
-                    const parsed = JSON.parse(value);
+                    parsed = JSON.parse(value);
                     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('expected an object');
                 } catch (error) {
                     throw new ApiActionError(`Failed to parse visual config: ${(error as Error).message}`);
                 }
+                const reserved = Object.keys(parsed as object).filter((key) => reservedVisualKeys.test(key));
+                if (reserved.length) throw new ApiActionError(`${reserved.join(', ')}: backend addresses are set by Hydro and cannot be changed`);
                 await store.saveVisualConfig(value);
             });
         }
@@ -323,11 +344,8 @@ export function overlayChannel(subpath: string) {
 
 /** /api/overlay/* over plain HTTP: the first value of each flow, and the visual config. */
 export async function overlayApi(hub: LiveHub, subpath: string, visualConfig: string): Promise<ApiResponse | null> {
-    if (subpath === 'visualConfig.json') {
-        let config: unknown = {};
-        try { config = JSON.parse(visualConfig || '{}'); } catch { /* rejected on save */ }
-        return json(config);
-    }
+    if (subpath === 'visualConfig.json') return json(publicVisualConfig(visualConfig));
+    if (subpath === 'serverTime') return json({ now: Date.now() });
     const channel = overlayChannel(subpath);
     if (!channel) return null;
     hub.touch();

@@ -5,7 +5,7 @@ import { resolverBoards } from '../lib/resolver-data';
 import { buildContestInfo, buildRuns, contestStatus, type LiveSource } from '../lib/live/model';
 import { computeScoreboard, ranking, runsByTeam, scoreboardDiff, statistics, timeline } from '../lib/live/scoreboard';
 import { LiveHub, substituteTemplate } from '../lib/live/hub';
-import { adminApi, defaultVisualConfig, overlayApi, overlayChannel, type LiveStore } from '../lib/live/api';
+import { adminApi, defaultVisualConfig, overlayApi, overlayChannel, publicVisualConfig, storeName, type LiveStore } from '../lib/live/api';
 import { QueueService } from '../lib/live/services';
 import { demoData } from './fixture';
 
@@ -71,7 +71,7 @@ describe('live contest model', () => {
             .toEqual([['CE', false], ['RJ', true], 'IN_PROGRESS', ['IG', false]]);
     });
 
-    it('marks first solves by the board rules, blocked by an earlier submission still judging', () => {
+    it('marks first solves by the board rules: earliest accepted run among eligible teams', () => {
         const data = withSubmissions([
             { submission_id: 'u', team_id: '4', problem_id: 0, timestamp: 1000, status: 'CORRECT' }, // unofficial
             { submission_id: 'p', team_id: '2', problem_id: 1, timestamp: 1500, status: 'PENDING' },
@@ -84,8 +84,9 @@ describe('live contest model', () => {
             return buildRuns(live, buildContestInfo(live)).filter((run) => run.result.type === 'ICPC' && run.result.isFirstToSolveRun).map((run) => run.id);
         };
         expect(fts(normalizeSettings({ ...defaultSettings, manualBoards: [] }))).toEqual([]);
-        expect(fts(normalizeSettings({ ...defaultSettings, firstSolve: true, manualBoards: [] }))).toEqual(['o']);
-        expect(fts(normalizeSettings({ ...defaultSettings, firstSolve: true, unofficialFirstSolve: true, manualBoards: [] }))).toEqual(['u']);
+        // As on the board, a submission still being judged does not hold back a later accepted one.
+        expect(fts(normalizeSettings({ ...defaultSettings, firstSolve: true, manualBoards: [] }))).toEqual(['o', 'q']);
+        expect(fts(normalizeSettings({ ...defaultSettings, firstSolve: true, unofficialFirstSolve: true, manualBoards: [] }))).toEqual(['u', 'q']);
         const live = source({}, data);
         const after = buildRuns(live, buildContestInfo(live)).find((run) => run.id === 'r')!;
         expect(after.result.isAfterFirstOk).toBe(true);
@@ -125,13 +126,13 @@ describe('live scoreboard', () => {
         expect(cell('pessimistic').problemResults[0]).toMatchObject({ wrongAttempts: 2, pendingAttempts: 0, isSolved: false });
     });
 
-    it('shares a rank only on equal score, penalty and last accepted time', () => {
+    it('shares a rank on equal problems and penalty seconds, like the board', () => {
         const data: BoardData = {
             ...demoData(),
             submissions: [
                 { submission_id: 'a', team_id: '1', problem_id: 0, timestamp: 600_000, status: 'CORRECT' },
-                { submission_id: 'b', team_id: '2', problem_id: 1, timestamp: 600_000, status: 'CORRECT' },
-                { submission_id: 'c', team_id: '3', problem_id: 2, timestamp: 600_500, status: 'CORRECT' },
+                { submission_id: 'b', team_id: '2', problem_id: 1, timestamp: 600_900, status: 'CORRECT' }, // same whole second
+                { submission_id: 'c', team_id: '3', problem_id: 2, timestamp: 601_000, status: 'CORRECT' },
             ],
         };
         const live = source({}, data);
@@ -280,7 +281,7 @@ describe('live hub and admin api', () => {
         vi.advanceTimersByTime(600);
         const saved = persist.mock.calls.at(-1)![0] as any;
         expect(saved.controllers.queue.showOrder).toBeGreaterThan(0);
-        expect(saved.presets.picture).toEqual([{ settings: { url: '/m/a.png', name: 'a' }, showOrder: null }]);
+        expect(saved.presets.picture).toEqual([{ settings: { url: '/m/a.png', name: 'a' }, showOrder: null, id: 1, expiresAt: null }]);
         hub.dispose();
         const restored = makeHub(saved).hub;
         await restored.ready;
@@ -311,9 +312,9 @@ describe('live hub and admin api', () => {
         const store = memoryStore();
         await adminApi(hub, store, request('POST', `analytics/new/${message.comments[0].id}/tickerMessage`, {}, { ttl: '10000' }));
         const ticker = JSON.parse((await adminApi(hub, store, request('GET', 'tickerMessage')))!.body);
-        // Listed while it lasts (like upstream), but never saved.
+        // Listed while it lasts (like upstream), and saved with its expiry for the other Hydro processes.
         expect(ticker).toEqual([{ shown: true, id: expect.any(Number), settings: expect.objectContaining({ type: 'text', text: message.comments[0].message }) }]);
-        expect(hub.state().presets!.tickerMessage).toEqual([]);
+        expect(hub.state().presets!.tickerMessage).toEqual([expect.objectContaining({ id: ticker[0].id, expiresAt: expect.any(Number) })]);
         hub.dispose();
     });
 
@@ -339,7 +340,106 @@ describe('live hub and admin api', () => {
         expect((await adminApi(hub, store, {
             ...request('POST', 'media/upload'),
             files: [{ name: '校徽 logo.png', size: 3, read: async () => Buffer.from('png') }],
-        }))!.body).toBe(JSON.stringify({ status: 'ok', response: ['___logo.png'] }));
+        }))!.body).toBe(JSON.stringify({ status: 'ok', response: ['校徽_logo.png'] }));
         hub.dispose();
+    });
+});
+
+describe('live consistency with the board', () => {
+    it('orders and ranks teams with the board rule (standings.js compareStandings)', async () => {
+        const { compareStandings } = await import('../resolver/public/js/standings.js');
+        const data = withSubmissions([
+            { submission_id: 'a', team_id: '1', problem_id: 0, timestamp: 600_000, status: 'CORRECT' },
+            { submission_id: 'b', team_id: '2', problem_id: 0, timestamp: 300_000, status: 'CORRECT' },
+            { submission_id: 'c', team_id: '2', problem_id: 1, timestamp: 300_000, status: 'WRONG_ANSWER' },
+            { submission_id: 'd', team_id: '3', problem_id: 1, timestamp: 600_000, status: 'CORRECT' },
+            { submission_id: 'e', team_id: '5', problem_id: 2, timestamp: 900_000, status: 'CORRECT' },
+        ]);
+        const live = source({}, data);
+        const info = buildContestInfo(live);
+        const state = computeScoreboard(info, runsByTeam(buildRuns(live, info)), 'normal');
+        const records = info.teams.map((team) => ({
+            teamId: team.id, sortName: team.name, solved: state.rows.get(team.id)!.totalScore, timeSeconds: state.rows.get(team.id)!.penalty,
+        })).sort((a, b) => compareStandings({ scoringMode: 'hydro' }, a, b));
+        expect(state.ranking.order).toEqual(records.map((record) => record.teamId));
+        // 1 and 3: one problem in 600 s each, a tie whatever the last accepted time.
+        const rank = (id: string) => state.ranking.ranks[state.ranking.order.indexOf(id)];
+        expect([rank('2'), rank('1'), rank('3'), rank('5')]).toEqual([1, 2, 2, 4]);
+    });
+
+    it('awards tied medals by rank, or by position when tied teams do not share a medal', () => {
+        const data = withSubmissions([
+            { submission_id: 'a', team_id: '1', problem_id: 0, timestamp: 600_000, status: 'CORRECT' },
+            { submission_id: 'b', team_id: '2', problem_id: 0, timestamp: 600_000, status: 'CORRECT' },
+            { submission_id: 'c', team_id: '3', problem_id: 0, timestamp: 700_000, status: 'CORRECT' },
+        ]);
+        const medals = (medalSameScore: boolean) => {
+            const settings = normalizeSettings({ ...defaultSettings, medals: { gold: 1, silver: 1, bronze: 0 }, medalSameScore, manualBoards: [] });
+            const live = source({}, data, settings);
+            const info = buildContestInfo(live);
+            const { awards, order } = computeScoreboard(info, runsByTeam(buildRuns(live, info)), 'normal').ranking;
+            return { order, ...Object.fromEntries(awards.map((award) => [award.id, award.teams])) };
+        };
+        // Shared rank 1: both gold; silver covers rank 2 only, so the team ranked 3rd gets none (as on the board).
+        expect(medals(true)).toMatchObject({ 'gold-medal': expect.arrayContaining(['1', '2']), 'silver-medal': [] });
+        const strict = medals(false);
+        expect(strict).toMatchObject({ 'gold-medal': [strict.order[0]], 'silver-medal': [strict.order[1]] });
+    });
+
+    it('states the rank of the time in commentary, also for history loaded later', async () => {
+        const data = withSubmissions([
+            { submission_id: 'early', team_id: '8', problem_id: 0, timestamp: 60_000, status: 'CORRECT' },
+            { submission_id: 'later', team_id: '1', problem_id: 0, timestamp: 30_000, status: 'CORRECT' },
+            { submission_id: 'more', team_id: '1', problem_id: 1, timestamp: 90_000, status: 'CORRECT' },
+        ]);
+        const hub = new LiveHub({ load: async () => source({}, data), persist: async () => {}, template: async () => null, idleMs: 0 });
+        await hub.refresh();
+        const comment = (id: string) => hub.analytics.list().find((message) => message.id === id)!.comments[0].message;
+        expect(comment('early')).toBe('陆川 通过 A 题，共通过 1 题，当前排名第 2');
+        expect(comment('more')).toBe('林澈 通过 B 题，共通过 2 题，当前排名第 1');
+        hub.dispose();
+    });
+});
+
+describe('live fixes', () => {
+    it('reloads state saved elsewhere in place, without replaying shown items', async () => {
+        const { hub } = makeHub();
+        await hub.ready;
+        const store = memoryStore();
+        await adminApi(hub, store, request('POST', 'advertisement', { text: '欢迎' }));
+        await adminApi(hub, store, request('POST', 'advertisement/1/show'));
+        const screen: any[] = [];
+        hub.subscribe('mainScreen', (event) => screen.push(event));
+        const saved = hub.state();
+        await hub.reload(saved);
+        expect(screen).toHaveLength(1); // snapshot only: nothing hidden or shown again
+        await hub.reload({ ...saved, presets: { ...saved.presets, advertisement: [{ ...saved.presets!.advertisement![0], settings: { text: '茶歇' } }] } });
+        expect(screen.at(-1)).toMatchObject({ type: 'ShowWidget', widget: { advertisement: { text: '茶歇' } } });
+        await hub.reload({ ...saved, presets: { ...saved.presets, advertisement: [] } });
+        expect(screen.at(-1)).toMatchObject({ type: 'HideWidget' });
+        expect(JSON.parse((await adminApi(hub, store, request('POST', 'advertisement', { text: 'x' })))!.body).response).toBe(2);
+        hub.dispose();
+    });
+
+    it('keeps file names readable, backend addresses fixed and the clock on the server', async () => {
+        expect(storeName('校徽 2026.png')).toBe('校徽_2026.png');
+        expect(storeName('../队徽.svg')).toBe('__队徽.svg');
+        expect(storeName('a<b>.svg')).toBe('a_b_.svg');
+        const { hub } = makeHub();
+        const store = memoryStore();
+        const rejected = (await adminApi(hub, store, request('POST', 'visualConfig', '{"BASE_URL_WS":"wss://evil.example"}')))!;
+        expect([rejected.status, JSON.parse(rejected.body).message]).toEqual([400, expect.stringContaining('BASE_URL_WS')]);
+        expect(publicVisualConfig('{"BASE_URL_BACKEND":"x","CONTEST_COLOR":"#111"}')).toEqual({ CONTEST_COLOR: '#111' });
+        const time = JSON.parse((await overlayApi(hub, 'serverTime', '{}'))!.body).now;
+        expect(Math.abs(time - Date.now())).toBeLessThan(1000);
+        hub.dispose();
+    });
+
+    it('withholds teams until the board is public', () => {
+        const live = source({ hidden: true });
+        const info = buildContestInfo(live);
+        expect([info.teams, info.organizations, buildRuns(live, info)]).toEqual([[], [], []]);
+        expect(info.groups.map((group) => group.id)).toEqual(['official', 'unofficial']);
+        expect(info.problems).toHaveLength(3);
     });
 });

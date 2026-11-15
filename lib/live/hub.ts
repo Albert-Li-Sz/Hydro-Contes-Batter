@@ -4,7 +4,7 @@
  */
 import { buildContestInfo, buildRuns, type LiveSource } from './model';
 import {
-    computeScoreboard, runsByTeam, scoreboardDiff, statistics, timeline, type ScoreboardState,
+    computeScoreboard, runsByTeam, scoreboardDiff, standingsAtRuns, statistics, timeline, type ScoreboardState,
 } from './scoreboard';
 import { AnalyticsService, chineseAnalyticsTemplates, QueueService, SpotlightService } from './services';
 import type { ContestInfo, OptimismLevel, RunInfo, TeamInfo } from './types';
@@ -178,6 +178,21 @@ export class LiveHub {
         this.tickerMessage.load(state.presets?.tickerMessage);
     }
 
+    /** State saved by another Hydro process: apply it in place, without saving it again. */
+    async reload(state: LiveState) {
+        await this.ready;
+        const titles = Array.isArray(state.presets?.title) ? state.presets!.title : [];
+        for (const item of titles) {
+            const name = (item?.settings as { preset?: unknown } | undefined)?.preset;
+            if (typeof name === 'string') await this.loadTemplate(name).catch(() => null);
+        }
+        for (const [name, controller] of Object.entries(this.controllers)) controller.load(state.controllers?.[name]);
+        this.advertisement.replace(state.presets?.advertisement);
+        this.picture.replace(state.presets?.picture);
+        this.title.replace(titles);
+        this.tickerMessage.replace(state.presets?.tickerMessage);
+    }
+
     async loadTemplate(name: string) {
         if (this.templates.has(name)) return;
         const template = await this.deps.template(name);
@@ -306,7 +321,10 @@ export class LiveHub {
             done = true;
             this.subscribers--;
             unsubscribe();
-            if (this.channels.get(channel)?.size === 0) this.channels.delete(channel);
+            if (this.channels.get(channel)?.size === 0) {
+                this.channels.delete(channel);
+                this.timelines.delete(channel);
+            }
             this.lastActivity = Date.now();
         };
     }
@@ -341,8 +359,13 @@ export class LiveHub {
         if (!this.timer && !this.disposed) this.loop();
     }
 
+    /** Every 2 seconds during the contest; before and after it changes are rare (rejudges, unfreezing). */
+    private interval() {
+        if (this.deps.intervalMs) return this.deps.intervalMs;
+        return this.info?.status.type === 'running' ? 2000 : 5000;
+    }
+
     private loop() {
-        const interval = this.deps.intervalMs ?? 2000;
         const tick = async () => {
             this.timer = null;
             if (this.disposed) return;
@@ -352,7 +375,7 @@ export class LiveHub {
             }
             await this.refresh().catch((error) => this.log(`读取比赛数据失败：${error?.message || error}`));
             if (!this.disposed) {
-                this.timer = setTimeout(tick, interval);
+                this.timer = setTimeout(tick, this.interval());
                 this.timer.unref?.();
             }
         };
@@ -442,10 +465,11 @@ export class LiveHub {
             }
         }
         const normal = this.scoreboards.get('normal')!;
+        const history = standingsAtRuns(info, runs, new Set(changed.map((run) => run.id)));
         for (const run of [...removed, ...changed]) {
             this.queueService.onRun(run, info);
             this.spotlight.onRun(run, info);
-            if (!run.isHidden) this.analytics.onRun(run, info, normal.rows, normal.ranking);
+            if (!run.isHidden) this.analytics.onRun(run, info, normal.ranking, history.get(run.id));
         }
         const stats = statistics(info, normal);
         const statsJson = JSON.stringify(stats);

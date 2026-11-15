@@ -166,15 +166,27 @@ export class WidgetController<S, W extends Identified> {
         this.state = { settings: defaults, showOrder: null };
     }
 
+    /** Saved state, at start-up or when another Hydro process saved a change. */
     load(state: WidgetState<S> | null | undefined) {
         if (!state) return;
+        let next: WidgetState<S>;
         try {
-            this.state = { settings: this.normalize(state.settings, this.state.settings), showOrder: typeof state.showOrder === 'number' ? state.showOrder : null };
+            next = { settings: this.normalize(state.settings, this.state.settings), showOrder: typeof state.showOrder === 'number' ? state.showOrder : null };
         } catch {
-            return; // unreadable saved settings: keep the defaults (PersistentStorageService does the same)
+            return; // unreadable saved settings: keep the current ones (PersistentStorageService does the same)
         }
-        if (this.state.showOrder !== null) this.counter.observe(this.state.showOrder);
+        if (next.showOrder !== null) this.counter.observe(next.showOrder);
+        // Unchanged: keep the shown item, so the overlay does not replay its entrance.
+        if (JSON.stringify(next) === JSON.stringify(this.state) && (this.shownItem || next.showOrder === null)) return;
+        this.state = next;
         this.sync(true);
+    }
+
+    /** Remove from the screen without reporting a change (the change came from elsewhere). */
+    destroySilently() {
+        this.state = { ...this.state, showOrder: null };
+        this.sync(true);
+        this.alive = false;
     }
 
     get persistentState(): WidgetState<S> { return { ...this.state }; }
@@ -233,9 +245,18 @@ export class WidgetController<S, W extends Identified> {
     }
 }
 
-/** PresetsController: a list of independently shown items, e.g. captions or pictures. */
+export interface PresetState<S> extends WidgetState<S> {
+    id?: number;
+    /** Temporary items (shown with a time to live) disappear at this time. */
+    expiresAt?: number | null;
+}
+
+/**
+ * PresetsController: a list of independently shown items, e.g. captions or pictures. Ids are
+ * saved with the items, so every Hydro process (and a restart) refers to an item by the same id.
+ */
 export class PresetsController<S, W extends Identified> {
-    private entries: { controller: WidgetController<S, W>; temporary: boolean; timer?: NodeJS.Timeout; onDelete?: (id: number) => void }[] = [];
+    private entries: { controller: WidgetController<S, W>; expiresAt: number | null; timer?: NodeJS.Timeout; onDelete?: (id: number) => void }[] = [];
     private lastId = 0;
 
     constructor(
@@ -246,26 +267,50 @@ export class PresetsController<S, W extends Identified> {
         private onChange: () => void,
     ) {}
 
-    private create(settings: S, temporary: boolean) {
+    private create(settings: S, id = this.lastId + 1, expiresAt: number | null = null) {
+        this.lastId = Math.max(this.lastId, id);
         const controller = new WidgetController<S, W>(settings, this.manager, this.counter, this.construct,
-            (input, current) => this.normalize(input, current), this.onChange, ++this.lastId);
-        const entry: PresetsController<S, W>['entries'][number] = { controller, temporary };
+            (input, current) => this.normalize(input, current), this.onChange, id);
+        const entry: PresetsController<S, W>['entries'][number] = { controller, expiresAt };
+        if (expiresAt !== null) {
+            entry.timer = setTimeout(() => this.delete(id), Math.max(0, expiresAt - Date.now()));
+            entry.timer.unref?.();
+        }
         this.entries.push(entry);
         return entry;
     }
 
+    /** Saved items: created, updated in place (same id) or removed, without reporting a change. */
     load(states: unknown) {
         if (!Array.isArray(states)) return;
-        for (const state of states as WidgetState<unknown>[]) {
+        const keep = new Set<number>();
+        for (const state of states as PresetState<unknown>[]) {
             try {
-                const entry = this.create(this.normalize(state?.settings), false);
-                entry.controller.load({ settings: entry.controller.settings, showOrder: state?.showOrder ?? null });
+                const expiresAt = typeof state?.expiresAt === 'number' ? state.expiresAt : null;
+                if (expiresAt !== null && expiresAt <= Date.now()) continue;
+                const id = Number.isSafeInteger(state?.id) && state.id! > 0 && !keep.has(state.id!) ? state.id! : this.lastId + 1;
+                const settings = this.normalize(state?.settings);
+                keep.add(id);
+                const existing = this.entries.find((entry) => entry.controller.id === id);
+                if (existing) existing.controller.load({ settings, showOrder: state?.showOrder ?? null });
+                else this.create(settings, id, expiresAt).controller.load({ settings, showOrder: state?.showOrder ?? null });
             } catch { /* skip unreadable presets */ }
         }
+        return keep;
     }
 
-    get persistentState() {
-        return this.entries.filter((entry) => !entry.temporary).map((entry) => entry.controller.persistentState);
+    /** Replace every item with the saved list (another Hydro process changed it). */
+    replace(states: unknown) {
+        const keep = this.load(Array.isArray(states) ? states : []) || new Set<number>();
+        for (const entry of this.entries.filter((candidate) => !keep.has(candidate.controller.id!))) {
+            if (entry.timer) clearTimeout(entry.timer);
+            entry.controller.destroySilently();
+        }
+        this.entries = this.entries.filter((entry) => keep.has(entry.controller.id!));
+    }
+
+    get persistentState(): PresetState<S>[] {
+        return this.entries.map((entry) => ({ ...entry.controller.persistentState, id: entry.controller.id!, expiresAt: entry.expiresAt }));
     }
 
     status() { return this.entries.map((entry) => entry.controller.status()); }
@@ -277,17 +322,16 @@ export class PresetsController<S, W extends Identified> {
     }
 
     createWidget(input: unknown) {
-        const entry = this.create(this.normalize(input), false);
+        const entry = this.create(this.normalize(input));
         this.onChange();
         return entry.controller.id!;
     }
 
-    /** A temporary item that deletes itself after `ttlMs` (not persisted, like upstream). */
+    /** An item that deletes itself after `ttlMs`. */
     createTemporary(settings: S, ttlMs: number, onDelete?: (id: number) => void) {
-        const entry = this.create(settings, true);
+        const entry = this.create(settings, this.lastId + 1, Date.now() + ttlMs);
         entry.onDelete = onDelete;
-        entry.timer = setTimeout(() => this.delete(entry.controller.id!), ttlMs);
-        entry.timer.unref?.();
+        this.onChange();
         return entry.controller.id!;
     }
 

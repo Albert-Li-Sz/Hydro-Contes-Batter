@@ -86,6 +86,7 @@ export function createLivePreview(env: Environment, logoNames: Record<string, st
                 const body = await readBody(request);
                 if (body?.operation !== 'reset_token') { response.writeHead(400).end(); return true; }
                 token = `live${Date.now().toString(16).padStart(46, '0')}`;
+                for (const [socket, used] of overlaySockets) if (used !== token) socket.close(4004, '直播链接已作废');
                 response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ overlay: urls().overlay }));
                 return true;
             }
@@ -140,6 +141,7 @@ export function createLivePreview(env: Environment, logoNames: Record<string, st
         return false;
     };
 
+    const overlaySockets = new Map<import('ws').WebSocket, string>();
     const attach = (server: Server) => {
         const sockets = new WebSocketServer({ noServer: true });
         server.on('upgrade', (request, socket, head) => {
@@ -151,6 +153,8 @@ export function createLivePreview(env: Environment, logoNames: Record<string, st
             if (!channel) { socket.destroy(); return; }
             sockets.handleUpgrade(request, socket, head, (ws) => {
                 const unsubscribe = hub.subscribe(channel, (payload) => ws.send(typeof payload === 'string' ? payload : JSON.stringify(payload)));
+                if (overlayMatch) overlaySockets.set(ws, overlayMatch[1]);
+                ws.on('close', () => overlaySockets.delete(ws));
                 // Like Hydro's websocket layer (faster): text "ping" to a quiet client, closed if it never answers.
                 let heartbeat = Date.now();
                 const keepAlive = setInterval(() => {

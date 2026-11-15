@@ -1,6 +1,7 @@
 /**
- * ICPC scoreboard as computed by ICPC Live v3 (cds/core scoreboard/*.kt, MIT), ported to TypeScript.
- * Penalty uses Hydro's ACM rule: whole seconds summed, 20 minutes per wrong attempt.
+ * ICPC scoreboard rows as computed by ICPC Live v3 (cds/core scoreboard/*.kt, MIT), ported to TypeScript.
+ * Penalty, ranks and medals follow the rest of this plugin: Hydro's ACM rule, whole seconds
+ * summed, 20 minutes per wrong attempt.
  */
 import type {
     Award, ContestInfo, ICPCProblemResult, OptimismLevel, RunInfo, ScoreboardDiff, ScoreboardRow, SolutionsStatistic, TimeLineRunInfo,
@@ -67,8 +68,17 @@ export function scoreboardRow(info: ContestInfo, runs: RunInfo[], level: Optimis
     return { totalScore: solved, penalty, lastAcceptedMs: lastAccepted, problemResults };
 }
 
-const compareRows = (a: ScoreboardRow, b: ScoreboardRow) =>
-    b.totalScore - a.totalScore || a.penalty - b.penalty || a.lastAcceptedMs - b.lastAcceptedMs;
+/**
+ * The plugin's one ranking rule (resolver/public/js/standings.js compareStandings in Hydro mode,
+ * also used by the board's award policy): more problems, then less penalty in seconds; teams
+ * equal in both share a rank. Within a tie, names in the same collation, then team id.
+ */
+const names = new Intl.Collator('en');
+const sameScore = (a: ScoreboardRow, b: ScoreboardRow) => a.totalScore === b.totalScore && a.penalty === b.penalty;
+export function compareTeams(a: { id: string; name: string; row: ScoreboardRow }, b: { id: string; name: string; row: ScoreboardRow }) {
+    return b.row.totalScore - a.row.totalScore || a.row.penalty - b.row.penalty
+        || names.compare(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
 
 export interface Ranking {
     order: string[];
@@ -76,82 +86,81 @@ export interface Ranking {
     awards: Award[];
 }
 
-/** AbstractScoreboardCalculator.getRanking without the organization limits (Hydro has none). */
+/**
+ * Ranks and medals as on the board (lib/award-policy.mjs): out-of-contest teams are listed but
+ * unranked and never medalled; medals go to official teams that solved something, by rank when
+ * tied teams share a medal, otherwise by position.
+ */
 export function ranking(info: ContestInfo, rows: Map<string, ScoreboardRow>): Ranking {
-    const teams = new Map(info.teams.map((team) => [team.id, team]));
     const entries = info.teams.filter((team) => !team.isHidden)
-        .map((team) => [team.id, rows.get(team.id)!] as const)
-        .filter(([, row]) => info.showTeamsWithoutSubmissions || row.problemResults.some((result) => result.lastSubmitTimeMs !== null))
-        .sort((a, b) => compareRows(a[1], b[1]) || teams.get(a[0])!.name.localeCompare(teams.get(b[0])!.name) || a[0].localeCompare(b[0]));
-    const order = entries.map(([id]) => id);
+        .map((team) => ({ id: team.id, name: team.name, row: rows.get(team.id)!, out: team.isOutOfContest, groups: team.groups }))
+        .filter(({ row }) => info.showTeamsWithoutSubmissions || row.problemResults.some((result) => result.lastSubmitTimeMs !== null))
+        .sort(compareTeams);
+    const order = entries.map(({ id }) => id);
     const ranks = order.map(() => 0);
-    let nextRank = 1;
-    let right = 0;
-    while (right < entries.length) {
-        const left = right;
-        while (right < entries.length && compareRows(entries[left][1], entries[right][1]) === 0) right++;
-        const rank = nextRank;
-        for (let i = left; i < right; i++) {
-            if (teams.get(order[i])!.isOutOfContest) continue;
-            ranks[i] = rank;
-            nextRank++;
+    const chain = info.awardsSettings[0];
+    const excluded = new Set(chain?.excludedGroups || []);
+    const medals = (chain?.awards || []).map((award) => ({ ...award, teams: [] as string[] }));
+    let position = 0;
+    let previous: (typeof entries)[number] | null = null;
+    let previousRank = 0;
+    entries.forEach((entry, index) => {
+        if (entry.out) return;
+        position++;
+        const rank = previous && sameScore(previous.row, entry.row) ? previousRank : position;
+        ranks[index] = rank;
+        previous = entry;
+        previousRank = rank;
+        if (entry.row.totalScore <= 0 || entry.groups.some((group) => excluded.has(group))) return;
+        for (const medal of medals) {
+            const awardRank = medal.tiebreakMode === 'ALL' ? rank : position;
+            if (awardRank <= (medal.chainLimit ?? 0)) {
+                medal.teams.push(entry.id);
+                break;
+            }
         }
+    });
+    return { order, ranks, awards: medals.map(({ id, citation, teams }) => ({ id, citation, teams })) };
+}
+
+/** A team's rank among `rows` by the same rule; 0 when it is not ranked. */
+export function rankOf(info: ContestInfo, rows: Map<string, ScoreboardRow>, teamId: string) {
+    const team = info.teams.find((item) => item.id === teamId);
+    const row = rows.get(teamId);
+    if (!team || !row || team.isOutOfContest || team.isHidden) return 0;
+    let better = 0;
+    for (const other of info.teams) {
+        if (other.isOutOfContest || other.isHidden || other.id === teamId) continue;
+        const candidate = rows.get(other.id);
+        if (candidate && (candidate.totalScore > row.totalScore || (candidate.totalScore === row.totalScore && candidate.penalty < row.penalty))) better++;
     }
-    const awards: Award[] = [];
-    for (const chain of info.awardsSettings) {
-        if (!chain.awards.length) continue;
-        const included = new Set(chain.groups || []);
-        const excluded = new Set(chain.excludedGroups || []);
-        const candidates = order.map((_, index) => index).filter((index) => {
-            const team = teams.get(order[index])!;
-            if (team.isOutOfContest) return false;
-            if (included.size && !team.groups.some((group) => included.has(group))) return false;
-            return !team.groups.some((group) => excluded.has(group));
+    return better + 1;
+}
+
+/**
+ * Each target run's team rank and solved count right after that run, replaying `runs` (in
+ * submission order) on the normal scoreboard. Commentary uses this, so history regenerated
+ * after a restart states the rank of the time, not today's.
+ */
+export function standingsAtRuns(info: ContestInfo, runs: RunInfo[], targets: Set<string>) {
+    const result = new Map<string, { rank: number; solved: number }>();
+    if (!targets.size) return result;
+    const rows = new Map(info.teams.map((team) => [team.id, scoreboardRow(info, [], 'normal')]));
+    const byTeam = new Map<string, RunInfo[]>();
+    let remaining = targets.size;
+    for (const run of runs) {
+        if (run.isHidden) continue;
+        const list = [...(byTeam.get(run.teamId) || []), run];
+        byTeam.set(run.teamId, list);
+        rows.set(run.teamId, scoreboardRow(info, list, 'normal'));
+        if (!targets.has(run.id)) continue;
+        result.set(run.id, {
+            rank: rankOf(info, rows, run.teamId),
+            solved: rows.get(run.teamId)!.problemResults.filter((item) => item.isSolved).length,
         });
-        const chainAwarded = new Set<number>();
-        for (const award of chain.awards) {
-            const awarded = new Set<number>();
-            const processChunk = (chunk: number[]) => {
-                if (award.tiebreakMode !== 'ALL') {
-                    if (chainAwarded.size + chunk.length > (award.chainLimit ?? Infinity)) return false;
-                    if (awarded.size + chunk.length > (award.limit ?? Infinity)) return false;
-                }
-                for (const index of chunk) {
-                    awarded.add(index);
-                    chainAwarded.add(index);
-                }
-                if (award.tiebreakMode === 'ALL') {
-                    if (chainAwarded.size >= (award.chainLimit ?? Infinity)) return false;
-                    if (awarded.size >= (award.limit ?? Infinity)) return false;
-                }
-                return true;
-            };
-            if (award.manualTeamIds?.length) {
-                processChunk(order.map((_, index) => index).filter((index) => award.manualTeamIds!.includes(order[index]) && !chainAwarded.has(index)));
-            }
-            let chunkRank = -1;
-            let chunk: number[] = [];
-            let stopped = false;
-            for (const index of candidates) {
-                if (chainAwarded.has(index)) continue;
-                if (award.maxRank != null && ranks[index] > award.maxRank) break;
-                if (award.minScore != null && rows.get(order[index])!.totalScore < award.minScore) break;
-                if (chunkRank !== ranks[index]) {
-                    if (!processChunk(chunk)) {
-                        chunk = [];
-                        stopped = true;
-                        break;
-                    }
-                    chunkRank = ranks[index];
-                    chunk = [];
-                }
-                chunk.push(index);
-            }
-            if (!stopped) processChunk(chunk);
-            awards.push({ id: award.id, citation: award.citation, teams: [...awarded].map((index) => order[index]) });
-        }
+        if (!--remaining) break;
     }
-    return { order, ranks, awards };
+    return result;
 }
 
 export interface ScoreboardState {

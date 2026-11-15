@@ -1,8 +1,8 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-    ConnectionHandler, ContestModel, Context, Handler, NotFoundError, ObjectId, param, PERM, Tdoc, Types,
+    ConnectionHandler, ContestModel, Context, Handler, NotFoundError, ObjectId, param, PERM, PRIV, Tdoc, Types, UserModel,
 } from 'hydrooj';
 import type { BoardData } from '../board';
 import type { BoardSettings } from '../settings';
@@ -37,7 +37,14 @@ declare module 'hydrooj' {
         'xcpcio.live': LiveDoc;
         'xcpcio.live.media': LiveMedia;
     }
+    interface EventMap {
+        /** Another Hydro process changed a contest's live state (`state`) or overlay token (`token`). */
+        'xcpcio/live-sync': (key: string, kind: 'state' | 'token', origin: string) => void;
+    }
 }
+
+/** Contest time is up to the board's rule; the overlay withholds teams until the board shows them. */
+const nobody = { user: { _id: 0, own: () => false, hasPerm: () => false, hasPriv: () => false } };
 
 const newToken = () => randomBytes(24).toString('hex');
 const sameSecret = (given: string, expected: string) => {
@@ -59,6 +66,23 @@ export function applyLive(ctx: Context, dependencies: {
     const contestBase = (tdoc: Tdoc) => `/d/${encodeURIComponent(tdoc.domainId)}/contest/${tdoc.docId}`;
     const urls = (tdoc: Tdoc, doc: LiveDoc) => liveUrls(contestBase(tdoc), doc.token, doc.mediaKey);
     const hubs = new Map<string, Promise<LiveHub>>();
+    // Open overlay websockets per contest, closed when their token is revoked.
+    const overlays = new Map<string, Set<{ token: string; close: () => void }>>();
+    // Each Hydro process (PM2 cluster) has its own hubs; changes are announced to the others.
+    const instance = randomUUID();
+    const announce = (contestKey: string, kind: 'state' | 'token') => {
+        (ctx as unknown as { broadcast: (event: string, ...args: unknown[]) => void }).broadcast('xcpcio/live-sync', contestKey, kind, instance);
+    };
+    const closeRevoked = (contestKey: string, token: string) => {
+        for (const connection of overlays.get(contestKey) || []) if (connection.token !== token) connection.close();
+    };
+    ctx.on('xcpcio/live-sync', async (contestKey, kind, origin) => {
+        if (origin === instance) return;
+        const doc = await collection.findOne({ _id: contestKey });
+        if (!doc) return;
+        if (kind === 'token') closeRevoked(contestKey, doc.token);
+        else await (await hubs.get(contestKey)?.catch(() => null))?.reload(doc.state || {});
+    });
 
     async function loadDoc(tdoc: Tdoc): Promise<LiveDoc> {
         const doc: LiveDoc = {
@@ -107,9 +131,13 @@ export function applyLive(ctx: Context, dependencies: {
                         return {
                             contest: current, data, settings, identity: settings.showIdentity, logoNames, now: Date.now(),
                             boards: resolverBoards(data, settings, settings.showIdentity),
+                            hidden: !ContestModel.canShowScoreboard.call(nobody as never, current, false),
                         };
                     },
-                    persist: async (state) => { await collection.updateOne({ _id: name }, { $set: { state, updatedAt: new Date() } }); },
+                    persist: async (state) => {
+                        await collection.updateOne({ _id: name }, { $set: { state, updatedAt: new Date() } });
+                        announce(name, 'state');
+                    },
                     template: async (template) => {
                         if (!template.endsWith('.svg')) return null;
                         const file = await readMedia(name, storeName(template));
@@ -144,7 +172,8 @@ export function applyLive(ctx: Context, dependencies: {
     async function checkAdmin(handler: Handler | ConnectionHandler, tid: ObjectId) {
         const tdoc = await ContestModel.get(handler.domain._id, tid);
         if (!tdoc) throw new NotFoundError('Contest not found');
-        if (!handler.user._id) throw new NotFoundError('请登录比赛管理账号');
+        // A guest gets Hydro's sign-in prompt.
+        handler.checkPriv(PRIV.PRIV_USER_PROFILE);
         if (!handler.user.own(tdoc)) handler.checkPerm(PERM.PERM_EDIT_CONTEST);
         if (tdoc.rule !== 'acm') throw new NotFoundError('直播仅支持 ACM 比赛');
         return tdoc;
@@ -187,6 +216,9 @@ export function applyLive(ctx: Context, dependencies: {
             const doc = await loadDoc(this.tdoc);
             const token = newToken();
             await collection.updateOne({ _id: doc._id }, { $set: { token, updatedAt: new Date() } });
+            // Overlays already open with the old link stop at once, in every Hydro process.
+            closeRevoked(doc._id, token);
+            announce(doc._id, 'token');
             this.response.body = { overlay: urls(this.tdoc, { ...doc, token }).overlay };
         }
     }
@@ -250,6 +282,7 @@ export function applyLive(ctx: Context, dependencies: {
     /** Admin websockets: analytics, spotlight, social, contest info, backend log, admin actions. */
     class LiveAdminConnectionHandler extends ConnectionHandler {
         unsubscribe?: () => void;
+        recheck?: NodeJS.Timeout;
 
         @param('tid', Types.ObjectId)
         async prepare(_domainId: string, tid: ObjectId) {
@@ -258,9 +291,20 @@ export function applyLive(ctx: Context, dependencies: {
             if (!channel || !adminChannels.includes(channel)) throw new NotFoundError(channel || 'channel');
             const hub = await hubFor(tdoc);
             this.unsubscribe = hub.subscribe(channel, (payload) => this.send(typeof payload === 'string' ? payload : JSON.stringify(payload)));
+            // A director who loses the permission (or the contest) is disconnected within a minute.
+            const { domainId, docId } = tdoc;
+            const uid = this.user._id;
+            this.recheck = setInterval(async () => {
+                const [user, current] = await Promise.all([UserModel.getById(domainId, uid), ContestModel.get(domainId, docId)]).catch(() => [null, null]);
+                if (!user || !current || !(user.own(current) || user.hasPerm(PERM.PERM_EDIT_CONTEST))) this.close(4003, '直播导播权限已撤销');
+            }, 60_000);
+            this.recheck.unref?.();
         }
 
-        async cleanup() { this.unsubscribe?.(); }
+        async cleanup() {
+            if (this.recheck) clearInterval(this.recheck);
+            this.unsubscribe?.();
+        }
     }
 
     /** /api/overlay over HTTP for OBS: token in the path, no Hydro login. */
@@ -282,6 +326,9 @@ export function applyLive(ctx: Context, dependencies: {
     class LiveOverlayConnectionHandler extends ConnectionHandler {
         noCheckPermView = true;
         unsubscribe?: () => void;
+        recheck?: NodeJS.Timeout;
+        registration?: { token: string; close: () => void };
+        contestKey = '';
 
         @param('tid', Types.ObjectId)
         @param('token', Types.String)
@@ -290,10 +337,28 @@ export function applyLive(ctx: Context, dependencies: {
             const channel = overlayChannel(/\/ws\/overlay\/(.+)$/.exec(this.request.path)?.[1] || '');
             if (!channel) throw new NotFoundError('channel');
             const hub = await hubFor(tdoc);
+            this.contestKey = key(tdoc);
+            this.registration = { token, close: () => this.close(4004, '直播链接已作废') };
+            if (!overlays.has(this.contestKey)) overlays.set(this.contestKey, new Set());
+            overlays.get(this.contestKey)!.add(this.registration);
             this.unsubscribe = hub.subscribe(channel, (payload) => this.send(typeof payload === 'string' ? payload : JSON.stringify(payload)));
+            // Also for deployments whose processes do not share Hydro's broadcast bus.
+            this.recheck = setInterval(async () => {
+                const doc = await collection.findOne({ _id: this.contestKey }).catch(() => null);
+                if (!doc || !sameSecret(token, doc.token)) this.registration?.close();
+            }, 60_000);
+            this.recheck.unref?.();
         }
 
-        async cleanup() { this.unsubscribe?.(); }
+        async cleanup() {
+            if (this.recheck) clearInterval(this.recheck);
+            const registered = overlays.get(this.contestKey);
+            if (this.registration && registered) {
+                registered.delete(this.registration);
+                if (!registered.size) overlays.delete(this.contestKey);
+            }
+            this.unsubscribe?.();
+        }
     }
 
     class LiveOverlayPageHandler extends Handler {
@@ -342,4 +407,8 @@ export function applyLive(ctx: Context, dependencies: {
     ctx.Connection('contest_xcpcio_live_overlay_ws', '/contest/:tid/live-overlay/:token/ws/overlay/*path', LiveOverlayConnectionHandler);
     ctx.Route('contest_xcpcio_live_media', '/contest/:tid/live-media/:mediaKey/:name', LiveMediaHandler);
     ctx.i18n.load('zh', { contest_xcpcio_live: '直播' });
+    // The sidebar shows 直播 next to 滚榜 for the same managers, only while this module is enabled.
+    ctx.on('handler/after', (handler) => {
+        if (handler.UiContext?.xcpcioResolverUrl) handler.UiContext.xcpcioLiveEnabled = true;
+    });
 }

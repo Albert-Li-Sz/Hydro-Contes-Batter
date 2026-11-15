@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Context, Tdoc } from 'hydrooj';
 import { awardsFor, defaultSettings } from '../lib/settings';
@@ -5,7 +8,7 @@ import { defaultProfileFields } from '../lib/roster';
 import { ResolverSessions } from '../lib/resolver-sessions';
 import { previewDatabase } from '../preview/resolver-memory-db';
 
-const state = vi.hoisted(() => ({ entries: [] as any[], users: {} as Record<number, any>, locked: false, ended: true, started: true, contest: null as any }));
+const state = vi.hoisted(() => ({ entries: [] as any[], users: {} as Record<number, any>, locked: false, ended: true, started: true, contest: null as any, director: null as any }));
 vi.mock('hydrooj', () => {
     class ObjectId {
         constructor(public value: string) {}
@@ -18,6 +21,9 @@ vi.mock('hydrooj', () => {
         request = { json: false, headers: {} as Record<string, string> };
         response: any = { addHeader: vi.fn() };
         checkPerm(perm: bigint) { if (!this.user.hasPerm(perm)) throw new Error('Forbidden'); }
+        checkPriv(_priv: number) { if (!this.user._id) throw new Error('PrivilegeError: login required'); }
+        close = vi.fn();
+        send = vi.fn();
     }
     class ConnectionHandler extends Handler {}
     const schema = () => new Proxy({}, { get: () => (..._args: any[]) => schema() });
@@ -28,6 +34,7 @@ vi.mock('hydrooj', () => {
         Types: { ObjectId: [(value: any) => new ObjectId(value)], Boolean: [(value: unknown) => value === true || value === 'true'], String: [(value: unknown) => String(value)] },
         STATUS: Object.fromEntries(names.map((name, index) => [`STATUS_${name}`, index + 1])),
         PERM: { PERM_EDIT_CONTEST: 1n, PERM_VIEW_CONTEST_HIDDEN_SCOREBOARD: 2n, PERM_VIEW_USER_PRIVATE_INFO: 4n },
+        PRIV: { PRIV_USER_PROFILE: 1 },
         avatar: () => '/avatar.png', getAlphabeticId: (index: number) => String.fromCharCode(65 + index),
         NotFoundError: class extends Error {}, ValidationError: class extends Error {}, ForbiddenError: class extends Error {},
         ContestModel: {
@@ -36,7 +43,7 @@ vi.mock('hydrooj', () => {
             isDone: () => state.ended, isLocked: () => state.locked,
             canShowScoreboard(this: any, tdoc: any) { return state.started || this.user.own(tdoc) || this.user.hasPerm(2n); },
         },
-        UserModel: { getList: vi.fn(async () => state.users) },
+        UserModel: { getList: vi.fn(async () => state.users), getById: vi.fn(async () => state.director) },
     };
 });
 import { ObjectId, STATUS } from 'hydrooj';
@@ -60,6 +67,7 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
         Route: (name: string, _path: string, handler: any) => { routes.set(name, handler); },
         Connection: (name: string, _path: string, handler: any) => { routes.set(name, handler); },
         effect: vi.fn(),
+        broadcast: vi.fn(),
         i18n: { load: vi.fn() },
         inject: (_deps: string[], callback: any) => callback({
             scoreboard: { addView: (_id: string, _name: string, args: any, next: any) => { view = { ...next, args }; } },
@@ -69,7 +77,7 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
     };
     return {
         saved,
-        init: () => apply(ctx as Context, { asDefault: true, publicByDefault: true, refreshInterval: 15000, resolverSessionDays: 0, profileFields: defaultProfileFields, ...config }),
+        init: () => apply(ctx as Context, { asDefault: true, publicByDefault: true, refreshInterval: 15000, resolverSessionDays: 0, live: true, profileFields: defaultProfileFields, ...config }),
         settings: () => new (routes.get('contest_xcpcio_plus_settings'))(),
         publicBoard: () => new (routes.get('contest_xcpcio_plus_public'))(),
         middleware: () => middleware,
@@ -79,6 +87,8 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
         live: (name = '') => new (routes.get(`contest_xcpcio_live${name}`))(),
         resolverTables: resolverDb.tables,
         hooks: ctx.on,
+        broadcast: ctx.broadcast,
+        routeNames: () => [...routes.keys()],
     };
 }
 
@@ -474,7 +484,7 @@ describe('Hydro Resolver routes', () => {
         const base = `/d/system/contest/${tid()}`;
         await expect(app.live().prepare('system', tid())).rejects.toThrow('Forbidden');
         const guest = app.live(); guest.user._id = 0;
-        await expect(guest.prepare('system', tid())).rejects.toThrow('请登录');
+        await expect(guest.prepare('system', tid())).rejects.toThrow('PrivilegeError');
         const admin = app.live(); admin.user.own = () => true;
         await admin.prepare('system', tid()); await admin.get();
         const runtime = JSON.parse(admin.response.body.runtimeJson);
@@ -513,6 +523,99 @@ describe('Hydro Resolver routes', () => {
         expect(admin.response.body.overlay).not.toContain(token);
         await expect(app.live('_overlay').get('system', tid(), token)).rejects.toThrow('作废');
         await expect(app.live('_media').get('system', tid(), 'wrong', 'awards-gold.svg')).rejects.toThrow('media');
+    });
+    it('keeps live overlays honest: revoked links disconnect, processes stay in sync, nothing before the start', async () => {
+        const app = setup(); await app.init();
+        const admin = app.live(); admin.user.own = () => true;
+        await admin.prepare('system', tid()); await admin.get();
+        const token = JSON.parse(admin.response.body.runtimeJson).overlay.split('/').pop();
+        const contestKey = `system/${tid()}`;
+        const doc = () => app.resolverTables.get('xcpcio.live')!.get(contestKey)!;
+
+        // An overlay websocket already open is closed when its link is revoked, and told to other processes.
+        const socket = app.live('_overlay_ws');
+        socket.request.path = `/contest/${tid()}/live-overlay/${token}/ws/overlay/mainScreen`;
+        await socket.prepare('system', tid(), token);
+        expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: 'MainScreenSnapshot', widgets: [] }));
+        const console_ = app.live('_admin_ws'); console_.user.own = () => true;
+        console_.request.path = `/contest/${tid()}/live/ws/admin/adminActions`;
+        await console_.prepare('system', tid());
+
+        // Another Hydro process saved a change: this one applies it without saving it again.
+        const sync = app.hooks.mock.calls.find(([event]: [string]) => event === 'xcpcio/live-sync')![1];
+        doc().state = { controllers: { queue: { settings: { horizontal: true }, showOrder: 7 } }, presets: {} };
+        await sync(contestKey, 'state', 'another-process');
+        expect(socket.send).toHaveBeenLastCalledWith(expect.stringContaining('"type":"QueueWidget"'));
+        expect(app.broadcast).not.toHaveBeenCalled();
+        // A change made here is saved and announced.
+        const api = app.live('_admin_api'); api.user.own = () => true; api.user.uname = 'director';
+        await api.prepare('system', tid());
+        Object.assign(api.request, { method: 'POST', path: `/contest/${tid()}/live/api/admin/queue/hide`, body: {}, query: {}, querystring: '' });
+        await api.all();
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        expect(doc().state.controllers.queue.showOrder).toBeNull();
+        expect(app.broadcast).toHaveBeenCalledWith('xcpcio/live-sync', contestKey, 'state', expect.any(String));
+
+        await admin.postResetToken();
+        expect(socket.close).toHaveBeenCalledWith(4004, '直播链接已作废');
+        expect(app.broadcast).toHaveBeenCalledWith('xcpcio/live-sync', contestKey, 'token', expect.any(String));
+        await socket.cleanup(); await console_.cleanup();
+
+        // Media: built-in templates and uploads, served with the media key; Chinese names stay distinct.
+        const file = path.join(os.tmpdir(), `live-upload-${Date.now()}.png`);
+        fs.writeFileSync(file, 'png-bytes');
+        const upload = app.live('_admin_api'); upload.user.own = () => true; upload.user.uname = 'director';
+        await upload.prepare('system', tid());
+        Object.assign(upload.request, { method: 'POST', path: `/contest/${tid()}/live/api/admin/media/upload`, body: {}, query: {}, querystring: '',
+            files: { file: { filepath: file, originalFilename: '校徽.png', size: 9 } } });
+        await upload.all();
+        expect(JSON.parse(upload.response.body)).toEqual({ status: 'ok', response: ['校徽.png'] });
+        const media = app.live('_media');
+        await media.get('system', tid(), doc().mediaKey, '校徽.png');
+        expect([media.response.type, Buffer.from(media.response.body).toString()]).toEqual(['image/png', 'png-bytes']);
+        const builtin = app.live('_media');
+        await builtin.get('system', tid(), doc().mediaKey, 'awards-gold.svg');
+        expect(builtin.response.type).toBe('image/svg+xml');
+        expect(builtin.response.addHeader).toHaveBeenCalledWith('Content-Security-Policy', expect.stringContaining('sandbox'));
+
+        // The console page is the built ICPC Live admin, told where its backend is.
+        const page = app.live('_admin_page'); page.user.own = () => true;
+        await page.get('system', tid());
+        expect(page.response.type).toBe('text/html');
+        expect(page.response.body).toContain(`"adminApi":"/d/system/contest/${tid()}/live/api/admin"`);
+        expect(page.response.body).toContain("e.data==='ping'");
+
+        // Before the start the overlay knows the clock, but no teams (like the public board).
+        state.started = false;
+        const fresh = setup(); await fresh.init();
+        const early = fresh.live('_admin_api'); early.user.own = () => true;
+        await early.prepare('system', tid());
+        Object.assign(early.request, { method: 'GET', path: `/contest/${tid()}/live/api/admin/contestInfo`, body: {}, query: {}, querystring: '' });
+        await early.all();
+        expect(JSON.parse(early.response.body)).toMatchObject({ teams: [], organizations: [] });
+    });
+    it('disconnects a director whose permission was revoked', async () => {
+        vi.useFakeTimers();
+        try {
+            const app = setup(); await app.init();
+            const socket = app.live('_admin_ws'); socket.user.own = () => true;
+            socket.request.path = `/contest/${tid()}/live/ws/admin/adminActions`;
+            await socket.prepare('system', tid());
+            state.director = { own: () => true, hasPerm: () => false };
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(socket.close).not.toHaveBeenCalled();
+            state.director = { own: () => false, hasPerm: () => false };
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(socket.close).toHaveBeenCalledWith(4003, '直播导播权限已撤销');
+            await socket.cleanup();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+    it('leaves the live module out when it is switched off', async () => {
+        const app = setup(new Map(), { live: false }); await app.init();
+        expect(app.routeNames().some((name) => name.startsWith('contest_xcpcio_live'))).toBe(false);
+        expect(app.routeNames()).toContain('contest_xcpcio_screens');
     });
     it('shows a resolver session read-only to the audience screen, without future steps', async () => {
         const app = setup(); await app.init();

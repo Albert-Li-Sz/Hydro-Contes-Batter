@@ -2,7 +2,7 @@
  * Queue, analytics and team spotlight services of ICPC Live v3 (backend service/*.kt, MIT),
  * ported to event callbacks.
  */
-import type { ContestInfo, MediaType, QueueRunInfo, RunInfo, ScoreboardRow } from './types';
+import type { ContestInfo, MediaType, QueueRunInfo, RunInfo } from './types';
 import type { Ranking } from './scoreboard';
 import { ApiActionError } from './widgets';
 
@@ -204,25 +204,25 @@ export class AnalyticsService {
         for (const listener of this.listeners) listener({ type: 'UpdateAnalyticsMessage', message });
     }
 
-    private commentary(run: RunInfo, info: ContestInfo, rows: Map<string, ScoreboardRow>, ranking: Ranking) {
-        const row = rows.get(run.teamId);
-        const index = ranking.order.indexOf(run.teamId);
-        if (!row || index < 0) {
+    private commentary(run: RunInfo, info: ContestInfo, ranking: Ranking, at: { rank: number; solved: number } | undefined) {
+        if (!at || !ranking.order.includes(run.teamId)) {
             this.analyses.delete(run.id);
             return null;
         }
         let analysis = this.analyses.get(run.id);
         if (!analysis) {
             analysis = {
-                creationTime: Date.now(), rank: ranking.ranks[index],
+                creationTime: Date.now(), rank: at.rank,
                 awards: ranking.awards.filter((award) => award.teams.includes(run.teamId)).map((award) => award.id),
             };
             this.analyses.set(run.id, analysis);
         }
+        // A run judged later states the standing right after its verdict.
+        analysis.rank = at.rank;
         const team = info.teams.find((item) => item.id === run.teamId);
         const problem = info.problems.find((item) => item.id === run.problemId);
         if (!team || !problem) return null;
-        const solved = row.problemResults.filter((result) => result.isSolved).length;
+        const { solved } = at;
         const substitute: Record<string, string> = {
             '{team.shortName}': team.shortName,
             '{problem.letter}': problem.letter,
@@ -248,7 +248,8 @@ export class AnalyticsService {
         return { id: `_analytics_by_run_${run.id}`, message, time: analysis.creationTime, tags };
     }
 
-    onRun(run: RunInfo, info: ContestInfo, rows: Map<string, ScoreboardRow>, ranking: Ranking) {
+    /** `at`: the team's standing right after this run (scoreboard.standingsAtRuns). */
+    onRun(run: RunInfo, info: ContestInfo, ranking: Ranking, at?: { rank: number; solved: number }) {
         if (run.isHidden) return;
         const start = info.status.type === 'before' ? info.status.scheduledStartAtUnixMs ?? 0 : info.status.startedAtUnixMs;
         const time = start + run.time / info.emulationSpeed;
@@ -263,7 +264,7 @@ export class AnalyticsService {
         message = { ...message, teamId: run.teamId, runInfo: run, timeUnixMs: time, relativeTimeMs: run.time,
             updateTimeUnixMs: Math.max(message.updateTimeUnixMs, time), tags: [...tags] };
         this.store(message);
-        const comment = this.commentary(run, info, rows, ranking);
+        const comment = this.commentary(run, info, ranking, at);
         if (!comment) return;
         const existing = message.comments.find((item) => item.id === comment.id);
         const updated: Comment = { id: comment.id, message: comment.message, advertisement: existing?.advertisement ?? null,

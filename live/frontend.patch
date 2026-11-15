@@ -447,12 +447,14 @@ index 99cc341..7bb166b 100644
              return config.ADMIN_HIDE_CONTROL ?? [];
          } catch (error) {
 diff --git a/src/frontend/overlay/src/config.ts b/src/frontend/overlay/src/config.ts
-index ce030a2..4573158 100644
+index ce030a2..eb2e5a8 100644
 --- a/src/frontend/overlay/src/config.ts
 +++ b/src/frontend/overlay/src/config.ts
-@@ -5,13 +5,9 @@ import { LocationRectangle } from "@/utils/location-rectangle";
+@@ -4,14 +4,13 @@ import { faviconTemplate } from "@/consts";
+ import { LocationRectangle } from "@/utils/location-rectangle";
  import type { OverlayConfig, OverlayConfigOverride } from "./config.interface";
  import { AwardEffect } from "@/utils/awards";
++import { Settings } from "luxon";
  
 -const WS_PROTO = window.location.protocol === "https:" ? "wss://" : "ws://";
 -const HTTP_PROTO =
@@ -462,12 +464,14 @@ index ce030a2..4573158 100644
 -    import.meta.env.VITE_VISUAL_CONFIG_URL ??
 -    `${window.location.protocol}//${window.location.hostname}:${WS_PORT}/api/overlay/visualConfig.json`;
 +// Hydro: the overlay is served under a contest path; the page tells us where its API lives.
-+const HYDRO_LIVE = (window as unknown as { __HYDRO_LIVE__: { overlayApi: string; overlayWs: string } }).__HYDRO_LIVE__;
++const HYDRO_LIVE = (window as unknown as { __HYDRO_LIVE__: { overlayApi: string; overlayWs: string; clockOffset?: number } }).__HYDRO_LIVE__;
 +const VISUAL_CONFIG_URL = `${HYDRO_LIVE.overlayApi}/visualConfig.json`;
++// Hydro: clocks follow the server's time (the page keeps HYDRO_LIVE.clockOffset measured).
++Settings.now = () => Date.now() + (HYDRO_LIVE.clockOffset ?? 0);
  
  const urlParams = new URLSearchParams(window.location.search);
  const queryVisualConfig = JSON.parse(
-@@ -41,19 +37,8 @@ function getDefaultConfig(): EvaluatableTo<OverlayConfig> {
+@@ -41,19 +40,8 @@ function getDefaultConfig(): EvaluatableTo<OverlayConfig> {
      return {
          CONTEST_COLOR: "#4C83C3",
          CONTEST_CAPTION: "",

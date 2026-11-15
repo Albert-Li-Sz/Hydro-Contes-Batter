@@ -13,20 +13,39 @@ Hydro OJ 的 ACM 比赛榜单、滚榜、大屏与直播插件，集成 XCPCIO �
 
 ## 安装
 
-需要 Node.js 22+、pnpm 和 Hydro 5.x。以下命令适用于通过 Yarn 和 PM2 管理的 Hydro 主服务环境。
+需要 Node.js 22+ 和 Hydro 5.x。请使用运行 Hydro 的系统用户，在主服务所在环境执行。
+
+下载完整安装包 `hydro-scoreboard-xcpcio-plus-0.8.1.tgz`，解压到固定目录，注册 addon 后重启。安装包包含预构建页面、字体和完整校徽。
 
 ```bash
-git clone https://github.com/Albert-Li-Sz/Hydro-Contes-Batter.git
-cd Hydro-Contes-Batter
-pnpm install --frozen-lockfile
-pnpm pack --pack-destination ./dist
-
-yarn global add "$PWD/dist/hydro-scoreboard-xcpcio-plus-0.8.0.tgz"
-hydrooj addon add hydro-scoreboard-xcpcio-plus
+mkdir -p "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
+tar -xzf hydro-scoreboard-xcpcio-plus-0.8.1.tgz \
+  -C "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus" --strip-components=1
+hydrooj addon add "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
 pm2 restart hydrooj
 ```
 
-容器部署时，在 Hydro 主服务容器内完成插件安装和启用，并使用该部署的服务重启方式。安装包包含高清资源。
+已有旧版时使用下面的升级脚本，它会备份旧目录并处理原来的 addon 注册。
+
+### 一键安装、升级、卸载
+
+将下载的安装包解压到一个临时目录，运行包内的 `install.sh`。
+
+```bash
+mkdir -p xcpcio-update
+tar -xzf hydro-scoreboard-xcpcio-plus-0.8.1.tgz -C xcpcio-update
+bash xcpcio-update/package/install.sh install
+
+# 升级时下载并解压新包，运行新包中的脚本
+bash xcpcio-update/package/install.sh upgrade
+
+# 卸载
+bash "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus/install.sh" uninstall
+```
+
+脚本默认安装到 `$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus`，自动执行 addon 注册和 `pm2 restart hydrooj`。支持 `--dir /绝对路径`、`--service 进程名` 和 `--no-restart`。使用 Hydro profile 时设置对应的 `HYDRO_PROFILE`。
+
+升级备份和卸载归档保存在安装目录旁的 `.hydro-addon-backups/hydro-scoreboard-xcpcio-plus/`，卸载后 MongoDB 中的比赛设置、滚榜会话和直播配置保留。容器部署使用持久化安装目录和 `--no-restart`，随后通过容器的服务管理方式重启。详细流程见 [安装与升级](docs/usage.md#安装)。
 
 ## 使用
 
@@ -53,9 +72,11 @@ pm2 restart hydrooj
 ## 开发
 
 ```bash
+pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm test
 pnpm preview
+pnpm pack --pack-destination ./dist
 ```
 
 本地预览地址为 `http://127.0.0.1:18900/`，滚榜配置页为 `/contest/demo/resolver`，大屏管理页为 `/contest/demo/screens`，直播设置页为 `/contest/demo/live`（模拟一场进行中、不断有新提交的比赛）。服务端代码位于 `index.ts` 和 `lib/`，界面位于 `client/`、`frontend/` 和 `templates/`，移植的滚榜与大屏模块位于 `resolver/`（来源哈希见 `resolver/UPSTREAM.json`）。校徽由 `pnpm logos` 从 Hydro 校徽注册表下载到 `logos/`，需要本机安装 `cwebp`。直播后端位于 `lib/live/`，前端为 ICPC Live v3.5.1 打上 `live/frontend.patch` 后的构建产物 `live/dist/`，`pnpm build:live` 会从固定提交重新构建（需要 git、pnpm 和网络）。

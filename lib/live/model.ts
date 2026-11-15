@@ -30,6 +30,8 @@ export interface LiveSource {
     identity: boolean;
     logoNames: Record<string, string>;
     now: number;
+    /** Before the public board may be shown (contest not started): no teams, no runs. */
+    hidden?: boolean;
 }
 
 /** ICPC Live's ContestInfo defaults (cds/core ContestInfo.kt QueueSettings). */
@@ -107,13 +109,13 @@ export function buildContestInfo(source: LiveSource): ContestInfo {
         { id: 'official', displayName: '正式参赛', isHidden: false, isOutOfContest: false },
         { id: 'unofficial', displayName: '非正式参赛', isHidden: false, isOutOfContest: true },
     ];
-    for (const board of source.boards) {
+    for (const board of source.hidden ? [] : source.boards) {
         if (board.id === 'all') continue;
         if (!groups.some((group) => group.id === board.id)) groups.push({ id: board.id, displayName: board.name, isHidden: false, isOutOfContest: false });
         for (const teamId of board.teamIds) membership.set(teamId, [...(membership.get(teamId) || []), board.id]);
     }
     const organizations = new Map<string, OrganizationInfo>();
-    const teams: TeamInfo[] = data.teams.map((team) => {
+    const teams: TeamInfo[] = (source.hidden ? [] : data.teams).map((team) => {
         const unofficial = team.group.includes('unofficial');
         let organizationId: string | null = null;
         if (identity) {
@@ -155,8 +157,8 @@ export function buildContestInfo(source: LiveSource): ContestInfo {
 
 /**
  * Runs as ICPC Live's CDS adapters would emit them: frozen and pending runs are in progress,
- * first-to-solve follows the board's first-solve rules, and runs after a team's first accepted
- * run on a problem are marked.
+ * first-to-solve follows the board's first-solve rules and computation, and runs after a team's
+ * first accepted run on a problem are marked.
  */
 export function buildRuns(source: LiveSource, info: ContestInfo): RunInfo[] {
     const { data } = source;
@@ -183,20 +185,18 @@ export function buildRuns(source: LiveSource, info: ContestInfo): RunInfo[] {
     }
     const rules = awardsFor(source.settings, 'all');
     if (rules.firstSolve) {
+        // As on the board (lib/award-policy.mjs): per problem, the earliest accepted run among
+        // eligible teams; runs accepted at the same moment are all first solves.
         const outOfContest = new Set(info.teams.filter((team) => team.isOutOfContest).map((team) => team.id));
-        const decided = new Set<string>();
+        const first = new Map<string, RunInfo[]>();
         for (const run of runs) {
-            if (decided.has(run.problemId) || (outOfContest.has(run.teamId) && !rules.unofficialFirstSolve)) continue;
-            // An earlier submission still being judged could turn out to be the first solve.
-            // (Frozen runs come after every visible one, so they never hide a visible first solve.)
-            if (run.result.type === 'IN_PROGRESS') {
-                decided.add(run.problemId);
-                continue;
-            }
-            if (!run.result.verdict.isAccepted) continue;
-            run.result.isFirstToSolveRun = true;
-            decided.add(run.problemId);
+            if (run.result.type !== 'ICPC' || !run.result.verdict.isAccepted || run.result.isAfterFirstOk) continue;
+            if (outOfContest.has(run.teamId) && !rules.unofficialFirstSolve) continue;
+            const current = first.get(run.problemId);
+            if (!current || run.time < current[0].time) first.set(run.problemId, [run]);
+            else if (run.time === current[0].time) current.push(run);
         }
+        for (const list of first.values()) for (const run of list) if (run.result.type === 'ICPC') run.result.isFirstToSolveRun = true;
     }
     return runs;
 }

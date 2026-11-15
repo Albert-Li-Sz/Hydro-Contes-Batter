@@ -61,11 +61,13 @@ MIT License, Copyright (c) 2022-2023 ICPC Live Team, preserved in
 licenses/ICPC-Live-MIT.txt and published as public/hydro-live/LICENSE.txt.
 The overlay and admin frontends (src/frontend) are built from that commit with
 live/frontend.patch applied: backend locations are read from the page Hydro
-serves, unsupported configuration pages are removed, and the Monaco editor
+serves, overlay clocks follow the Hydro server's time, unsupported configuration
+pages are removed, and the Monaco editor
 (loaded from a CDN) is replaced by a plain text editor. scripts/build-live.mjs
 reproduces live/dist; live/UPSTREAM.json records the source and patch hash.
 The backend (src/backend, src/backend-api and the ICPC scoreboard, first-to-solve
 and after-first-OK logic of src/cds/core) is ported to TypeScript in lib/live/,
-reading Hydro contest data instead of a CDS feed. Title templates in live/media/
+reading Hydro contest data instead of a CDS feed; ranks, medals and first solves
+use this plugin's shared Hydro rules instead of ICPC Live's tie-breaking. Title templates in live/media/
 are copied unchanged from config/_media of the same commit.
 
