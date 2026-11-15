@@ -159,9 +159,16 @@ function install(config) {
         const previous = readAddons();
         if (restart) run('pm2', ['describe', service], true);
 
-        const targetInfo = fs.lstatSync(target, { throwIfNoEntry: false });
-        if (targetInfo && (targetInfo.isSymbolicLink() || !targetInfo.isDirectory()
-            || readJson(path.join(target, 'package.json')).name !== packageName)) {
+        let targetInfo = fs.lstatSync(target, { throwIfNoEntry: false });
+        // An empty directory (for example made by the manual steps' mkdir) is free to use.
+        if (targetInfo?.isDirectory() && !targetInfo.isSymbolicLink() && fs.readdirSync(target).length === 0) {
+            fs.rmdirSync(target);
+            targetInfo = undefined;
+        }
+        const ownPackage = () => {
+            try { return readJson(path.join(target, 'package.json')).name === packageName; } catch { return false; }
+        };
+        if (targetInfo && (targetInfo.isSymbolicLink() || !targetInfo.isDirectory() || !ownPackage())) {
             throw new Error(`安装目录已被其他文件占用 ${target}`);
         }
         const cached = staticNames.map((name) => path.join(hydroDirectory, 'static', name)).filter((file) => fs.existsSync(file));

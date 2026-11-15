@@ -443,3 +443,77 @@ describe('live fixes', () => {
         expect(info.problems).toHaveLength(3);
     });
 });
+
+describe('live sub-boards and processes', () => {
+    it('ranks and medals each sub-board on its own, with its own medal settings', () => {
+        const settings = normalizeSettings({
+            ...defaultSettings, showIdentity: true, schoolBoards: true,
+            manualBoards: [{ id: 'pair', name: '两队榜', teamIds: ['2', '5'] }],
+            boardAwards: { 'manual-pair': { medals: { gold: 1, silver: 0, bronze: 0 } } },
+        });
+        const live = source({}, demoData(), settings);
+        const info = buildContestInfo(live);
+        const state = computeScoreboard(info, runsByTeam(buildRuns(live, info)), 'normal');
+        const diff = scoreboardDiff(state);
+        const pair = diff.hydroGroups['manual-pair'];
+        // Within the pair: team 2 (2 solved, 3600 s) ahead of team 5 (2 solved, 4200 s).
+        expect(pair.ranks).toEqual({ 2: 1, 5: 2 });
+        expect(pair.awards).toEqual([{ id: 'gold-medal', citation: '金奖', teams: ['2'] }]);
+        // Overall team 2 ranks 3rd and gets silver: the sub-board view must not show that.
+        expect(diff.ranks[diff.order.indexOf('2')]).toBe(3);
+        expect(diff.hydroGroups.unofficial.ranks).toEqual({});
+        expect(info.awardsSettings.find((chain) => chain.groups?.[0] === 'manual-pair')?.awards.map((award) => award.chainLimit)).toEqual([1]);
+    });
+
+    it('tells local consoles what another process changed, and shares templates, scores and marks', async () => {
+        const announced: [string, unknown][] = [];
+        let template = '<svg>{name} v1</svg>';
+        const hub = new LiveHub({
+            load: async () => source(), persist: async () => {}, idleMs: 0,
+            template: async () => template,
+            announce: (kind, payload) => { announced.push([kind, payload]); },
+        });
+        await hub.refresh();
+        const actions: string[] = [];
+        hub.subscribe('adminActions', (uri) => actions.push(uri as string));
+        await hub.reload({ controllers: { 'teamView/PVP_TOP': { settings: { teamId: '1' }, showOrder: 3 }, queue: { settings: {}, showOrder: null } }, presets: { picture: [{ id: 4, settings: { url: '/a.png', name: 'a' }, showOrder: null }] } });
+        expect(actions).toEqual(['/api/admin/teamPVP/PVP_TOP', '/api/admin/picture']);
+        expect(announced).toEqual([]); // applying another process's state is not announced again
+
+        const store = memoryStore();
+        const id = JSON.parse((await adminApi(hub, store, request('POST', 'title', { preset: 'cap.svg', data: { name: '主持' } })))!.body).response;
+        await adminApi(hub, store, request('POST', `title/${id}/show`));
+        const screen: any[] = [];
+        hub.subscribe('mainScreen', (event) => screen.push(event));
+        template = '<svg>{name} v2</svg>';
+        await hub.templateChanged('cap.svg', true);
+        const svg = Buffer.from(screen.at(-1).widget.content.split('base64,')[1], 'base64').toString();
+        expect(svg).toBe('<svg>主持 v2</svg>');
+
+        hub.addScores([{ teamId: '3', score: 7 }]);
+        expect(hub.spotlight.score('3')).toBe(7);
+        expect(announced.at(-1)).toEqual(['spotlight', [{ teamId: '3', score: 7 }]]);
+        hub.addScores([{ teamId: '3', score: 1 }], true);
+        expect(announced.filter(([kind]) => kind === 'spotlight')).toHaveLength(1);
+
+        const message = hub.analytics.list()[0];
+        await adminApi(hub, store, request('POST', `analytics/${message.id}/${message.comments[0].id}/advertisement`, {}, { ttl: '60000' }));
+        expect(announced.at(-1)).toEqual(['mark', expect.objectContaining({ messageId: message.id, field: 'advertisement', value: expect.objectContaining({ presetId: expect.any(Number) }) })]);
+        hub.applyMark({ messageId: message.id, commentId: message.comments[0].id, field: 'advertisement', value: null });
+        expect(hub.analytics.list()[0].comments[0].advertisement).toBeNull();
+        hub.dispose();
+    });
+
+    it('lets the director see the teams before the start while the overlay does not', async () => {
+        const hub = new LiveHub({ load: async () => source({ hidden: true }), persist: async () => {}, template: async () => null, idleMs: 0 });
+        await hub.refresh();
+        expect(hub.info!.teams).toEqual([]);
+        expect(hub.teams()).toHaveLength(8);
+        expect(hub.regions().map((group) => group.id)).toContain('official');
+        const seen: any[] = [];
+        hub.subscribe('admin:contestInfo', (info) => seen.push(info));
+        hub.subscribe('contestInfo', (info) => seen.push(info));
+        expect(seen.map((info) => info.teams.length)).toEqual([8, 0]);
+        hub.dispose();
+    });
+});

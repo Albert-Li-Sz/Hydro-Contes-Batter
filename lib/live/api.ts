@@ -63,6 +63,10 @@ export interface LiveUrls {
     overlayApi: string;
     overlayWs: string;
     media: string;
+    /** The overlay for the director's own preview, behind the Hydro login instead of the token. */
+    preview: string;
+    previewApi: string;
+    previewWs: string;
 }
 
 export function liveUrls(contestBase: string, token: string, mediaKey: string): LiveUrls {
@@ -75,7 +79,20 @@ export function liveUrls(contestBase: string, token: string, mediaKey: string): 
         overlayApi: `${contestBase}/live-overlay/${token}/api/overlay`,
         overlayWs: `${contestBase}/live-overlay/${token}/ws/overlay`,
         media: `${contestBase}/live-media/${mediaKey}`,
+        preview: `${contestBase}/live/preview`,
+        previewApi: `${contestBase}/live/api/overlay`,
+        previewWs: `${contestBase}/live/ws/overlay`,
     };
+}
+
+/** The console previews the overlay through its own login, so a token reset never breaks it. */
+export const adminRuntime = (urls: LiveUrls): LiveUrls => ({ ...urls, overlay: urls.preview });
+export const previewRuntime = (urls: LiveUrls): LiveUrls => ({ ...urls, overlayApi: urls.previewApi, overlayWs: urls.previewWs });
+
+/** Admin websocket path -> hub channel. The console's contest info is the director's (full) view. */
+export function adminChannel(name: string) {
+    if (!adminChannels.includes(name)) return null;
+    return name === 'contestInfo' ? 'admin:contestInfo' : name;
 }
 
 /** A built ICPC Live page, told where its backend lives. */
@@ -237,7 +254,7 @@ export async function adminApi(hub: LiveHub, store: LiveStore, request: ApiReque
     }
     if (head === 'analytics') {
         if (!rest.length && method === 'GET') return json(hub.analytics.list());
-        if (rest[0] === 'contestInfo' && rest.length === 1 && method === 'GET') return json(hub.info);
+        if (rest[0] === 'contestInfo' && rest.length === 1 && method === 'GET') return json(hub.adminInfo);
         const [messageId, second, third] = rest;
         if (second === 'featuredRun' && rest.length === 2) {
             // The body names a TeamMediaType; Hydro teams carry no camera or screen media.
@@ -267,7 +284,7 @@ export async function adminApi(hub: LiveHub, store: LiveStore, request: ApiReque
                 }
                 return { teamId: item.teamId, score: item.score };
             });
-            for (const item of requests) hub.spotlight.addScore(item.teamId, item.score);
+            hub.addScores(requests);
         });
     }
     if (head === 'social' && !rest.length && method === 'POST') {
@@ -281,7 +298,7 @@ export async function adminApi(hub: LiveHub, store: LiveStore, request: ApiReque
     if (rest.length === 0 && method === 'GET') {
         if (head === 'users') return json([]);
         if (head === 'usage_stats') return json(hub.usageStatistics());
-        if (head === 'contestInfo') return json(hub.info);
+        if (head === 'contestInfo') return json(hub.adminInfo);
         if (head === 'advancedJsonPreview') return json([]);
     }
     if (head === 'visualConfig') {
@@ -317,7 +334,7 @@ export async function adminApi(hub: LiveHub, store: LiveStore, request: ApiReque
                     const mime = mediaTypes[path.extname(name).toLowerCase()];
                     if (!mime) throw new ApiActionError(`${name}：仅支持图片、视频、SVG 与 JSON 文件`);
                     await store.saveMedia(name, await file.read(), mime);
-                    hub.forgetTemplate(name);
+                    await hub.templateChanged(name);
                     names.push(name);
                 }
                 return names;

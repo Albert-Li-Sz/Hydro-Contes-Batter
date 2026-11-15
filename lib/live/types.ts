@@ -164,6 +164,8 @@ export interface ScoreboardDiff {
     order: string[];
     ranks: number[];
     awards: Award[];
+    /** Hydro extension read by the patched overlay: ranks and medals within each sub-board. */
+    hydroGroups: Record<string, { ranks: Record<string, number>; awards: Award[] }>;
 }
 
 export interface QueueRunInfo {

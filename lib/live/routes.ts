@@ -9,8 +9,8 @@ import type { BoardSettings } from '../settings';
 import { toScriptJson } from '../settings';
 import { resolverBoards, resolverCodeBase } from '../resolver-data';
 import {
-    adminApi, adminChannels, type ApiResponse, builtinMediaNames, defaultVisualConfig, liveUrls, type LiveStore, overlayApi, overlayChannel,
-    pluginRoot, readBuiltinMedia, shell, storeName,
+    adminApi, adminChannel, adminRuntime, type ApiResponse, builtinMediaNames, defaultVisualConfig, liveUrls, type LiveStore, overlayApi, overlayChannel,
+    pluginRoot, previewRuntime, readBuiltinMedia, shell, storeName,
 } from './api';
 import { LiveHub, type LiveState } from './hub';
 
@@ -38,10 +38,12 @@ declare module 'hydrooj' {
         'xcpcio.live.media': LiveMedia;
     }
     interface EventMap {
-        /** Another Hydro process changed a contest's live state (`state`) or overlay token (`token`). */
-        'xcpcio/live-sync': (key: string, kind: 'state' | 'token', origin: string) => void;
+        /** Another Hydro process changed a contest's live state, token, a template, spotlight scores or a commentary mark. */
+        'xcpcio/live-sync': (key: string, kind: LiveSyncKind, origin: string, payload?: unknown) => void;
     }
 }
+
+type LiveSyncKind = 'state' | 'token' | 'template' | 'spotlight' | 'social' | 'mark';
 
 /** Contest time is up to the board's rule; the overlay withholds teams until the board shows them. */
 const nobody = { user: { _id: 0, own: () => false, hasPerm: () => false, hasPriv: () => false } };
@@ -70,18 +72,27 @@ export function applyLive(ctx: Context, dependencies: {
     const overlays = new Map<string, Set<{ token: string; close: () => void }>>();
     // Each Hydro process (PM2 cluster) has its own hubs; changes are announced to the others.
     const instance = randomUUID();
-    const announce = (contestKey: string, kind: 'state' | 'token') => {
-        (ctx as unknown as { broadcast: (event: string, ...args: unknown[]) => void }).broadcast('xcpcio/live-sync', contestKey, kind, instance);
+    const announce = (contestKey: string, kind: LiveSyncKind, payload?: unknown) => {
+        (ctx as unknown as { broadcast: (event: string, ...args: unknown[]) => void }).broadcast('xcpcio/live-sync', contestKey, kind, instance, payload);
     };
     const closeRevoked = (contestKey: string, token: string) => {
         for (const connection of overlays.get(contestKey) || []) if (connection.token !== token) connection.close();
     };
-    ctx.on('xcpcio/live-sync', async (contestKey, kind, origin) => {
+    ctx.on('xcpcio/live-sync', async (contestKey, kind, origin, payload) => {
         if (origin === instance) return;
-        const doc = await collection.findOne({ _id: contestKey });
-        if (!doc) return;
-        if (kind === 'token') closeRevoked(contestKey, doc.token);
-        else await (await hubs.get(contestKey)?.catch(() => null))?.reload(doc.state || {});
+        if (kind === 'state' || kind === 'token') {
+            const doc = await collection.findOne({ _id: contestKey });
+            if (!doc) return;
+            if (kind === 'token') closeRevoked(contestKey, doc.token);
+            else await (await hubs.get(contestKey)?.catch(() => null))?.reload(doc.state || {});
+            return;
+        }
+        const hub = await hubs.get(contestKey)?.catch(() => null);
+        if (!hub) return;
+        if (kind === 'template' && typeof payload === 'string') await hub.templateChanged(payload, true);
+        else if (kind === 'spotlight' && Array.isArray(payload)) hub.addScores(payload as { teamId: string; score: number }[], true);
+        else if (kind === 'social' && payload && typeof payload === 'object') hub.social(payload as Parameters<LiveHub['social']>[0], true);
+        else if (kind === 'mark' && payload && typeof payload === 'object') hub.applyMark(payload as Parameters<LiveHub['applyMark']>[0]);
     });
 
     async function loadDoc(tdoc: Tdoc): Promise<LiveDoc> {
@@ -134,6 +145,7 @@ export function applyLive(ctx: Context, dependencies: {
                             hidden: !ContestModel.canShowScoreboard.call(nobody as never, current, false),
                         };
                     },
+                    announce: (kind, payload) => announce(name, kind, payload),
                     persist: async (state) => {
                         await collection.updateOne({ _id: name }, { $set: { state, updatedAt: new Date() } });
                         announce(name, 'state');
@@ -230,7 +242,31 @@ export function applyLive(ctx: Context, dependencies: {
             const tdoc = await checkAdmin(this, tid);
             this.response.addHeader('Cache-Control', 'no-store');
             this.response.type = 'text/html';
-            this.response.body = shell('admin', urls(tdoc, await loadDoc(tdoc)), `${tdoc.title} · 直播导播台`);
+            this.response.body = shell('admin', adminRuntime(urls(tdoc, await loadDoc(tdoc))), `${tdoc.title} · 直播导播台`);
+        }
+    }
+
+    /** The overlay as the console previews it: behind the Hydro login, independent of the OBS token. */
+    class LivePreviewPageHandler extends Handler {
+        @param('tid', Types.ObjectId)
+        async get(_domainId: string, tid: ObjectId) {
+            const tdoc = await checkAdmin(this, tid);
+            this.response.addHeader('Cache-Control', 'no-store');
+            this.response.type = 'text/html';
+            this.response.body = shell('overlay', previewRuntime(urls(tdoc, await loadDoc(tdoc))), `${tdoc.title} · 直播画面预览`);
+        }
+    }
+
+    class LivePreviewApiHandler extends Handler {
+        notUsage = true;
+
+        @param('tid', Types.ObjectId)
+        async get(_domainId: string, tid: ObjectId) {
+            const tdoc = await checkAdmin(this, tid);
+            this.response.addHeader('Cache-Control', 'no-store');
+            const doc = await loadDoc(tdoc);
+            const subpath = /\/live\/api\/overlay\/(.*)$/.exec(this.request.path)?.[1] || '';
+            respond(this, await overlayApi(await hubFor(tdoc), subpath, doc.visualConfig), subpath);
         }
     }
 
@@ -287,8 +323,8 @@ export function applyLive(ctx: Context, dependencies: {
         @param('tid', Types.ObjectId)
         async prepare(_domainId: string, tid: ObjectId) {
             const tdoc = await checkAdmin(this, tid);
-            const channel = /\/live\/ws\/admin\/(.+)$/.exec(this.request.path)?.[1];
-            if (!channel || !adminChannels.includes(channel)) throw new NotFoundError(channel || 'channel');
+            const channel = this.channel();
+            if (!channel) throw new NotFoundError('channel');
             const hub = await hubFor(tdoc);
             this.unsubscribe = hub.subscribe(channel, (payload) => this.send(typeof payload === 'string' ? payload : JSON.stringify(payload)));
             // A director who loses the permission (or the contest) is disconnected within a minute.
@@ -301,9 +337,20 @@ export function applyLive(ctx: Context, dependencies: {
             this.recheck.unref?.();
         }
 
+        channel() {
+            return adminChannel(/\/live\/ws\/admin\/(.+)$/.exec(this.request.path)?.[1] || '');
+        }
+
         async cleanup() {
             if (this.recheck) clearInterval(this.recheck);
             this.unsubscribe?.();
+        }
+    }
+
+    /** The console's overlay preview: overlay channels behind the Hydro login. */
+    class LivePreviewConnectionHandler extends LiveAdminConnectionHandler {
+        channel() {
+            return overlayChannel(/\/live\/ws\/overlay\/(.+)$/.exec(this.request.path)?.[1] || '');
         }
     }
 
@@ -402,6 +449,9 @@ export function applyLive(ctx: Context, dependencies: {
     ctx.Route('contest_xcpcio_live_main_page', '/contest/:tid/live/main-page/:item', LiveMainPageHandler);
     ctx.Route('contest_xcpcio_live_admin_api', '/contest/:tid/live/api/admin/*path', LiveAdminApiHandler);
     ctx.Connection('contest_xcpcio_live_admin_ws', '/contest/:tid/live/ws/admin/*path', LiveAdminConnectionHandler);
+    ctx.Route('contest_xcpcio_live_preview', '/contest/:tid/live/preview', LivePreviewPageHandler);
+    ctx.Route('contest_xcpcio_live_preview_api', '/contest/:tid/live/api/overlay/*path', LivePreviewApiHandler);
+    ctx.Connection('contest_xcpcio_live_preview_ws', '/contest/:tid/live/ws/overlay/*path', LivePreviewConnectionHandler);
     ctx.Route('contest_xcpcio_live_overlay', '/contest/:tid/live-overlay/:token', LiveOverlayPageHandler);
     ctx.Route('contest_xcpcio_live_overlay_api', '/contest/:tid/live-overlay/:token/api/overlay/*path', LiveOverlayApiHandler);
     ctx.Connection('contest_xcpcio_live_overlay_ws', '/contest/:tid/live-overlay/:token/ws/overlay/*path', LiveOverlayConnectionHandler);

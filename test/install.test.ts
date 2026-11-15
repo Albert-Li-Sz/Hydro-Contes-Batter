@@ -218,6 +218,20 @@ describe('安装脚本', () => {
         expect(registry()).toEqual(['other-plugin']);
     });
 
+    it('安装到已存在的空目录，非空且不是本插件的目录给出明确提示', () => {
+        fs.mkdirSync(target, { recursive: true });
+        const result = invoke('install', ['--no-restart']);
+        expect(result.status, result.stderr).toBe(0);
+        expect(registry()).toEqual(['other-plugin', target]);
+        expect(fs.existsSync(path.join(target, 'index.ts'))).toBe(true);
+        const other = path.join(directory, 'not-a-plugin');
+        write(path.join(other, 'notes.txt'), 'keep');
+        const refused = invoke('install', ['--dir', other, '--no-restart']);
+        expect(refused.status).not.toBe(0);
+        expect(refused.stderr).toContain('安装目录已被其他文件占用');
+        expect(fs.readFileSync(path.join(other, 'notes.txt'), 'utf8')).toBe('keep');
+    });
+
     it('并发调用保留现有锁和注册', () => {
         const lock = path.join(profile, '.xcpcio-install.lock');
         write(path.join(lock, 'pid'), 'another-process');

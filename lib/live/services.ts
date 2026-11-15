@@ -154,7 +154,7 @@ export const chineseAnalyticsTemplates: AnalyticsTemplates = {
     acceptedWithSolvedProblemsRun: '{team.shortName} 通过 {problem.letter} 题，共通过 {result.solvedProblems} 题，当前排名第 {result.rank}',
 };
 
-interface Preset { presetId: number; expirationTimeUnixMs: number | null }
+export interface Preset { presetId: number; expirationTimeUnixMs: number | null }
 interface Comment {
     id: string;
     message: string;
@@ -181,6 +181,8 @@ export interface AnalyticsCompanions {
     hideTicker: (presetId: number) => void;
     feature: (run: RunInfo, mediaType: string) => AnalyticsMessage['featuredRun'];
     unfeature: (run: RunInfo) => void;
+    /** A comment's companion caption or ticker line changed (for the other Hydro processes). */
+    marked?: (messageId: string, commentId: string, field: 'advertisement' | 'tickerMessage', value: Preset | null) => void;
 }
 
 /** AnalyticsGenerator + AnalyticsService: one message per run, with a generated comment. */
@@ -286,14 +288,30 @@ export class AnalyticsService {
         this.store({ ...message, comments: message.comments.map((item) => (item.id === commentId ? updated : item)) });
     }
 
+    private mark(messageId: string, commentId: string, field: 'advertisement' | 'tickerMessage') {
+        const value = this.messages.get(messageId)?.comments.find((item) => item.id === commentId)?.[field] ?? null;
+        this.companions.marked?.(messageId, commentId, field, value);
+    }
+
+    /** A mark made in another Hydro process: record it, the caption itself arrives with the saved state. */
+    applyMark(messageId: string, commentId: string, field: 'advertisement' | 'tickerMessage', value: Preset | null) {
+        const message = this.messages.get(messageId);
+        if (!message?.comments.some((item) => item.id === commentId)) return;
+        this.store({ ...message, comments: message.comments.map((item) => (item.id === commentId ? { ...item, [field]: value } : item)) });
+    }
+
     showAdvertisement(messageId: string, commentId: string, ttlMs: number) {
         this.updateComment(messageId, commentId, (comment) => {
             if (comment.advertisement) this.companions.hideAdvertisement(comment.advertisement.presetId);
             const presetId = this.companions.showAdvertisement(comment.message, ttlMs, (expired) => {
-                this.updateComment(messageId, commentId, (current) => (current.advertisement?.presetId === expired ? { ...current, advertisement: null } : current));
+                try {
+                    this.updateComment(messageId, commentId, (current) => (current.advertisement?.presetId === expired ? { ...current, advertisement: null } : current));
+                    this.mark(messageId, commentId, 'advertisement');
+                } catch { /* the message is gone: nothing to unmark */ }
             });
             return { ...comment, advertisement: { presetId, expirationTimeUnixMs: Date.now() + ttlMs } };
         });
+        this.mark(messageId, commentId, 'advertisement');
     }
 
     hideAdvertisement(messageId: string, commentId: string) {
@@ -301,16 +319,21 @@ export class AnalyticsService {
             if (comment.advertisement) this.companions.hideAdvertisement(comment.advertisement.presetId);
             return { ...comment, advertisement: null };
         });
+        this.mark(messageId, commentId, 'advertisement');
     }
 
     showTicker(messageId: string, commentId: string, ttlMs: number) {
         this.updateComment(messageId, commentId, (comment) => {
             if (comment.tickerMessage) this.companions.hideTicker(comment.tickerMessage.presetId);
             const presetId = this.companions.showTicker(comment.message, ttlMs, (expired) => {
-                this.updateComment(messageId, commentId, (current) => (current.tickerMessage?.presetId === expired ? { ...current, tickerMessage: null } : current));
+                try {
+                    this.updateComment(messageId, commentId, (current) => (current.tickerMessage?.presetId === expired ? { ...current, tickerMessage: null } : current));
+                    this.mark(messageId, commentId, 'tickerMessage');
+                } catch { /* the message is gone: nothing to unmark */ }
             });
             return { ...comment, tickerMessage: { presetId, expirationTimeUnixMs: Date.now() + ttlMs } };
         });
+        this.mark(messageId, commentId, 'tickerMessage');
     }
 
     hideTicker(messageId: string, commentId: string) {
@@ -318,6 +341,7 @@ export class AnalyticsService {
             if (comment.tickerMessage) this.companions.hideTicker(comment.tickerMessage.presetId);
             return { ...comment, tickerMessage: null };
         });
+        this.mark(messageId, commentId, 'tickerMessage');
     }
 
     makeFeatured(messageId: string, mediaType: string) {

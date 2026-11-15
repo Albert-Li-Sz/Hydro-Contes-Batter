@@ -554,11 +554,11 @@ describe('Hydro Resolver routes', () => {
         await api.all();
         await new Promise((resolve) => setTimeout(resolve, 600));
         expect(doc().state.controllers.queue.showOrder).toBeNull();
-        expect(app.broadcast).toHaveBeenCalledWith('xcpcio/live-sync', contestKey, 'state', expect.any(String));
+        expect(app.broadcast).toHaveBeenCalledWith('xcpcio/live-sync', contestKey, 'state', expect.any(String), undefined);
 
         await admin.postResetToken();
         expect(socket.close).toHaveBeenCalledWith(4004, '直播链接已作废');
-        expect(app.broadcast).toHaveBeenCalledWith('xcpcio/live-sync', contestKey, 'token', expect.any(String));
+        expect(app.broadcast).toHaveBeenCalledWith('xcpcio/live-sync', contestKey, 'token', expect.any(String), undefined);
         await socket.cleanup(); await console_.cleanup();
 
         // Media: built-in templates and uploads, served with the media key; Chinese names stay distinct.
@@ -583,16 +583,32 @@ describe('Hydro Resolver routes', () => {
         await page.get('system', tid());
         expect(page.response.type).toBe('text/html');
         expect(page.response.body).toContain(`"adminApi":"/d/system/contest/${tid()}/live/api/admin"`);
+        // Its overlay preview does not depend on the OBS token.
+        expect(page.response.body).toContain(`"overlay":"/d/system/contest/${tid()}/live/preview"`);
         expect(page.response.body).toContain("e.data==='ping'");
 
-        // Before the start the overlay knows the clock, but no teams (like the public board).
+        // Before the start the overlay knows the clock, but no teams (like the public board);
+        // the director still sees them, to prepare team views.
         state.started = false;
         const fresh = setup(); await fresh.init();
         const early = fresh.live('_admin_api'); early.user.own = () => true;
         await early.prepare('system', tid());
         Object.assign(early.request, { method: 'GET', path: `/contest/${tid()}/live/api/admin/contestInfo`, body: {}, query: {}, querystring: '' });
         await early.all();
-        expect(JSON.parse(early.response.body)).toMatchObject({ teams: [], organizations: [] });
+        expect(JSON.parse(early.response.body).teams).toHaveLength(1);
+        const owner = fresh.live(); owner.user.own = () => true;
+        await owner.prepare('system', tid()); await owner.get();
+        const freshToken = JSON.parse(owner.response.body.runtimeJson).overlay.split('/').pop();
+        const publicInfo = fresh.live('_overlay_api'); publicInfo.request.path = `/contest/${tid()}/live-overlay/${freshToken}/api/overlay/contestInfo`;
+        await publicInfo.get('system', tid(), freshToken);
+        expect(JSON.parse(publicInfo.response.body)).toMatchObject({ teams: [], organizations: [] });
+        // The console previews through its own login: the same overlay data, no token involved.
+        const preview = fresh.live('_preview_api'); preview.user.own = () => true;
+        preview.request.path = `/contest/${tid()}/live/api/overlay/contestInfo`;
+        await preview.get('system', tid());
+        expect(JSON.parse(preview.response.body).teams).toEqual([]);
+        const guestPreview = fresh.live('_preview_api'); guestPreview.user._id = 0;
+        await expect(guestPreview.get('system', tid())).rejects.toThrow('PrivilegeError');
     });
     it('disconnects a director whose permission was revoked', async () => {
         vi.useFakeTimers();

@@ -315,6 +315,11 @@ export class PresetsController<S, W extends Identified> {
 
     status() { return this.entries.map((entry) => entry.controller.status()); }
 
+    /** Rebuild the shown items whose settings match, e.g. titles after their template changed. */
+    resync(matches: (settings: S) => boolean) {
+        for (const entry of this.entries) if (matches(entry.controller.settings)) entry.controller.sync(true);
+    }
+
     private find(id: number) {
         const entry = this.entries.find((candidate) => candidate.controller.id === id);
         if (!entry) throw new ApiActionError('No such id');

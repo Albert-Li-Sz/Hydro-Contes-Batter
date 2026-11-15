@@ -10,7 +10,7 @@ import { AnalyticsService, chineseAnalyticsTemplates, QueueService, SpotlightSer
 import type { ContestInfo, OptimismLevel, RunInfo, TeamInfo } from './types';
 import { optimismLevels } from './types';
 import {
-    ApiActionError, generateId, PresetsController, ShowOrderCounter, TickerManager, type TickerMessage, type Widget,
+    ApiActionError, generateId, PresetsController, type PresetState, ShowOrderCounter, TickerManager, type TickerMessage, type Widget,
     WidgetController, WidgetManager, type WidgetState,
 } from './widgets';
 import * as S from './widget-settings';
@@ -19,7 +19,7 @@ type Listener = (payload: unknown) => void;
 
 export interface LiveState {
     controllers?: Record<string, WidgetState<unknown>>;
-    presets?: Record<string, WidgetState<unknown>[]>;
+    presets?: Record<string, PresetState<unknown>[]>;
 }
 
 export interface HubDependencies {
@@ -27,6 +27,8 @@ export interface HubDependencies {
     persist: (state: LiveState) => Promise<void>;
     /** SVG title templates by media name. */
     template: (name: string) => Promise<string | null>;
+    /** Tell the other Hydro processes about an in-memory change (spotlight scores, commentary marks, templates). */
+    announce?: (kind: 'template' | 'spotlight' | 'social' | 'mark', payload: unknown) => void;
     intervalMs?: number;
     idleMs?: number;
 }
@@ -59,9 +61,21 @@ const tickerPrefix: Record<string, string> = {
     clock: 'ticker_clock', empty: 'ticker_empty', image: 'ticker_image', scoreboard: 'ticker_scoreboard', text: 'ticker_text',
 };
 
+/** The admin route of a controller, as the consoles match it in adminActions. */
+const adminPath = (name: string) => {
+    const [head, position] = name.split('/');
+    if (head !== 'teamView' || !position) return name;
+    if (position.startsWith('PVP_')) return `teamPVP/${position}`;
+    return position === 'SINGLE' ? `teamView/${position}` : `splitScreen/${position}`;
+};
+
 export class LiveHub {
+    /** What the overlay may show (no teams before the start, like the public board). */
     info: ContestInfo | null = null;
+    /** What the director sees: always the full team list, so views can be prepared before the start. */
+    adminInfo: ContestInfo | null = null;
     private infoJson = '';
+    private adminInfoJson = '';
     private runs = new Map<string, RunInfo>();
     private byTeam = new Map<string, RunInfo[]>();
     private scoreboards = new Map<OptimismLevel, ScoreboardState>();
@@ -159,6 +173,7 @@ export class LiveHub {
                 return media.length ? this.queueService.feature(run.id, media) : null;
             },
             unfeature: (run) => this.queueService.unfeature(run.id),
+            marked: (messageId, commentId, field, value) => this.deps.announce?.('mark', { messageId, commentId, field, value }),
         });
         this.queueService.subscribe((event) => this.publish('queue', event));
         this.spotlight.onChange(() => this.publishInteresting());
@@ -178,9 +193,13 @@ export class LiveHub {
         this.tickerMessage.load(state.presets?.tickerMessage);
     }
 
-    /** State saved by another Hydro process: apply it in place, without saving it again. */
+    /**
+     * State saved by another Hydro process: apply it in place, without saving it again, and tell
+     * the consoles connected here which controls to reload.
+     */
     async reload(state: LiveState) {
         await this.ready;
+        const before = this.state();
         const titles = Array.isArray(state.presets?.title) ? state.presets!.title : [];
         for (const item of titles) {
             const name = (item?.settings as { preset?: unknown } | undefined)?.preset;
@@ -191,6 +210,33 @@ export class LiveHub {
         this.picture.replace(state.presets?.picture);
         this.title.replace(titles);
         this.tickerMessage.replace(state.presets?.tickerMessage);
+        const after = this.state();
+        for (const name of Object.keys(this.controllers)) {
+            if (JSON.stringify(before.controllers?.[name]) !== JSON.stringify(after.controllers?.[name])) this.publish('adminActions', `/api/admin/${adminPath(name)}`);
+        }
+        for (const name of ['advertisement', 'picture', 'title', 'tickerMessage'] as const) {
+            if (JSON.stringify(before.presets?.[name]) !== JSON.stringify(after.presets?.[name])) this.publish('adminActions', `/api/admin/${name}`);
+        }
+    }
+
+    /** A media file was uploaded again: titles using it are drawn with the new template. */
+    async templateChanged(name: string, remote = false) {
+        this.forgetTemplate(name);
+        if (!remote) this.deps.announce?.('template', name);
+        if (!this.title.persistentState.some((item) => item.settings.preset === name)) return;
+        await this.loadTemplate(name).catch(() => null);
+        this.title.resync((settings) => settings.preset === name);
+    }
+
+    /** Spotlight score requests (admin teamSpotlight/addScore), shared with the other processes. */
+    addScores(requests: { teamId: string; score: number }[], remote = false) {
+        for (const request of requests) this.spotlight.addScore(request.teamId, request.score);
+        if (!remote) this.deps.announce?.('spotlight', requests);
+    }
+
+    /** A commentary mark made in another process. */
+    applyMark(payload: { messageId: string; commentId: string; field: 'advertisement' | 'tickerMessage'; value: { presetId: number; expirationTimeUnixMs: number | null } | null }) {
+        this.analytics.applyMark(payload.messageId, payload.commentId, payload.field, payload.value);
     }
 
     async loadTemplate(name: string) {
@@ -204,8 +250,9 @@ export class LiveHub {
 
     private renderTitle(template: string, data: Record<string, string>) {
         const values: Record<string, unknown> = { ...data };
-        const team = data.teamId ? this.info?.teams.find((item) => item.id === data.teamId) : undefined;
-        const org = (id?: string | null) => (id ? this.info?.organizations.find((item) => item.id === id) : undefined);
+        // A title is drawn here, so it may name a team before the start if the director chose to.
+        const team = data.teamId ? this.adminInfo?.teams.find((item) => item.id === data.teamId) : undefined;
+        const org = (id?: string | null) => (id ? this.adminInfo?.organizations.find((item) => item.id === id) : undefined);
         if (team) {
             values.team = { ...team, fullName: team.name, displayName: team.shortName };
             if (org(team.organizationId)) values.org = org(team.organizationId);
@@ -263,7 +310,7 @@ export class LiveHub {
     }
 
     private interestingTeams() {
-        return (this.info?.teams || []).map((team: TeamInfo) => ({ teamId: team.id, teamName: team.name, score: this.spotlight.score(team.id) }));
+        return (this.adminInfo?.teams || []).map((team: TeamInfo) => ({ teamId: team.id, teamName: team.name, score: this.spotlight.score(team.id) }));
     }
 
     private interestingQueued = false;
@@ -281,6 +328,7 @@ export class LiveHub {
         const [name, argument] = channel.split(':');
         switch (name) {
         case 'contestInfo': return this.info;
+        case 'admin': return argument === 'contestInfo' ? this.adminInfo : null;
         case 'runs': return [...this.runs.values()].sort((a, b) => a.time - b.time);
         case 'teamRuns': return timeline(this.byTeam.get(argument) || []);
         case 'statistics': return this.info && this.scoreboards.get('normal') ? statistics(this.info, this.scoreboards.get('normal')!) : { type: 'ICPC', teamsCount: 0, stats: [] };
@@ -346,9 +394,10 @@ export class LiveHub {
         this.publish('adminActions', uri);
     }
 
-    social(message: { chatmessage: string; chatname: string; type: string; teamIds: string[] }) {
+    social(message: { chatmessage: string; chatname: string; type: string; teamIds: string[] }, remote = false) {
         this.spotlight.social(message.teamIds);
         this.publish('social', message);
+        if (!remote) this.deps.announce?.('social', message);
     }
 
     // ---- data --------------------------------------------------------------------------
@@ -449,6 +498,14 @@ export class LiveHub {
             this.infoJson = infoJson;
             this.publish('contestInfo', info);
         }
+        const adminInfo = source.hidden ? buildContestInfo({ ...source, hidden: false }) : info;
+        const adminInfoJson = adminInfo === info ? infoJson : JSON.stringify(adminInfo);
+        if (adminInfoJson !== this.adminInfoJson) {
+            this.adminInfo = adminInfo;
+            this.adminInfoJson = adminInfoJson;
+            this.publish('admin:contestInfo', adminInfo);
+            this.publishInteresting();
+        }
         const next = new Map(runs.map((run) => [run.id, run]));
         const changed = runs.filter((run) => JSON.stringify(this.runs.get(run.id)) !== JSON.stringify(run));
         const removed = [...this.runs.values()].filter((run) => !next.has(run.id)).map((run) => ({ ...run, isHidden: true }));
@@ -493,11 +550,11 @@ export class LiveHub {
     }
 
     regions() {
-        const used = new Set(this.info?.teams.flatMap((team) => team.groups) || []);
-        return (this.info?.groups || []).filter((group) => used.has(group.id));
+        const used = new Set(this.adminInfo?.teams.flatMap((team) => team.groups) || []);
+        return (this.adminInfo?.groups || []).filter((group) => used.has(group.id));
     }
 
-    teams() { return (this.info?.teams || []).filter((team) => !team.isHidden); }
+    teams() { return (this.adminInfo?.teams || []).filter((team) => !team.isHidden); }
 
     usageStatistics() { return this.widgets.usageStatistics(); }
 

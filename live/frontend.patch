@@ -446,6 +446,41 @@ index 99cc341..7bb166b 100644
              );
              return config.ADMIN_HIDE_CONTROL ?? [];
          } catch (error) {
+diff --git a/src/frontend/overlay/src/components/organisms/widgets/scoreboard/ScoreboardContainer.tsx b/src/frontend/overlay/src/components/organisms/widgets/scoreboard/ScoreboardContainer.tsx
+index 79cee2c..9f77f8f 100644
+--- a/src/frontend/overlay/src/components/organisms/widgets/scoreboard/ScoreboardContainer.tsx
++++ b/src/frontend/overlay/src/components/organisms/widgets/scoreboard/ScoreboardContainer.tsx
+@@ -61,6 +61,9 @@ interface ScoreboardRowsProps {
+ 
+ const ScoreboardRows = ({ settings, onPage }: ScoreboardRowsProps) => {
+     const rows = useScoreboardRows(settings.optimismLevel, settings.group);
++    // Hydro: a sub-board shows its own ranks and medals.
++    const group =
++        settings.group && settings.group !== "all" ? settings.group : null;
+     const rowHeight = c.SCOREBOARD_ROW_HEIGHT + c.SCOREBOARD_ROW_PADDING;
+ 
+     const targetScrollPos = useScroller(
+@@ -142,8 +145,18 @@ const ScoreboardRows = ({ settings, onPage }: ScoreboardRowsProps) => {
+                     subscribeScroll={subscribe}
+                     zIndex={rows.length - position}
+                     scoreboardRow={scoreboardData?.ids[teamId]}
+-                    rank={normalScoreboardData?.rankById[teamId]}
+-                    awards={scoreboardData?.idAwards[teamId]}
++                    rank={
++                        group
++                            ? normalScoreboardData?.groupRankById?.[group]?.[
++                                  teamId
++                              ]
++                            : normalScoreboardData?.rankById[teamId]
++                    }
++                    awards={
++                        group
++                            ? scoreboardData?.groupIdAwards?.[group]?.[teamId]
++                            : scoreboardData?.idAwards[teamId]
++                    }
+                     contestData={contestData}
+                 />
+             ))}
 diff --git a/src/frontend/overlay/src/config.ts b/src/frontend/overlay/src/config.ts
 index ce030a2..eb2e5a8 100644
 --- a/src/frontend/overlay/src/config.ts
@@ -493,3 +528,66 @@ index ce030a2..eb2e5a8 100644
  
          // Non Styling configs
          WEBSOCKET_RECONNECT_TIME: 5000, // ms
+diff --git a/src/frontend/overlay/src/redux/contest/scoreboard.ts b/src/frontend/overlay/src/redux/contest/scoreboard.ts
+index d8fd89d..46a0040 100644
+--- a/src/frontend/overlay/src/redux/contest/scoreboard.ts
++++ b/src/frontend/overlay/src/redux/contest/scoreboard.ts
+@@ -16,6 +16,9 @@ export type ScoreboardData = {
+     rankById: Record<TeamId, number>;
+     ranks: number[];
+     awards: Award[];
++    // Hydro: ranks and medals within each sub-board (group), as the Hydro board shows a sub-board.
++    groupRankById: Record<string, Record<TeamId, number>>;
++    groupIdAwards: Record<string, Record<TeamId, Exclude<Award, "teams">[]>>;
+ };
+ 
+ export type ScoreboardState = {
+@@ -33,6 +36,8 @@ const initialState: ScoreboardState = Object.fromEntries(
+             awards: [],
+             orderById: {},
+             rankById: {},
++            groupRankById: {},
++            groupIdAwards: {},
+         },
+     ]),
+ ) as ScoreboardState;
+@@ -88,6 +93,39 @@ const scoreboardSlice = createSlice({
+                 s.rankById = nextRankById;
+             }
+ 
++            const hydroGroups =
++                (
++                    diff as ScoreboardDiff & {
++                        hydroGroups?: Record<
++                            string,
++                            { ranks: Record<TeamId, number>; awards: Award[] }
++                        >;
++                    }
++                ).hydroGroups ?? {};
++            const nextGroupRanks = Object.fromEntries(
++                Object.entries(hydroGroups).map(([group, data]) => [
++                    group,
++                    data.ranks,
++                ]),
++            );
++            if (!_.isEqual(s.groupRankById, nextGroupRanks)) {
++                s.groupRankById = nextGroupRanks;
++            }
++            const nextGroupAwards = {};
++            for (const [group, data] of Object.entries(hydroGroups)) {
++                const byTeam = {};
++                for (const award of data.awards) {
++                    for (const teamId of award.teams) {
++                        if (!byTeam[teamId]) byTeam[teamId] = [];
++                        byTeam[teamId].push({ ...award, teams: undefined });
++                    }
++                }
++                nextGroupAwards[group] = byTeam;
++            }
++            if (!_.isEqual(s.groupIdAwards, nextGroupAwards)) {
++                s.groupIdAwards = nextGroupAwards;
++            }
++
+             Object.keys(s.idAwards).forEach((id) => {
+                 if (!(id in nextIdAwards)) delete s.idAwards[id];
+             });

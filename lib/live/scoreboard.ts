@@ -80,38 +80,41 @@ export function compareTeams(a: { id: string; name: string; row: ScoreboardRow }
         || names.compare(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
+export interface GroupRanking {
+    ranks: Record<string, number>;
+    awards: Award[];
+}
+
 export interface Ranking {
     order: string[];
     ranks: number[];
     awards: Award[];
+    /** Per sub-board (ICPC Live group): ranks within the board and its own medals, as on the board's view. */
+    groups: Record<string, GroupRanking>;
 }
+
+type Entry = { id: string; name: string; row: ScoreboardRow; out: boolean; groups: string[] };
 
 /**
  * Ranks and medals as on the board (lib/award-policy.mjs): out-of-contest teams are listed but
  * unranked and never medalled; medals go to official teams that solved something, by rank when
  * tied teams share a medal, otherwise by position.
  */
-export function ranking(info: ContestInfo, rows: Map<string, ScoreboardRow>): Ranking {
-    const entries = info.teams.filter((team) => !team.isHidden)
-        .map((team) => ({ id: team.id, name: team.name, row: rows.get(team.id)!, out: team.isOutOfContest, groups: team.groups }))
-        .filter(({ row }) => info.showTeamsWithoutSubmissions || row.problemResults.some((result) => result.lastSubmitTimeMs !== null))
-        .sort(compareTeams);
-    const order = entries.map(({ id }) => id);
-    const ranks = order.map(() => 0);
-    const chain = info.awardsSettings[0];
+function rankEntries(entries: Entry[], chain: ContestInfo['awardsSettings'][number] | undefined) {
+    const ranks = new Map<string, number>();
     const excluded = new Set(chain?.excludedGroups || []);
     const medals = (chain?.awards || []).map((award) => ({ ...award, teams: [] as string[] }));
     let position = 0;
-    let previous: (typeof entries)[number] | null = null;
+    let previous: Entry | null = null;
     let previousRank = 0;
-    entries.forEach((entry, index) => {
-        if (entry.out) return;
+    for (const entry of entries) {
+        if (entry.out) continue;
         position++;
         const rank = previous && sameScore(previous.row, entry.row) ? previousRank : position;
-        ranks[index] = rank;
+        ranks.set(entry.id, rank);
         previous = entry;
         previousRank = rank;
-        if (entry.row.totalScore <= 0 || entry.groups.some((group) => excluded.has(group))) return;
+        if (entry.row.totalScore <= 0 || entry.groups.some((group) => excluded.has(group))) continue;
         for (const medal of medals) {
             const awardRank = medal.tiebreakMode === 'ALL' ? rank : position;
             if (awardRank <= (medal.chainLimit ?? 0)) {
@@ -119,8 +122,27 @@ export function ranking(info: ContestInfo, rows: Map<string, ScoreboardRow>): Ra
                 break;
             }
         }
-    });
-    return { order, ranks, awards: medals.map(({ id, citation, teams }) => ({ id, citation, teams })) };
+    }
+    return { ranks, awards: medals.map(({ id, citation, teams }) => ({ id, citation, teams })) };
+}
+
+export function ranking(info: ContestInfo, rows: Map<string, ScoreboardRow>): Ranking {
+    const entries: Entry[] = info.teams.filter((team) => !team.isHidden)
+        .map((team) => ({ id: team.id, name: team.name, row: rows.get(team.id)!, out: team.isOutOfContest, groups: team.groups }))
+        .filter(({ row }) => info.showTeamsWithoutSubmissions || row.problemResults.some((result) => result.lastSubmitTimeMs !== null))
+        .sort(compareTeams);
+    const order = entries.map(({ id }) => id);
+    const main = rankEntries(entries, info.awardsSettings.find((chain) => !chain.groups?.length));
+    const groups: Record<string, GroupRanking> = {};
+    for (const group of info.groups) {
+        if (group.isHidden) continue;
+        const members = entries.filter((entry) => entry.groups.includes(group.id));
+        if (!members.length) continue;
+        const chain = info.awardsSettings.find((item) => item.groups?.length === 1 && item.groups[0] === group.id);
+        const result = rankEntries(members, chain);
+        groups[group.id] = { ranks: Object.fromEntries(result.ranks), awards: result.awards.filter((award) => award.teams.length) };
+    }
+    return { order, ranks: order.map((id) => main.ranks.get(id) ?? 0), awards: main.awards, groups };
 }
 
 /** A team's rank among `rows` by the same rule; 0 when it is not ranked. */
@@ -144,14 +166,23 @@ export function rankOf(info: ContestInfo, rows: Map<string, ScoreboardRow>, team
  */
 export function standingsAtRuns(info: ContestInfo, runs: RunInfo[], targets: Set<string>) {
     const result = new Map<string, { rank: number; solved: number }>();
-    if (!targets.size) return result;
-    const rows = new Map(info.teams.map((team) => [team.id, scoreboardRow(info, [], 'normal')]));
+    const first = runs.findIndex((run) => targets.has(run.id));
+    if (first < 0) return result;
+    // Everything before the earliest target is settled: build those rows once, then replay only
+    // from there (during a contest the targets are the newest runs, so this is short).
     const byTeam = new Map<string, RunInfo[]>();
-    let remaining = targets.size;
-    for (const run of runs) {
+    for (const run of runs.slice(0, first)) {
         if (run.isHidden) continue;
-        const list = [...(byTeam.get(run.teamId) || []), run];
-        byTeam.set(run.teamId, list);
+        if (!byTeam.has(run.teamId)) byTeam.set(run.teamId, []);
+        byTeam.get(run.teamId)!.push(run);
+    }
+    const rows = new Map(info.teams.map((team) => [team.id, scoreboardRow(info, byTeam.get(team.id) || [], 'normal')]));
+    let remaining = targets.size;
+    for (const run of runs.slice(first)) {
+        if (run.isHidden) continue;
+        if (!byTeam.has(run.teamId)) byTeam.set(run.teamId, []);
+        const list = byTeam.get(run.teamId)!;
+        list.push(run);
         rows.set(run.teamId, scoreboardRow(info, list, 'normal'));
         if (!targets.has(run.id)) continue;
         result.set(run.id, {
@@ -186,7 +217,8 @@ export function scoreboardDiff(state: ScoreboardState, previous?: ScoreboardStat
         const row = state.rows.get(id)!;
         if (!previous || JSON.stringify(previous.rows.get(id)) !== JSON.stringify(row)) rows[id] = row;
     }
-    return { rows, ...state.ranking };
+    const { groups, ...ranking } = state.ranking;
+    return { rows, ...ranking, hydroGroups: groups };
 }
 
 export function statistics(info: ContestInfo, state: ScoreboardState): SolutionsStatistic {

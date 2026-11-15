@@ -74,8 +74,8 @@ export function contestStatus(contest: LiveContestTimes, now: number): ContestSt
     return { type: 'finalized', startedAtUnixMs: start, finishAtUnixMs: end, finalizedAtUnixMs: end, frozenAtUnixMs: null };
 }
 
-function medalChain(settings: BoardSettings): AwardChain[] {
-    const rules = awardsFor(settings, 'all');
+function medalChain(settings: BoardSettings, group?: string): AwardChain[] {
+    const rules = awardsFor(settings, group || 'all');
     const tiebreakMode = rules.medalSameScore ? 'ALL' : 'NONE';
     const awards = [];
     let total = 0;
@@ -85,7 +85,7 @@ function medalChain(settings: BoardSettings): AwardChain[] {
         // Medals go to official teams that solved something, as on the board (cappedMedals).
         if (count > 0) awards.push({ id: `${key}-medal`, citation, chainLimit: total, minScore: 1, tiebreakMode } as const);
     }
-    return awards.length ? [{ awards, excludedGroups: ['unofficial'] }] : [];
+    return awards.length ? [{ awards, excludedGroups: ['unofficial'], ...group ? { groups: [group] } : {} }] : [];
 }
 
 const logoKey = (name: string) => name.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -146,7 +146,8 @@ export function buildContestInfo(source: LiveSource): ContestInfo {
         freezeTimeMs: contest.lockAt ? contest.lockAt.getTime() - contest.beginAt.getTime() : null,
         problems, teams, groups, organizations: [...organizations.values()],
         languages: [], penaltyRoundingMode: 'sum_in_seconds', emulationSpeed: 1,
-        awardsSettings: medalChain(source.settings),
+        // The main board's medals, then each sub-board's own (as the board shows a sub-board).
+        awardsSettings: [...medalChain(source.settings), ...groups.flatMap((group) => medalChain(source.settings, group.id))],
         penaltyPerWrongAttemptSeconds: 1200,
         queueSettings: { ...defaultQueueSettings },
         showTeamsWithoutSubmissions: true,

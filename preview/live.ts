@@ -6,7 +6,7 @@ import type { BoardSettings } from '../lib/settings';
 import { toScriptJson } from '../lib/settings';
 import { resolverBoards, resolverCodeBase } from '../lib/resolver-data';
 import {
-    adminApi, adminChannels, builtinMediaNames, defaultVisualConfig, liveUrls, overlayApi, overlayChannel, readBuiltinMedia, shell, storeName,
+    adminApi, adminChannel, adminRuntime, builtinMediaNames, defaultVisualConfig, liveUrls, overlayApi, overlayChannel, previewRuntime, readBuiltinMedia, shell, storeName,
 } from '../lib/live/api';
 import { LiveHub } from '../lib/live/hub';
 
@@ -98,7 +98,18 @@ export function createLivePreview(env: Environment, logoNames: Record<string, st
             return true;
         }
         if (url.pathname === `${base}/live/admin` || url.pathname.startsWith(`${base}/live/admin/`)) {
-            html(response, shell('admin', urls(), `${contest.title} · 直播导播台`));
+            html(response, shell('admin', adminRuntime(urls()), `${contest.title} · 直播导播台`));
+            return true;
+        }
+        if (url.pathname === `${base}/live/preview`) {
+            html(response, shell('overlay', previewRuntime(urls()), `${contest.title} · 直播画面预览`));
+            return true;
+        }
+        const preview = /^\/contest\/demo\/live\/api\/overlay\/(.*)$/.exec(url.pathname);
+        if (preview) {
+            const result = await overlayApi(hub, preview[1], visualConfig);
+            if (!result) response.writeHead(404).end('Not found');
+            else response.writeHead(result.status, { 'Content-Type': result.type, 'Cache-Control': 'no-store' }).end(result.body);
             return true;
         }
         const mainPage = /^\/contest\/demo\/live\/main-page\/(git|links)$/.exec(url.pathname);
@@ -148,8 +159,10 @@ export function createLivePreview(env: Environment, logoNames: Record<string, st
             const url = new URL(request.url || '/', 'http://localhost');
             const adminMatch = /^\/contest\/demo\/live\/ws\/admin\/(.+)$/.exec(url.pathname);
             const overlayMatch = /^\/contest\/demo\/live-overlay\/([^/]+)\/ws\/overlay\/(.+)$/.exec(url.pathname);
-            const channel = adminMatch && adminChannels.includes(adminMatch[1]) ? adminMatch[1]
-                : overlayMatch && overlayMatch[1] === token ? overlayChannel(overlayMatch[2]) : null;
+            const previewMatch = /^\/contest\/demo\/live\/ws\/overlay\/(.+)$/.exec(url.pathname);
+            const channel = adminMatch ? adminChannel(adminMatch[1])
+                : previewMatch ? overlayChannel(previewMatch[1])
+                    : overlayMatch && overlayMatch[1] === token ? overlayChannel(overlayMatch[2]) : null;
             if (!channel) { socket.destroy(); return; }
             sockets.handleUpgrade(request, socket, head, (ws) => {
                 const unsubscribe = hub.subscribe(channel, (payload) => ws.send(typeof payload === 'string' ? payload : JSON.stringify(payload)));
