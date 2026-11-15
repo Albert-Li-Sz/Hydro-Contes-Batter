@@ -98,7 +98,7 @@ function render(data) {
     );
     rows($('judges'), data.judges, 'Hydro 没有收到评测机上报', (judge) => el('tr', {},
         el('td', { text: judge.mid }), el('td', { class: judge.online ? 'monitor-online' : 'monitor-late', text: judge.online ? '在线' : '离线' }),
-        el('td', { text: `${duration(judge.lastSeenSeconds)}前` })));
+        el('td', { text: judge.kind === 'local' ? '随 Hydro 运行' : `${duration(judge.lastSeenSeconds)}前` })));
     rows($('languages'), data.languages, '还没有提交', (item) => el('tr', {}, el('td', { text: item.lang }), el('td', { text: String(item.count) })));
     rows($('system-errors'), data.systemErrors, '没有系统错误', (item) => el('tr', {},
         el('td', {}, recordLink(item.id)), el('td', { text: item.team }), el('td', { text: item.problem }), el('td', { text: item.lang })));

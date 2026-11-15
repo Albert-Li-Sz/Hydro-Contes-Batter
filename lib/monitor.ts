@@ -19,7 +19,12 @@ export interface MonitorRecord {
 export interface MonitorJudge {
     mid: string;
     updateAt: number;
-    [key: string]: unknown;
+    /**
+     * `remote`: a judge daemon connected to Hydro (reports every 20 minutes);
+     * `builtin`: the hydrojudge addon inside a Hydro server (its server entry is refreshed every 30 minutes);
+     * `local`: that addon inside this Hydro process, alive as long as Hydro answers.
+     */
+    kind: 'remote' | 'builtin' | 'local';
 }
 
 export interface MonitorInput {
@@ -60,8 +65,12 @@ export const thresholds = {
     /** At least `systemErrors` system errors within `systemErrorWindowSeconds`. */
     systemErrors: 3,
     systemErrorWindowSeconds: 300,
-    /** Hydro counts a judge machine offline after five minutes without a report. */
-    judgeOfflineSeconds: 300,
+    /** Judge daemons report every 20 minutes (hydrojudge hosts/hydro.ts); allow one late report. */
+    remoteOfflineSeconds: 25 * 60,
+    /** Hydro refreshes a server's entry every 30 minutes (service/monitor.ts). */
+    builtinOfflineSeconds: 35 * 60,
+    /** Waiting work with nothing judged for this long means judging has stopped. */
+    stalledSeconds: 180,
     /** Judge reports older than this are machines retired long ago, not alerts. */
     judgeForgetSeconds: 6 * 3600,
 };
@@ -116,8 +125,9 @@ export function monitorSnapshot(input: MonitorInput) {
 
     const judges = input.judges
         .map((judge) => {
-            const lastSeenSeconds = Math.max(0, Math.floor((now - judge.updateAt) / 1000));
-            return { mid: judge.mid, online: lastSeenSeconds <= thresholds.judgeOfflineSeconds, lastSeenSeconds };
+            const lastSeenSeconds = judge.kind === 'local' ? 0 : Math.max(0, Math.floor((now - judge.updateAt) / 1000));
+            const limit = judge.kind === 'remote' ? thresholds.remoteOfflineSeconds : thresholds.builtinOfflineSeconds;
+            return { mid: judge.mid, kind: judge.kind, online: judge.kind === 'local' || lastSeenSeconds <= limit, lastSeenSeconds };
         })
         .filter((judge) => judge.lastSeenSeconds <= thresholds.judgeForgetSeconds)
         .sort((a, b) => Number(b.online) - Number(a.online) || a.mid.localeCompare(b.mid));
@@ -127,7 +137,13 @@ export function monitorSnapshot(input: MonitorInput) {
     for (const judge of judges.filter((item) => !item.online)) {
         alerts.push({ level: 'warning', text: `评测机 ${judge.mid} 已 ${Math.floor(judge.lastSeenSeconds / 60)} 分钟没有上报` });
     }
-    if (oldestPendingSeconds > thresholds.pendingSeconds) {
+    // Machine reports are slow (20–30 minutes); judged records show directly whether judging moves.
+    const lastJudgedAt = Math.max(0, ...ordered.filter((record) => !PENDING.has(record.status) && record.judgeAt).map((record) => record.judgeAt!));
+    const stalled = pending.length > 0 && oldestPendingSeconds > thresholds.stalledSeconds
+        && now - Math.max(lastJudgedAt, pending[0].submittedAt) > thresholds.stalledSeconds * 1000;
+    if (stalled) {
+        alerts.push({ level: 'error', text: `评测似乎停止：${pending.length} 条提交等待中，最近 ${thresholds.stalledSeconds / 60} 分钟没有完成任何评测` });
+    } else if (oldestPendingSeconds > thresholds.pendingSeconds) {
         alerts.push({ level: 'warning', text: `有提交已等待评测 ${Math.floor(oldestPendingSeconds / 60)} 分 ${oldestPendingSeconds % 60} 秒` });
     }
     if (recentSystemErrors.length >= thresholds.systemErrors) {

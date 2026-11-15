@@ -45,7 +45,11 @@ export function createMonitorPreview(env: Environment, version: string, demo: ()
         const names = new Map(data.teams.map((team) => [Number(team.team_id), { id: team.team_id, name: team.name }]));
         const snapshot = monitorSnapshot({
             now, beginAt: begin, endAt: begin + 300 * 60_000, records: [...records, ...live], queueLength: 3,
-            judges: [{ mid: 'judge-01', updateAt: now - 20_000 }, { mid: 'judge-02', updateAt: now - 15_000 }, { mid: 'judge-03', updateAt: now - 9 * 60_000 }],
+            judges: [
+                { mid: '内置评测机（本机 Hydro）', updateAt: now, kind: 'local' },
+                { mid: 'judge-01', updateAt: now - 12 * 60_000, kind: 'remote' },
+                { mid: 'judge-02', updateAt: now - 40 * 60_000, kind: 'remote' },
+            ],
             problems: (data.contest.problem_id as string[]).map((label, pid) => ({ pid, label })),
             teamOf: (uid) => names.get(uid) ?? null,
         });

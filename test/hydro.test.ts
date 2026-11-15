@@ -118,7 +118,7 @@ describe('Hydro 数据与权限', () => {
             { _id: rid(600, 1), status: 1, uid: 2, pid: 100, lang: 'cc', judgeAt: new Date((begin + 610) * 1000) },
             { _id: rid(700, 2), status: 0 /* Hydro STATUS_WAITING (the mock numbers its STATUS differently) */, uid: 3, pid: 100, lang: 'py' },
         ];
-        state.judges = [{ mid: 'judge-1', updateAt: new Date() }];
+        state.judges = [{ mid: 'judge-1', updateAt: new Date(), type: 'judge' }];
         const app = setup(); await app.init();
         const guest = app.monitor('_data'); guest.user._id = 0;
         await expect(guest.prepare('system', state.contest.docId)).rejects.toThrow('PrivilegeError');
@@ -132,7 +132,21 @@ describe('Hydro 数据与权限', () => {
         expect(body.summary).toMatchObject({ total: 2, accepted: 1, pending: 1, queueLength: 2, judgesOnline: 1 });
         expect(body.pending[0]).toMatchObject({ team: '星火队', problem: 'A', lang: 'py' });
         expect(body.perProblem[0]).toMatchObject({ label: 'A', solvedTeams: 1 });
-    });
+        // With the hydrojudge addon loaded, Hydro itself judges: listed online, its stale server entry ignored.
+        const hydro = globalThis as { Hydro?: unknown };
+        const previous = hydro.Hydro;
+        hydro.Hydro = { version: { hydrojudge: '5.1.0' } };
+        try {
+            state.judges = [{ mid: 'server-1', updateAt: new Date(0), type: 'server' }];
+            await new Promise((resolve) => setTimeout(resolve, 3100)); // past the shared 3 s cache
+            const local = app.monitor('_data'); local.user.own = () => true;
+            await local.prepare('system', state.contest.docId); await local.get();
+            const judges = JSON.parse(local.response.body).judges;
+            expect(judges).toEqual([{ mid: '内置评测机（本机 Hydro）', kind: 'local', online: true, lastSeenSeconds: 0 }]);
+        } finally {
+            hydro.Hydro = previous;
+        }
+    }, 10_000);
     it('组队比赛：队伍用公开队名，队员按身份规则显示，单人参赛仍是一人一队', async () => {
         state.contest.allowTeam = true;
         const begin = state.contest.beginAt.getTime() / 1000;

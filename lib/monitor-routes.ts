@@ -14,9 +14,11 @@ export function applyMonitor(ctx: Context) {
     const codeBase = resolverCodeBase(version);
     // Judge machines report to Hydro's `status` collection (handler/status.ts).
     const judgeStatus = ctx.db.collection('status' as never) as unknown as {
-        find: (query: object, options?: object) => { toArray: () => Promise<{ mid?: unknown; updateAt?: unknown }[]> };
+        find: (query: object, options?: object) => { toArray: () => Promise<{ mid?: unknown; updateAt?: unknown; type?: unknown }[]> };
     };
     const contestBase = (tdoc: Tdoc) => `/d/${encodeURIComponent(tdoc.domainId)}/contest/${tdoc.docId}`;
+    // Hydro lists its loaded addons by name in global.Hydro.version (loader.ts); hydrojudge is the built-in judge.
+    const localJudge = () => !!(globalThis as { Hydro?: { version?: Record<string, unknown> } }).Hydro?.version?.hydrojudge;
     // Every open monitor polls; one computation per contest and identity view every few seconds.
     const cache = new Map<string, { expires: number; value: Promise<MonitorSnapshot> }>();
 
@@ -37,7 +39,8 @@ export function applyMonitor(ctx: Context) {
                 projection: { _id: 1, status: 1, uid: 1, pid: 1, lang: 1, judgeAt: 1, rejudged: 1 },
             }).toArray(),
             TaskModel.count({ type: 'judge' }),
-            judgeStatus.find({ type: 'judge' }, { projection: { mid: 1, updateAt: 1 } }).toArray(),
+            // Judge daemons report as `judge`; the built-in judge adds its compilers to its server's entry.
+            judgeStatus.find({ $or: [{ type: 'judge' }, { type: 'server', compilers: { $exists: true } }] }, { projection: { mid: 1, updateAt: 1, type: 1 } }).toArray(),
         ]);
         return monitorSnapshot({
             now: Date.now(), beginAt: tdoc.beginAt.getTime(), endAt: tdoc.endAt.getTime(),
@@ -46,8 +49,17 @@ export function applyMonitor(ctx: Context) {
                 uid: record.uid, pid: record.pid, lang: record.lang,
                 judgeAt: record.judgeAt ? new Date(record.judgeAt).getTime() : null, rejudged: !!record.rejudged,
             })),
-            judges: judges.filter((judge) => typeof judge.mid === 'string' || typeof judge.mid === 'number')
-                .map((judge) => ({ mid: String(judge.mid), updateAt: new Date(judge.updateAt as string).getTime() || 0 })),
+            judges: [
+                // The hydrojudge addon judges inside this Hydro process: running whenever this page answers.
+                ...localJudge() ? [{ mid: '内置评测机（本机 Hydro）', updateAt: Date.now(), kind: 'local' as const }] : [],
+                ...judges.filter((judge) => (typeof judge.mid === 'string' || typeof judge.mid === 'number')
+                    && (judge.type === 'judge' || !localJudge()))
+                    .map((judge) => ({
+                        mid: judge.type === 'judge' ? String(judge.mid) : `内置评测机 ${judge.mid}`,
+                        updateAt: new Date(judge.updateAt as string).getTime() || 0,
+                        kind: judge.type === 'judge' ? 'remote' as const : 'builtin' as const,
+                    })),
+            ],
             queueLength,
             problems: tdoc.pids.map((pid, index) => ({ pid, label: getAlphabeticId(index) })),
             teamOf: (uid) => teamOf.get(uid) ?? null,
