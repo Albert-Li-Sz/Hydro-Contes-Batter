@@ -12,32 +12,28 @@
     </div>
   </section>
   <section class="section visible">
-    <div class="section__header"><h2 class="section__title">提交趋势</h2><span class="resolver-muted">最近 60 分钟，每分钟提交数（绿色为其中通过）</span></div>
-    <div class="section__body"><svg class="monitor-chart" id="chart" role="img" aria-label="每分钟提交数"></svg></div>
+    <div class="section__header"><h2 class="section__title">评测机</h2><span class="resolver-muted">评测数据实时采集；独立评测机的 CPU、内存、温度为其最近一次上报（约每 20 分钟），内置评测机为实时采样</span></div>
+    <div class="section__body"><div class="monitor-machines" id="machines"></div></div>
   </section>
   <section class="section visible">
-    <div class="section__header"><h2 class="section__title">待评测提交</h2><span class="resolver-muted">按提交时间，最多显示 30 条</span></div>
-    <div class="section__body monitor-scroll"><table class="data-table"><thead><tr><th>提交</th><th>队伍</th><th>题目</th><th>语言</th><th>状态</th><th>已等待</th></tr></thead><tbody id="pending"></tbody></table></div>
+    <div class="section__header"><h2 class="section__title">正在评测</h2><span class="resolver-muted" id="live-hint">所有评测机上正在进行的任务；其他比赛与题目的任务只显示语言</span></div>
+    <div class="section__body monitor-scroll"><table class="data-table"><thead><tr><th>评测机</th><th>提交</th><th>队伍</th><th>题目</th><th>语言</th><th>状态</th><th>测试点</th><th>已用时</th></tr></thead><tbody id="live"></tbody></table></div>
   </section>
   <section class="section visible">
-    <div class="section__header"><h2 class="section__title">各题评测结果</h2></div>
-    <div class="section__body monitor-scroll"><table class="data-table" id="problems"></table></div>
+    <div class="section__header"><h2 class="section__title">最近完成</h2><span class="resolver-muted">最新 30 条评测结果；用时为评测机取题到出结果</span></div>
+    <div class="section__body monitor-scroll"><table class="data-table"><thead><tr><th>完成于</th><th>评测机</th><th>提交</th><th>队伍</th><th>题目</th><th>语言</th><th>结果</th><th>评测用时</th><th>运行时间</th><th>内存</th></tr></thead><tbody id="finished"></tbody></table></div>
   </section>
   <div class="row">
-    <div class="medium-6 columns">
+    <div class="medium-7 columns">
       <section class="section visible">
-        <div class="section__header"><h2 class="section__title">评测机</h2><span class="resolver-muted">独立评测机每 20 分钟上报一次，25 分钟无上报视为离线；内置评测机随 Hydro 运行</span></div>
-        <div class="section__body"><table class="data-table"><thead><tr><th>评测机</th><th>状态</th><th>最近上报</th></tr></thead><tbody id="judges"></tbody></table></div>
-      </section>
-      <section class="section visible">
-        <div class="section__header"><h2 class="section__title">语言</h2></div>
-        <div class="section__body"><table class="data-table"><tbody id="languages"></tbody></table></div>
+        <div class="section__header"><h2 class="section__title">本场待评测提交</h2><span class="resolver-muted">按提交时间，最多 30 条</span></div>
+        <div class="section__body monitor-scroll"><table class="data-table"><thead><tr><th>提交</th><th>队伍</th><th>题目</th><th>语言</th><th>状态</th><th>已等待</th></tr></thead><tbody id="pending"></tbody></table></div>
       </section>
     </div>
-    <div class="medium-6 columns">
+    <div class="medium-5 columns">
       <section class="section visible">
-        <div class="section__header"><h2 class="section__title">最近的系统错误</h2></div>
-        <div class="section__body"><table class="data-table"><thead><tr><th>提交</th><th>队伍</th><th>题目</th><th>语言</th></tr></thead><tbody id="system-errors"></tbody></table></div>
+        <div class="section__header"><h2 class="section__title">本场最近的系统错误</h2></div>
+        <div class="section__body monitor-scroll"><table class="data-table"><thead><tr><th>提交</th><th>队伍</th><th>题目</th><th>语言</th></tr></thead><tbody id="system-errors"></tbody></table></div>
       </section>
     </div>
   </div>

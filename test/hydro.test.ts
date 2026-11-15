@@ -62,6 +62,8 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
     const collection = {
         findOne: async ({ _id }: { _id: string }) => saved.get(_id),
         updateOne: async ({ _id }: { _id: string }, { $set }: any) => { saved.set(_id, structuredClone($set)); },
+        find: () => ({ toArray: async () => [] }),
+        deleteOne: async () => {},
     };
     const ctx: any = {
         db: { collection: (name: string) => (name === 'status' ? { find: () => ({ toArray: async () => state.judges }) }
@@ -109,7 +111,7 @@ beforeEach(() => {
 });
 
 describe('Hydro 数据与权限', () => {
-    it('评测监控：只有比赛管理员可看，按队伍统计组队比赛的提交', async () => {
+    it('评测监控：只有比赛管理员可看，按队伍统计组队比赛的提交，实时跟踪每台评测机', async () => {
         state.contest.allowTeam = true;
         const begin = state.contest.beginAt.getTime() / 1000;
         state.entries = [{ uid: -1001, unrank: false, displayName: '星火队', members: [2, 3], journal: [] }];
@@ -119,7 +121,11 @@ describe('Hydro 数据与权限', () => {
             { _id: rid(600, 1), status: 1, uid: 2, pid: 100, lang: 'cc', judgeAt: new Date((begin + 610) * 1000) },
             { _id: rid(700, 2), status: 0 /* Hydro STATUS_WAITING (the mock numbers its STATUS differently) */, uid: 3, pid: 100, lang: 'py' },
         ];
-        state.judges = [{ mid: 'judge-1', updateAt: new Date(), type: 'judge' }];
+        // judge-1 reports (status collection); judge-2 reported but is not connected now.
+        state.judges = [
+            { mid: 'mid-1', type: 'judge', updateAt: new Date(), memory: { total: 8, active: 2 }, load: { currentLoad: 35 }, osinfo: { hostname: 'judge-1' } },
+            { mid: 'mid-2', type: 'judge', updateAt: new Date(Date.now() - 10 * 60_000), osinfo: { hostname: 'judge-2' } },
+        ];
         const app = setup(); await app.init();
         const guest = app.monitor('_data'); guest.user._id = 0;
         await expect(guest.prepare('system', state.contest.docId)).rejects.toThrow('PrivilegeError');
@@ -127,23 +133,47 @@ describe('Hydro 数据与权限', () => {
         const page = app.monitor(); page.user.own = () => true;
         await page.prepare('system', state.contest.docId); await page.get();
         expect(JSON.parse(page.response.body.runtimeJson).dataUrl).toBe(`/d/system/contest/${state.contest.docId}/monitor/data`);
+
+        // A judge daemon connects: Hydro's JudgeConnectionHandler as the framework hands it over.
+        const listener = (name: string) => app.hooks.mock.calls.filter(([event]: [string]) => event === name).map(([, handler]: [string, any]) => handler)[0];
+        const seen: unknown[] = [];
+        let finish = () => {};
+        const daemon = {
+            category: '#judge', user: { uname: 'judge' }, request: { ip: '10.0.0.2' },
+            message: (msg: unknown) => { seen.push(msg); },
+            newTask: (_task: Record<string, unknown>) => new Promise<void>((resolve) => { finish = resolve; }),
+        };
+        listener('connection/active')(daemon);
+        daemon.message({ key: 'config', concurrency: 3 });
+        daemon.message({ key: 'status', info: { mid: 'mid-1' } });
+        const running = daemon.newTask({ rid: rid(700, 2), domainId: 'system', uid: 3, pid: 100, lang: 'py', contest: state.contest.docId, code: 'print(1)' });
+        daemon.message({ key: 'next', rid: rid(700, 2), status: 20, case: { status: 1 } });
+        expect(seen).toHaveLength(3); // Hydro still gets every message
         const data = app.monitor('_data'); data.user.own = () => true;
         await data.prepare('system', state.contest.docId); await data.get();
         const body = JSON.parse(data.response.body);
-        expect(body.summary).toMatchObject({ total: 2, accepted: 1, pending: 1, queueLength: 2, judgesOnline: 1 });
+        expect(body.summary).toMatchObject({ total: 2, accepted: 1, pending: 1, queueLength: 2, judgesOnline: 1, activeTasks: 1, capacity: 3 });
         expect(body.pending[0]).toMatchObject({ team: '星火队', problem: 'A', lang: 'py' });
-        expect(body.perProblem[0]).toMatchObject({ label: 'A', solvedTeams: 1 });
-        // With the hydrojudge addon loaded, Hydro itself judges: listed online, its stale server entry ignored.
+        expect(body.machines.map((machine: any) => [machine.name, machine.state, machine.account, machine.ip, machine.metrics?.cpu ?? null])).toEqual([
+            ['judge-1', 'busy', 'judge', '10.0.0.2', 35], ['judge-2', 'offline', null, null, null],
+        ]);
+        expect(body.live).toEqual([expect.objectContaining({ judge: 'judge-1', inContest: true, team: '星火队', problem: 'A', status: '评测中', casesDone: 1 })]);
+        expect(body.alerts.map((alert: any) => alert.text)).toContain('评测机 judge-2 没有连接到 Hydro（10 分钟前还有上报）');
+        daemon.message({ key: 'end', rid: rid(700, 2), status: 1, time: 20, memory: 512 });
+        finish(); await running;
+        listener('connection/close')(daemon);
+
+        // With the hydrojudge addon loaded, Hydro itself judges: listed online with this server's live numbers.
         const hydro = globalThis as { Hydro?: unknown };
         const previous = hydro.Hydro;
         hydro.Hydro = { version: { hydrojudge: '5.1.0' } };
         try {
-            state.judges = [{ mid: 'server-1', updateAt: new Date(0), type: 'server' }];
-            await new Promise((resolve) => setTimeout(resolve, 3100)); // past the shared 3 s cache
+            await new Promise((resolve) => setTimeout(resolve, 2100)); // past the shared 2 s cache
             const local = app.monitor('_data'); local.user.own = () => true;
             await local.prepare('system', state.contest.docId); await local.get();
-            const judges = JSON.parse(local.response.body).judges;
-            expect(judges).toEqual([{ mid: '内置评测机（本机 Hydro）', kind: 'local', online: true, lastSeenSeconds: 0 }]);
+            const machines = JSON.parse(local.response.body).machines;
+            expect(machines[0]).toMatchObject({ kind: 'builtin', online: true, metrics: { live: true } });
+            expect(machines.find((machine: any) => machine.name === 'judge-1')).toMatchObject({ state: 'offline', totalJudged: 1 });
         } finally {
             hydro.Hydro = previous;
         }

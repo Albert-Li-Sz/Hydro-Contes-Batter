@@ -19,6 +19,8 @@ export interface HostPressure {
     /** This Hydro process (one PM2 instance). */
     processRss: number;
     uptimeSeconds: number;
+    model: string | null;
+    os: string;
 }
 
 export interface JudgePressure {
@@ -79,6 +81,8 @@ export function hostPressure(): HostPressure {
         memoryRate: total ? round1((used / total) * 100) : 0,
         processRss: process.memoryUsage().rss,
         uptimeSeconds: Math.floor(os.uptime()),
+        model: os.cpus()[0]?.model?.trim() || null,
+        os: `${os.type()} ${os.release()}`,
     };
 }
 
@@ -88,9 +92,36 @@ export interface StatusReport {
     updateAt?: unknown;
     memory?: { total?: unknown; active?: unknown; used?: unknown; available?: unknown };
     load?: { currentLoad?: unknown };
+    CpuTemp?: { main?: unknown };
+    cpu?: { manufacturer?: unknown; brand?: unknown; cores?: unknown };
+    osinfo?: { distro?: unknown; release?: unknown; hostname?: unknown };
+    compilers?: unknown;
 }
 
 const number = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : null);
+
+/** A judge daemon's machine as of its last report (systeminformation cpu/mem/currentLoad/cpuTemperature/osInfo). */
+export function reportMetrics(report: StatusReport) {
+    const total = number(report.memory?.total);
+    const available = number(report.memory?.available);
+    const active = number(report.memory?.active) ?? (total !== null && available !== null ? total - available : null);
+    const cpu = number(report.load?.currentLoad);
+    const temperature = number(report.CpuTemp?.main);
+    const updated = new Date(report.updateAt as string).getTime();
+    return {
+        cpu: cpu === null ? null : round1(cpu),
+        memoryRate: total && active !== null ? round1((active / total) * 100) : null,
+        memoryTotal: total,
+        temperature: temperature !== null && temperature > 0 ? round1(temperature) : null,
+        cores: number(report.cpu?.cores),
+        model: [text(report.cpu?.manufacturer), text(report.cpu?.brand)].filter(Boolean).join(' ') || null,
+        os: [text(report.osinfo?.distro), text(report.osinfo?.release)].filter(Boolean).join(' ') || null,
+        compilers: report.compilers && typeof report.compilers === 'object' ? Object.keys(report.compilers).length : null,
+        reportedAt: Number.isFinite(updated) ? updated : 0,
+    };
+}
+export const reportHostname = (report: StatusReport) => text(report.osinfo?.hostname);
 /** Machines that stopped reporting this long ago are retired, as on the judge monitor. */
 const FORGET_SECONDS = 6 * 3600;
 

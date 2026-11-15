@@ -1,8 +1,9 @@
 /**
- * Judge monitoring for a contest: what the judges' room watches during the contest. Pure
- * computation over Hydro's records, judge task queue and judge machine reports (see
- * monitor-routes.ts), so it can be tested without Hydro.
+ * Judge monitoring: every judge machine's load and performance, live judging, and the contest's
+ * waiting submissions. Pure computation over the live judge tracking (judge-tracker.ts), the
+ * machines' reports and the contest's records (see monitor-routes.ts), so it is tested without Hydro.
  */
+import type { ActiveTask, FinishedTask, TaskInfo, TrackedJudge } from './judge-tracker';
 
 export interface MonitorRecord {
     id: string;
@@ -16,23 +17,34 @@ export interface MonitorRecord {
     rejudged?: boolean;
 }
 
-export interface MonitorJudge {
-    mid: string;
-    updateAt: number;
-    /**
-     * `remote`: a judge daemon connected to Hydro (reports every 20 minutes);
-     * `builtin`: the hydrojudge addon inside a Hydro server (its server entry is refreshed every 30 minutes);
-     * `local`: that addon inside this Hydro process, alive as long as Hydro answers.
-     */
-    kind: 'remote' | 'builtin' | 'local';
+/** CPU, memory and temperature of a machine: sampled live (built-in judge) or as last reported (daemons). */
+export interface MachineMetrics {
+    cpu: number | null;
+    memoryRate: number | null;
+    memoryTotal: number | null;
+    temperature: number | null;
+    cores: number | null;
+    model: string | null;
+    os: string | null;
+    compilers: number | null;
+    /** When the numbers were reported; null when sampled live. */
+    reportedAt: number | null;
+}
+
+export interface MonitorMachine {
+    key: string;
+    name: string;
+    kind: 'remote' | 'builtin';
+    /** Live judging, absent for a daemon known only from its reports (not connected now). */
+    tracked: TrackedJudge | null;
+    metrics: MachineMetrics | null;
 }
 
 export interface MonitorInput {
     now: number;
-    beginAt: number;
-    endAt: number;
+    contest: { domainId: string; id: string };
     records: MonitorRecord[];
-    judges: MonitorJudge[];
+    machines: MonitorMachine[];
     /** Judge tasks waiting in Hydro's queue (all contests and problems). */
     queueLength: number;
     problems: { pid: number; label: string }[];
@@ -42,21 +54,13 @@ export interface MonitorInput {
 /** Hydro STATUS codes (@hydrooj/common status.ts). */
 const PENDING = new Set([0, 20, 21, 22]);
 const SYSTEM_ERROR = new Set([8, 10]);
-export const categories: { key: string; label: string; codes: number[] }[] = [
-    { key: 'AC', label: '通过', codes: [1] },
-    { key: 'WA', label: '答案错误', codes: [2] },
-    { key: 'TLE', label: '超时', codes: [3] },
-    { key: 'MLE', label: '超内存', codes: [4] },
-    { key: 'RE', label: '运行错误', codes: [6] },
-    { key: 'CE', label: '编译错误', codes: [7] },
-    { key: 'OLE', label: '输出超限', codes: [5] },
-    { key: 'PE', label: '格式错误', codes: [31] },
-    { key: 'SE', label: '系统错误', codes: [8, 10] },
-    { key: 'PENDING', label: '评测中', codes: [0, 20, 21, 22] },
-    { key: 'OTHER', label: '其他', codes: [9, 11, 30, 32, 33] },
-];
-const categoryOf = (status: number) => categories.find((category) => category.codes.includes(status))?.key || 'OTHER';
-const statusLabels: Record<number, string> = { 0: '等待评测', 20: '评测中', 21: '编译中', 22: '已取走' };
+const statusLabels: Record<number, string> = {
+    0: '等待评测', 20: '评测中', 21: '编译中', 22: '已取走',
+    1: '通过', 2: '答案错误', 3: '超时', 4: '超内存', 5: '输出超限', 6: '运行错误', 7: '编译错误', 8: '系统错误', 10: '系统错误',
+    9: '已取消', 11: '其他', 30: '已忽略', 31: '格式错误', 32: 'Hack 成功', 33: 'Hack 失败',
+};
+export const statusLabel = (status: number) => statusLabels[status] ?? `状态 ${status}`;
+const resultTone = (status: number) => (status === 1 ? 'ok' : SYSTEM_ERROR.has(status) ? 'error' : status === 7 ? 'muted' : 'bad');
 
 /** Alert thresholds (no external push yet: shown on the page). */
 export const thresholds = {
@@ -65,14 +69,13 @@ export const thresholds = {
     /** At least `systemErrors` system errors within `systemErrorWindowSeconds`. */
     systemErrors: 3,
     systemErrorWindowSeconds: 300,
-    /** Judge daemons report every 20 minutes (hydrojudge hosts/hydro.ts); allow one late report. */
-    remoteOfflineSeconds: 25 * 60,
-    /** Hydro refreshes a server's entry every 30 minutes (service/monitor.ts). */
-    builtinOfflineSeconds: 35 * 60,
+    /** A daemon's report older than this (it reports every 20 minutes) means the machine is gone. */
+    reportStaleSeconds: 25 * 60,
     /** Waiting work with nothing judged for this long means judging has stopped. */
     stalledSeconds: 180,
-    /** Judge reports older than this are machines retired long ago, not alerts. */
-    judgeForgetSeconds: 6 * 3600,
+    /** Machine pressure worth a warning. */
+    cpuPercent: 95,
+    memoryPercent: 90,
 };
 
 const percentile = (values: number[], p: number) => {
@@ -80,13 +83,15 @@ const percentile = (values: number[], p: number) => {
     const sorted = [...values].sort((a, b) => a - b);
     return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)];
 };
+const round1 = (value: number) => Math.round(value * 10) / 10;
+const seconds = (ms: number) => Math.max(0, Math.floor(ms / 1000));
 
 export function monitorSnapshot(input: MonitorInput) {
     const { now, records } = input;
     const label = new Map(input.problems.map((problem) => [problem.pid, problem.label]));
     const ordered = [...records].sort((a, b) => a.submittedAt - b.submittedAt);
     const pending = ordered.filter((record) => PENDING.has(record.status));
-    const oldestPendingSeconds = pending.length ? Math.max(0, Math.floor((now - pending[0].submittedAt) / 1000)) : 0;
+    const oldestPendingSeconds = pending.length ? seconds(now - pending[0].submittedAt) : 0;
     const latencies = ordered
         .filter((record) => !PENDING.has(record.status) && !record.rejudged && record.judgeAt && now - record.judgeAt <= 15 * 60_000)
         .map((record) => Math.max(0, (record.judgeAt! - record.submittedAt) / 1000));
@@ -96,49 +101,97 @@ export function monitorSnapshot(input: MonitorInput) {
         const team = input.teamOf(record.uid);
         return {
             id: record.id, team: team?.name ?? `非参赛者 ${record.uid}`, problem: label.get(record.pid) ?? '?', lang: record.lang,
-            status: statusLabels[record.status] ?? categories.find((category) => category.key === categoryOf(record.status))!.label,
-            ageSeconds: Math.max(0, Math.floor((now - record.submittedAt) / 1000)),
+            status: statusLabel(record.status), ageSeconds: seconds(now - record.submittedAt),
         };
     };
 
-    const perProblem = input.problems.map((problem) => {
-        const own = ordered.filter((record) => record.pid === problem.pid);
-        const counts: Record<string, number> = {};
-        for (const record of own) counts[categoryOf(record.status)] = (counts[categoryOf(record.status)] || 0) + 1;
-        const solvedTeams = new Set(own.filter((record) => record.status === 1).map((record) => input.teamOf(record.uid)?.id).filter(Boolean));
-        return { label: problem.label, total: own.length, counts, solvedTeams: solvedTeams.size };
-    });
-    const languages = new Map<string, number>();
-    for (const record of ordered) languages.set(record.lang, (languages.get(record.lang) || 0) + 1);
+    // A task of this contest shows its team and problem; other domains' and contests' work only its language.
+    const subject = (task: TaskInfo) => {
+        if (task.domainId !== input.contest.domainId || task.contest !== input.contest.id) return { inContest: false as const, rid: null, team: null, problem: null, lang: task.lang };
+        return { inContest: true as const, rid: task.rid, team: input.teamOf(task.uid)?.name ?? `非参赛者 ${task.uid}`, problem: label.get(task.pid) ?? '?', lang: task.lang };
+    };
 
-    // The last 60 minutes of the contest so far (or before it ends), one bucket per minute.
-    const end = Math.min(now, input.endAt);
-    const start = Math.max(input.beginAt, end - 60 * 60_000);
-    const minutes = Math.max(1, Math.ceil((end - start) / 60_000));
-    const timeline = Array.from({ length: minutes }, (_, index) => ({ minute: Math.floor((start - input.beginAt) / 60_000) + index, submitted: 0, accepted: 0 }));
-    for (const record of ordered) {
-        if (record.submittedAt < start || record.submittedAt > end) continue;
-        const bucket = timeline[Math.min(minutes - 1, Math.floor((record.submittedAt - start) / 60_000))];
-        bucket.submitted++;
-        if (record.status === 1) bucket.accepted++;
-    }
+    const nowMinute = Math.floor(now / 60_000);
+    const machines = input.machines.map((machine) => {
+        const tracked = machine.tracked;
+        const online = !!tracked && tracked.disconnectedAt === null;
+        const window = (minutes: number) => (tracked?.minutes || []).filter((bucket) => bucket.minute > nowMinute - minutes);
+        const sum = (minutes: number, key: 'judged' | 'accepted' | 'systemErrors' | 'durationSum' | 'durationCount') => window(minutes).reduce((total, bucket) => total + bucket[key], 0);
+        const durations = sum(15, 'durationCount');
+        const active = online ? tracked!.active : [];
+        const metrics = machine.metrics;
+        const reportedSecondsAgo = metrics?.reportedAt == null ? null : seconds(now - metrics.reportedAt);
+        const state = !online ? 'offline' : active.length ? 'busy' : 'idle';
+        return {
+            key: machine.key,
+            name: machine.name,
+            kind: machine.kind,
+            state,
+            online,
+            /** Known only from its reports: not connected to Hydro now. */
+            reportOnly: !tracked,
+            account: tracked?.uname ?? null,
+            ip: tracked?.ip ?? null,
+            connectedSeconds: online ? seconds(now - tracked!.connectedAt) : null,
+            disconnectedSeconds: tracked?.disconnectedAt != null ? seconds(now - tracked.disconnectedAt) : null,
+            concurrency: tracked?.concurrency ?? null,
+            langs: tracked?.langs ?? null,
+            activeCount: active.length,
+            /** Percent of the daemon's concurrency in use. */
+            utilization: tracked?.concurrency ? Math.round((active.length / tracked.concurrency) * 100) : null,
+            judged1: (tracked?.finishTimes || []).filter((time) => now - time <= 60_000).length,
+            judged5: sum(5, 'judged'),
+            judged15: sum(15, 'judged'),
+            accepted15: sum(15, 'accepted'),
+            systemErrors5: sum(5, 'systemErrors'),
+            systemErrors15: sum(15, 'systemErrors'),
+            totalJudged: tracked?.totals.judged ?? 0,
+            /** Judgements of the last 15 minutes whose start was seen, so their duration is known. */
+            timed15: durations,
+            averageSeconds: durations ? round1(sum(15, 'durationSum') / durations / 1000) : null,
+            maxSeconds: durations ? round1(Math.max(...window(15).map((bucket) => bucket.durationMax)) / 1000) : null,
+            lastFinishedSeconds: tracked?.recent.length ? seconds(now - tracked.recent[0].at) : null,
+            /** Judged per minute over the last 30 minutes, oldest first. */
+            perMinute: Array.from({ length: 30 }, (_, index) => window(30).find((bucket) => bucket.minute === nowMinute - 29 + index)?.judged ?? 0),
+            metrics: metrics ? { ...metrics, reportedSecondsAgo, live: metrics.reportedAt === null } : null,
+        };
+    }).sort((a, b) => Number(b.online) - Number(a.online) || (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'builtin' ? -1 : 1));
 
-    const judges = input.judges
-        .map((judge) => {
-            const lastSeenSeconds = judge.kind === 'local' ? 0 : Math.max(0, Math.floor((now - judge.updateAt) / 1000));
-            const limit = judge.kind === 'remote' ? thresholds.remoteOfflineSeconds : thresholds.builtinOfflineSeconds;
-            return { mid: judge.mid, kind: judge.kind, online: judge.kind === 'local' || lastSeenSeconds <= limit, lastSeenSeconds };
-        })
-        .filter((judge) => judge.lastSeenSeconds <= thresholds.judgeForgetSeconds)
-        .sort((a, b) => Number(b.online) - Number(a.online) || a.mid.localeCompare(b.mid));
+    const nameOf = new Map(input.machines.map((machine) => [machine.key, machine.name]));
+    const live = input.machines.flatMap((machine) => (machine.tracked && machine.tracked.disconnectedAt === null ? machine.tracked.active : [])
+        .map((task: ActiveTask) => ({
+            judge: nameOf.get(machine.key)!, ...subject(task), status: statusLabel(task.status), casesDone: task.casesDone,
+            progress: task.progress, elapsedSeconds: seconds(now - task.startedAt),
+        })))
+        .sort((a, b) => b.elapsedSeconds - a.elapsedSeconds);
+    const finished = input.machines.flatMap((machine) => (machine.tracked?.recent || []).map((task: FinishedTask) => ({
+        judge: nameOf.get(machine.key)!, ...subject(task), at: task.at, status: statusLabel(task.status), tone: resultTone(task.status),
+        durationSeconds: task.durationMs === null ? null : round1(task.durationMs / 1000), timeMs: task.timeMs, memoryKb: task.memoryKb,
+        agoSeconds: seconds(now - task.at),
+    }))).sort((a, b) => b.at - a.at).slice(0, 30);
 
     const alerts: { level: 'error' | 'warning'; text: string }[] = [];
-    if (!judges.some((judge) => judge.online)) alerts.push({ level: 'error', text: '没有在线的评测机' });
-    for (const judge of judges.filter((item) => !item.online)) {
-        alerts.push({ level: 'warning', text: `评测机 ${judge.mid} 已 ${Math.floor(judge.lastSeenSeconds / 60)} 分钟没有上报` });
+    if (!machines.some((machine) => machine.online)) alerts.push({ level: 'error', text: '没有在线的评测机' });
+    for (const machine of machines) {
+        if (machine.disconnectedSeconds !== null && !machine.online) {
+            alerts.push({ level: 'warning', text: `评测机 ${machine.name} 在 ${Math.max(1, Math.floor(machine.disconnectedSeconds / 60))} 分钟前断开连接` });
+        } else if (machine.reportOnly && machine.metrics?.reportedSecondsAgo != null && machine.metrics.reportedSecondsAgo <= thresholds.reportStaleSeconds) {
+            alerts.push({ level: 'warning', text: `评测机 ${machine.name} 没有连接到 Hydro（${Math.floor(machine.metrics.reportedSecondsAgo / 60)} 分钟前还有上报）` });
+        }
+        if (machine.systemErrors5 >= thresholds.systemErrors) {
+            alerts.push({ level: 'error', text: `评测机 ${machine.name} 最近 5 分钟出现 ${machine.systemErrors5} 次系统错误` });
+        }
+        const fresh = machine.metrics && (machine.metrics.live || (machine.metrics.reportedSecondsAgo ?? Infinity) <= thresholds.reportStaleSeconds);
+        if (machine.online && fresh && machine.metrics!.cpu !== null && machine.metrics!.cpu >= thresholds.cpuPercent) {
+            alerts.push({ level: 'warning', text: `评测机 ${machine.name} CPU 使用率 ${Math.round(machine.metrics!.cpu)}%${machine.metrics!.live ? '' : '（上报值）'}` });
+        }
+        if (machine.online && fresh && machine.metrics!.memoryRate !== null && machine.metrics!.memoryRate >= thresholds.memoryPercent) {
+            alerts.push({ level: 'warning', text: `评测机 ${machine.name} 内存占用 ${Math.round(machine.metrics!.memoryRate)}%${machine.metrics!.live ? '' : '（上报值）'}` });
+        }
     }
-    // Machine reports are slow (20–30 minutes); judged records show directly whether judging moves.
-    const lastJudgedAt = Math.max(0, ...ordered.filter((record) => !PENDING.has(record.status) && record.judgeAt).map((record) => record.judgeAt!));
+    // Judged records show directly whether judging moves.
+    const lastJudgedAt = Math.max(0, ...ordered.filter((record) => !PENDING.has(record.status) && record.judgeAt).map((record) => record.judgeAt!),
+        ...machines.map((machine) => (machine.lastFinishedSeconds === null ? 0 : now - machine.lastFinishedSeconds * 1000)));
     const stalled = pending.length > 0 && oldestPendingSeconds > thresholds.stalledSeconds
         && now - Math.max(lastJudgedAt, pending[0].submittedAt) > thresholds.stalledSeconds * 1000;
     if (stalled) {
@@ -147,31 +200,40 @@ export function monitorSnapshot(input: MonitorInput) {
         alerts.push({ level: 'warning', text: `有提交已等待评测 ${Math.floor(oldestPendingSeconds / 60)} 分 ${oldestPendingSeconds % 60} 秒` });
     }
     if (recentSystemErrors.length >= thresholds.systemErrors) {
-        alerts.push({ level: 'error', text: `最近 ${thresholds.systemErrorWindowSeconds / 60} 分钟出现 ${recentSystemErrors.length} 次系统错误` });
+        alerts.push({ level: 'error', text: `本场比赛最近 ${thresholds.systemErrorWindowSeconds / 60} 分钟出现 ${recentSystemErrors.length} 次系统错误` });
     }
 
+    const online = machines.filter((machine) => machine.online);
+    const durationCount = machines.reduce((total, machine) => total + machine.timed15, 0);
     return {
         now,
         summary: {
+            judgesOnline: online.length,
+            judgesTotal: machines.length,
+            activeTasks: live.length,
+            /** Sum of the online daemons' concurrency; built-in judges' is unknown. */
+            capacity: online.reduce((total, machine) => total + (machine.concurrency ?? 0), 0),
+            capacityKnown: online.every((machine) => machine.concurrency !== null),
+            judgedPerMinute: round1(online.reduce((total, machine) => total + machine.judged5, 0) / 5),
+            judged15: machines.reduce((total, machine) => total + machine.judged15, 0),
+            averageJudgeSeconds: durationCount
+                ? round1(machines.reduce((total, machine) => total + (machine.averageSeconds ?? 0) * machine.timed15, 0) / durationCount) : null,
+            queueLength: input.queueLength,
             total: ordered.length,
             accepted: ordered.filter((record) => record.status === 1).length,
             pending: pending.length,
-            queueLength: input.queueLength,
             oldestPendingSeconds,
             systemErrors: systemErrors.length,
             judgedRecently: latencies.length,
-            averageLatencySeconds: latencies.length ? Math.round((latencies.reduce((a, b) => a + b, 0) / latencies.length) * 10) / 10 : null,
+            averageLatencySeconds: latencies.length ? round1(latencies.reduce((a, b) => a + b, 0) / latencies.length) : null,
             p95LatencySeconds: percentile(latencies, 95),
-            judgesOnline: judges.filter((judge) => judge.online).length,
         },
         alerts,
+        machines,
+        live,
+        finished,
         pending: pending.slice(0, 30).map(describe),
         systemErrors: systemErrors.slice(-10).reverse().map(describe),
-        perProblem,
-        languages: [...languages].map(([lang, count]) => ({ lang, count })).sort((a, b) => b.count - a.count),
-        timeline,
-        judges,
-        categories: categories.map(({ key, label }) => ({ key, label })),
     };
 }
 

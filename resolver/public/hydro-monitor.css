@@ -1,21 +1,52 @@
-#hydro-monitor .monitor-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
-#hydro-monitor .monitor-card { border: 1px solid rgba(127, 127, 127, .25); border-radius: 6px; padding: 12px 14px; }
+#hydro-monitor { --mon-ok: #3cba54; --mon-warn: #e6a23c; --mon-bad: #e05d44; --mon-busy: #3b82f6; --mon-line: rgba(127, 127, 127, .25); }
+#hydro-monitor .monitor-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+#hydro-monitor .monitor-card { border: 1px solid var(--mon-line); border-radius: 6px; padding: 12px 14px; }
 #hydro-monitor .monitor-card__value { font-size: 24px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
 #hydro-monitor .monitor-card__label { margin-top: 4px; font-size: 13px; }
 #hydro-monitor .monitor-card__note { margin-top: 2px; font-size: 12px; opacity: .7; }
-#hydro-monitor .monitor-warning { border-color: #e6a23c; }
-#hydro-monitor .monitor-error { border-color: #e05d44; }
+#hydro-monitor .monitor-warning { border-color: var(--mon-warn); }
+#hydro-monitor .monitor-error { border-color: var(--mon-bad); }
 #hydro-monitor .monitor-alerts { list-style: none; margin: 0 0 12px; padding: 0; }
 #hydro-monitor .monitor-alerts:empty { display: none; }
 #hydro-monitor .monitor-alert { padding: 8px 12px; border-radius: 4px; margin-bottom: 6px; border: 1px solid; }
 #hydro-monitor .monitor-alert.monitor-warning { background: rgba(230, 162, 60, .12); }
 #hydro-monitor .monitor-alert.monitor-error { background: rgba(224, 93, 68, .12); }
-#hydro-monitor .monitor-chart { display: block; width: 100%; height: auto; max-height: 220px; }
-#hydro-monitor .monitor-bar { fill: #5f9fd6; }
-#hydro-monitor .monitor-bar--ok { fill: #3cba54; }
-#hydro-monitor .monitor-axis { font-size: 11px; fill: currentColor; opacity: .65; }
 #hydro-monitor .monitor-scroll { overflow-x: auto; }
 #hydro-monitor .data-table { width: 100%; }
 #hydro-monitor .data-table td, #hydro-monitor .data-table th { white-space: nowrap; font-variant-numeric: tabular-nums; }
-#hydro-monitor .monitor-late { color: #e05d44; font-weight: 600; }
-#hydro-monitor .monitor-online { color: #3cba54; }
+#hydro-monitor .monitor-late { color: var(--mon-bad); font-weight: 600; }
+#hydro-monitor .monitor-small { font-size: 12px; }
+
+/* Judge machines */
+#hydro-monitor .monitor-machines { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+#hydro-monitor .monitor-machine { border: 1px solid var(--mon-line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#hydro-monitor .monitor-machine--offline { opacity: .75; border-style: dashed; }
+#hydro-monitor .monitor-machine__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+#hydro-monitor .monitor-machine__head h3 { margin: 0; font-size: 16px; font-weight: 600; word-break: break-all; }
+#hydro-monitor .monitor-badge { flex: none; font-size: 12px; padding: 2px 8px; border-radius: 999px; color: #fff; white-space: nowrap; }
+#hydro-monitor .monitor-badge--ok { background: var(--mon-ok); }
+#hydro-monitor .monitor-badge--busy { background: var(--mon-busy); }
+#hydro-monitor .monitor-badge--bad { background: var(--mon-bad); }
+#hydro-monitor .monitor-meter { display: grid; grid-template-columns: 3em minmax(0, 1fr) 4.2em; align-items: center; gap: 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
+#hydro-monitor .monitor-meter__bar { position: relative; height: 8px; border-radius: 999px; background: rgba(127, 127, 127, .18); overflow: hidden; }
+#hydro-monitor .monitor-meter__bar i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; transition: width .5s ease; }
+#hydro-monitor .monitor-meter__value { text-align: right; font-weight: 600; }
+#hydro-monitor .monitor-fill--ok { background: var(--mon-ok); }
+#hydro-monitor .monitor-fill--warn { background: var(--mon-warn); }
+#hydro-monitor .monitor-fill--bad { background: var(--mon-bad); }
+#hydro-monitor .monitor-text--warn { color: var(--mon-warn); }
+#hydro-monitor .monitor-text--bad { color: var(--mon-bad); }
+#hydro-monitor .monitor-machine__stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px 8px; border-top: 1px solid var(--mon-line); padding-top: 8px; }
+#hydro-monitor .monitor-stat { display: flex; flex-direction: column; min-width: 0; }
+#hydro-monitor .monitor-stat b { font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#hydro-monitor .monitor-stat span { font-size: 11px; opacity: .7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#hydro-monitor .monitor-machine__spark { display: flex; flex-direction: column; gap: 2px; }
+#hydro-monitor .monitor-spark { display: block; width: 100%; height: 34px; }
+#hydro-monitor .monitor-spark__bar { fill: var(--mon-busy); }
+#hydro-monitor .monitor-spark__zero { fill: rgba(127, 127, 127, .3); }
+#hydro-monitor .monitor-machine footer { display: flex; flex-direction: column; gap: 2px; word-break: break-all; }
+#hydro-monitor .monitor-result--ok { color: var(--mon-ok); font-weight: 600; }
+#hydro-monitor .monitor-result--bad { color: var(--mon-bad); }
+#hydro-monitor .monitor-result--error { color: var(--mon-bad); font-weight: 700; }
+#hydro-monitor .monitor-result--muted { opacity: .7; }
+@media (max-width: 520px) { #hydro-monitor .monitor-machine__stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
