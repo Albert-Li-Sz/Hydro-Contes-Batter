@@ -28,8 +28,11 @@ export function memberIds(tdoc: object, entries: TeamEntry[]) {
     return [...new Set(entries.flatMap((entry) => (isTeamEntry(entry) ? entry.members : [])))];
 }
 
-/** A member's name: the private display name only where identity may be shown (as Hydro's board). */
-const personName = (user: TeamUser, identity: boolean) => (identity && user.displayName) || user.uname;
+/**
+ * A participant's name: the display name set in Hydro, shown to every viewer (the account name
+ * only when there is none). The school stays private unless identity may be shown.
+ */
+const personName = (user: TeamUser) => user.displayName?.trim() || user.uname;
 
 /** The school most members share; ties go to the earlier member. */
 function teamSchool(members: TeamUser[]) {
@@ -47,7 +50,7 @@ export function describeTeam(entry: TeamEntry, users: Record<number, TeamUser | 
     const user = users[entry.uid];
     if (!user) return null;
     if (!isTeamEntry(entry)) {
-        return { name: personName(user, identity), school: identity ? user.school : undefined, members: undefined };
+        return { name: personName(user), school: identity ? user.school : undefined, members: undefined };
     }
     const members = entry.members.map((uid) => users[uid]).filter((member): member is TeamUser => !!member && !!member._id);
     return {
@@ -55,6 +58,6 @@ export function describeTeam(entry: TeamEntry, users: Record<number, TeamUser | 
         // generated login name is only a fallback.
         name: user.displayName || entry.displayName || user.uname,
         school: identity ? teamSchool(members) : undefined,
-        members: members.map((member) => personName(member, identity)),
+        members: members.map(personName),
     };
 }

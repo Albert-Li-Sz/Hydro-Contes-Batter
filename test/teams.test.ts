@@ -18,10 +18,12 @@ describe('Hydro team contests', () => {
         expect(isTeamEntry(entries[1])).toBe(false);
     });
 
-    it('shows a team by its public name, members by the identity rule, school from the members', () => {
+    it('shows a team by its public name, members by their display names, school only with identity', () => {
         const entry = { uid: -1001, displayName: '旧队名', members: [7, 8, 9] };
         expect(describeTeam(entry, users, true)).toEqual({ name: '星火队', school: '南京晓庄学院', members: ['林澈', '周宁', '陈言'] });
-        expect(describeTeam(entry, users, false)).toEqual({ name: '星火队', school: undefined, members: ['lin', 'zhou', 'chen'] });
+        expect(describeTeam(entry, users, false)).toEqual({ name: '星火队', school: undefined, members: ['林澈', '周宁', '陈言'] });
+        // A member without a display name shows the account name.
+        expect(describeTeam({ uid: -1001, members: [7, 11] }, { ...users, 11: { _id: 11, uname: 'wang', displayName: '  ' } }, false)!.members).toEqual(['林澈', 'wang']);
         // No display name on the team user: the name it attended with, never the generated login name.
         expect(describeTeam({ uid: -1002, displayName: '无名队', members: [9] }, users, false)!.name).toBe('无名队');
         // Members who no longer exist are left out.
@@ -30,7 +32,8 @@ describe('Hydro team contests', () => {
 
     it('keeps a participant who attends alone a one-person team', () => {
         expect(describeTeam({ uid: 10 }, users, true)).toEqual({ name: '许青', school: '东南大学', members: undefined });
-        expect(describeTeam({ uid: 10 }, users, false)).toEqual({ name: 'solo', school: undefined, members: undefined });
+        expect(describeTeam({ uid: 10 }, users, false)).toEqual({ name: '许青', school: undefined, members: undefined });
+        expect(describeTeam({ uid: 11 }, { 11: { _id: 11, uname: 'wang' } }, false)!.name).toBe('wang');
     });
 
     it('takes the school most members share, the earlier member on a tie', () => {

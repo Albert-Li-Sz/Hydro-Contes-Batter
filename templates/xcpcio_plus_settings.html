@@ -43,7 +43,7 @@
         <div class="xp-checks xp-access-options">
           <label class="checkbox"><input type="checkbox" id="xp-replace-native" {% if not replacementEnabled %}disabled{% endif %}><span><strong>替换 Hydro 原生榜单</strong><small>从比赛的榜单入口直接进入增强榜。</small></span></label>
           <label class="checkbox"><input type="checkbox" id="xp-public-access"><span><strong>公开榜单</strong><small>开赛后无需登录即可查看，遵守封榜规则。</small></span></label>
-          <label class="checkbox"><input type="checkbox" id="xp-show-identity"><span><strong>向所有观众显示真实姓名与学校</strong><small>属于 Hydro 私有资料。关闭时其他观众只看到用户名，不显示学校和学校榜。</small></span></label>
+          <label class="checkbox"><input type="checkbox" id="xp-show-identity"><span><strong>向所有观众显示学校</strong><small>学校属于 Hydro 私有资料，关闭时其他观众看不到学校、校徽和学校榜。选手名始终显示 Hydro 中的显示名（未设置时为用户名）。</small></span></label>
         </div>
         {% if not replacementEnabled %}<p class="xp-muted">全局替换已关闭，需在插件配置启用 asDefault 后生效。</p>{% endif %}
         <div id="xp-public-url-wrap" class="xp-public-link"><span>公开地址：<a id="xp-public-url" href="{{ publicUrl }}" target="_blank" rel="noopener">{{ publicUrl }}</a></span><button class="button" type="button" id="xp-copy-url">复制链接</button></div>

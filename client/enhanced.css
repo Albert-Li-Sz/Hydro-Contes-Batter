@@ -151,13 +151,12 @@
 #xcpcio-plus #app .am-progress-scroll-size { height: 11px; width: 5px; }
 #xcpcio-plus #app .xp-table-host { width: 100%; min-width: 0; }
 #xcpcio-plus #app .xp-table-scroll {
-  width: 100%; max-width: 100%; min-width: 0; overflow: auto;
+  width: 100%; max-width: 100%; min-width: 0; overflow: auto; container-type: inline-size;
   max-height: 74vh; max-height: 74dvh; overscroll-behavior-x: contain;
   scrollbar-width: thin; scrollbar-color: var(--xp-border) transparent;
   border: 1px solid var(--xp-border); border-radius: 6px; isolation: isolate;
 }
-/* The board table draws its own frame, so with few problems it ends where its columns end
-   instead of stretching every column across the page. */
+/* The board table draws its own frame. */
 #xcpcio-plus #app .xp-table-scroll:has(> table.standings) { border: 0; border-radius: 0; }
 #xcpcio-plus #app table.standings {
   --xp-row-height: 68px;
@@ -165,13 +164,14 @@
   /* Each row starts with the school logo, as tall as the row (less a small inset). */
   --xp-logo-size: calc(var(--xp-row-height) - 10px); --xp-logo-box: calc(var(--xp-logo-size) + 12px);
   --xp-solved-width: 64px; --xp-penalty-width: 72px; --xp-stat-width: 64px;
-  /* Problems share the remaining width, from --xp-problem-width up to --xp-problem-max each. */
-  --xp-problem-width: 54px; --xp-problem-max: 96px;
+  /* Problems share the width left by the fixed columns, from --xp-problem-width up to
+     --xp-problem-max each; past that the team column takes the rest, so the board always
+     fills the page however few problems there are. */
+  --xp-problem-width: 54px; --xp-problem-max: 160px;
   --xp-fixed-width: calc(var(--xp-rank-width) + var(--xp-school-width) + var(--xp-team-width) + var(--xp-solved-width) + var(--xp-penalty-width) + 2 * var(--xp-stat-width));
   border-spacing: 0; border-collapse: separate !important; table-layout: fixed;
   border: 1px solid var(--xp-border); border-radius: 6px;
   width: 100%;
-  max-width: calc(var(--xp-fixed-width) + var(--xp-problems, 3) * var(--xp-problem-max) + 2px);
   min-width: calc(var(--xp-fixed-width) + var(--xp-problems, 3) * var(--xp-problem-width) + 2px);
   font-family: inherit; color: var(--xp-text); font-variant-numeric: tabular-nums;
 }
@@ -193,9 +193,13 @@
 #xcpcio-plus #app table.standings th { background: var(--xp-subtle); color: var(--xp-muted); font-size: 12px; font-weight: 500; width: var(--xp-problem-width) !important; height: 48px; }
 /* Problem headers are filled with the contest's Hydro balloon colour (inline, with a matching
    text colour from the engine); problems without one look like the other headers. */
-/* Identity and score columns keep fixed widths; problems share whatever width is left
-   (the table's min-width still guarantees each at least --xp-problem-width). */
-#xcpcio-plus #app table.standings th.xp-col-problem { width: auto !important; }
+/* Identity and score columns keep fixed widths; each problem gets an equal share of what is
+   left in the board's frame (100cqw: a length, so the fixed table layout honours it), within
+   its limits; the team column, sized auto, takes any remainder. The table's min-width keeps
+   every column at its minimum, with a horizontal scroll when the page is too narrow. */
+#xcpcio-plus #app table.standings th.xp-col-problem {
+  width: clamp(var(--xp-problem-width), calc((100cqw - var(--xp-fixed-width) - 2px) / max(var(--xp-problems, 3), 1)), var(--xp-problem-max)) !important;
+}
 #xcpcio-plus #app table.standings th:nth-last-child(-n+2) { width: var(--xp-stat-width) !important; }
 #xcpcio-plus #app table.standings th.xp-col-problem.xp-problem-plain { background: var(--xp-subtle) !important; color: var(--xp-text) !important; }
 #xcpcio-plus #app .xp-col-problem > [cursor-pointer] > div:first-child { color: inherit; font-size: 14px; font-weight: 600; }
@@ -215,7 +219,7 @@
 #xcpcio-plus #app .xp-statistics-toggle[aria-expanded=true] svg { transform: rotate(180deg); }
 #xcpcio-plus #app table.standings th.xp-col-rank { width: var(--xp-rank-width) !important; }
 #xcpcio-plus #app table.standings th.xp-col-school { width: var(--xp-school-width) !important; }
-#xcpcio-plus #app table.standings th.xp-col-team { width: var(--xp-team-width) !important; }
+#xcpcio-plus #app table.standings th.xp-col-team { width: auto !important; }
 #xcpcio-plus #app table.standings th.xp-col-solved { width: var(--xp-solved-width) !important; }
 #xcpcio-plus #app table.standings th.xp-col-penalty { width: var(--xp-penalty-width) !important; }
 #xcpcio-plus #app table.standings .xp-col-rank { position: sticky; left: 0; z-index: 2; background: var(--xp-bg); }

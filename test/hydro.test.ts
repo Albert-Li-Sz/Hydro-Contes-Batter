@@ -209,7 +209,7 @@ describe('Hydro 数据与权限', () => {
         const oi = app.overview(); oi.user.own = () => true;
         await expect(oi.prepare('system', state.contest.docId)).rejects.toThrow('ACM');
     });
-    it('组队比赛：队伍用公开队名，队员按身份规则显示，单人参赛仍是一人一队', async () => {
+    it('组队比赛：队伍用公开队名，队员显示显示名，单人参赛仍是一人一队', async () => {
         state.contest.allowTeam = true;
         const begin = state.contest.beginAt.getTime() / 1000;
         state.entries = [
@@ -224,7 +224,7 @@ describe('Hydro 数据与权限', () => {
         };
         const pub = await loadContestData(state.contest as Tdoc, false);
         expect(pub.teams).toEqual([
-            { team_id: '-1001', name: '星火队', organization: undefined, group: ['official'], members: ['lin', 'zhou'] },
+            { team_id: '-1001', name: '星火队', organization: undefined, group: ['official'], members: ['林澈', '周宁'] },
             { team_id: '1', name: '测试选手', organization: undefined, group: ['official'] },
         ]);
         expect(pub.submissions.map((item) => item.team_id)).toEqual(['-1001', '1']);
@@ -379,17 +379,18 @@ describe('Hydro 数据与权限', () => {
         expect(vi.mocked(UserModel.getList).mock.calls.length).toBe(after + 1);
         expect(Object.values(fresh.response.body.contest.group)).not.toContain('南京晓庄学院榜');
     });
-    it('真实姓名与学校默认只给有私有资料权限的用户，开启后才对所有观众显示', async () => {
+    it('选手名对所有观众显示显示名；学校默认只给有私有资料权限的用户，开启后才对所有观众显示', async () => {
         state.users[1].displayName = '张三';
         const saved = new Map([[`system/${state.contest.docId}`, { settings: { ...defaultSettings, publicAccess: true, schoolBoards: true } }]]);
         const app = setup(saved); await app.init(); const guest = app.publicBoard();
         await guest.prepare('system', state.contest.docId); await guest.get('system', true, false);
-        expect(guest.response.body.teams[0].name).toBe('测试选手');
-        expect(JSON.stringify(guest.response.body)).not.toMatch(/张三|南京晓庄学院/);
+        expect(guest.response.body.teams[0].name).toBe('张三');
+        expect(JSON.stringify(guest.response.body)).not.toMatch(/测试选手|南京晓庄学院/);
         expect(guest.response.body.contest.options.enable_organization).toBe(false);
         const member = app.settings();
         await app.view().display.call(member, { tdoc: state.contest, realtime: false, json: true });
-        expect(JSON.stringify(member.response.body)).not.toContain('张三');
+        expect(member.response.body.teams[0].name).toBe('张三');
+        expect(JSON.stringify(member.response.body)).not.toContain('南京晓庄学院');
         member.user.hasPerm = (perm: bigint) => perm === 4n;
         await app.view().display.call(member, { tdoc: state.contest, realtime: false, json: true });
         expect(member.response.body.teams[0].name).toBe('张三');
