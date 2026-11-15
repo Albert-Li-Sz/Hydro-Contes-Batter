@@ -14,6 +14,7 @@ import { applyResolver } from './lib/resolver-routes';
 import { applyScreens } from './lib/screens-routes';
 import { applyLive } from './lib/live/routes';
 import { applyMonitor } from './lib/monitor-routes';
+import { applyOverview } from './lib/overview-routes';
 
 export const name = 'scoreboard-xcpcio-plus';
 export const Config = Schema.object({
@@ -274,6 +275,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>) {
     applyResolver(ctx, { loadSettings, loadData: loadContestData, sessionDays: config.resolverSessionDays ?? 0 });
     applyScreens(ctx, { loadSettings, loadData: loadContestData });
     applyMonitor(ctx);
+    applyOverview(ctx, { loadSettings, loadData: loadContestData });
     if (config.live !== false) applyLive(ctx, { loadSettings, loadData: loadContestData });
     ctx.Route('contest_xcpcio_plus_public', '/contest/:tid/xcpcio-public', PublicBoardHandler);
     ctx.i18n.load('zh', { 'XCPCIO Plus': 'XCPCIO 增强榜' });

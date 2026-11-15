@@ -11,6 +11,7 @@ import { createResolverPreview } from '../preview/resolver';
 import { createScreensPreview } from '../preview/screens';
 import { createLivePreview } from '../preview/live';
 import { createMonitorPreview } from '../preview/monitor';
+import { createOverviewPreview } from '../preview/overview';
 import { previewDatabase } from '../preview/resolver-memory-db';
 
 async function main() {
@@ -28,6 +29,7 @@ const previewDb = previewDatabase().db;
 const resolverPreview = createResolverPreview(env, logoNames, pluginVersion, previewDb);
 const screensPreview = createScreensPreview(env, logoNames, pluginVersion, previewDb);
 const monitorPreview = createMonitorPreview(env, pluginVersion, demoData);
+const overviewPreview = createOverviewPreview(env, pluginVersion);
 const livePreview = createLivePreview(env, logoNames, pluginVersion, demoData, () => settings);
 const base = '/contest/demo';
 const boardUrl = `${base}/scoreboard/xcpcio-plus`;
@@ -49,6 +51,7 @@ const server = http.createServer(async (request, response) => {
         if (await screensPreview(request, response, url, displayData, settings)) return;
         if (await livePreview.handle(request, response, url)) return;
         if (await monitorPreview(request, response, url)) return;
+        if (await overviewPreview(request, response, url)) return;
         if (request.method === 'POST' && url.pathname === settingsUrl) {
             let body = '';
             for await (const chunk of request) { body += chunk; if (body.length > 1000000) throw new Error('设置内容过大'); }

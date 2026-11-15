@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>{{ title }}</title>
+<link rel="stylesheet" href="{{ codeBase }}/hydro-overview.css">
+</head>
+<body>
+<main class="ov" id="overview">
+  <header class="ov-head">
+    <h1 class="ov-title" id="title">赛况总览</h1>
+    <span class="ov-status" id="status" hidden></span>
+    <time class="ov-now" id="now"></time>
+  </header>
+  <section class="ov-time" aria-label="比赛时间">
+    <div class="ov-clock"><span class="ov-clock__label" id="clock-label">已进行</span><span class="ov-clock__value" id="clock">--:--:--</span></div>
+    <div class="ov-progress-wrap">
+      <div class="ov-progress" aria-hidden="true"><div class="ov-progress__bar" id="progress"></div><div class="ov-progress__freeze" id="freeze" hidden></div></div>
+      <div class="ov-progress__marks"><span id="begin-at"></span><span id="lock-at"></span><span id="end-at"></span></div>
+    </div>
+    <div class="ov-clock ov-clock--right"><span class="ov-clock__label" id="remain-label">剩余</span><span class="ov-clock__value" id="remain">--:--:--</span></div>
+  </section>
+  <section class="ov-kpis" id="kpis" aria-live="polite"></section>
+  <section class="ov-panel ov-area-rank">
+    <div class="ov-panel__head"><h2>实时排名</h2><span class="ov-panel__hint">正式队伍 · 前十</span></div>
+    <div class="ov-rows ov-rows--rank" id="rank"></div>
+  </section>
+  <section class="ov-panel ov-area-prob">
+    <div class="ov-panel__head"><h2>题目情况</h2><span class="ov-panel__hint">通过队数 / 尝试队数 · 提交通过率 · 首解</span></div>
+    <div class="ov-rows ov-rows--prob" id="problems"></div>
+  </section>
+  <div class="ov-side ov-area-side">
+    <section class="ov-panel">
+      <div class="ov-panel__head"><h2>学校情况</h2><span class="ov-panel__hint" id="school-hint"></span></div>
+      <div class="ov-rows ov-rows--school" id="schools"></div>
+    </section>
+    <section class="ov-panel">
+      <div class="ov-panel__head"><h2>最近通过</h2></div>
+      <div class="ov-rows ov-rows--recent" id="recent"></div>
+    </section>
+  </div>
+  <section class="ov-panel ov-area-trend">
+    <div class="ov-panel__head"><h2>提交与通过（累计）</h2><span class="ov-legend"><i class="ov-dot ov-dot--sub"></i>提交<i class="ov-dot ov-dot--ok"></i>通过</span></div>
+    <svg class="ov-chart" id="chart" role="img" aria-label="累计提交与通过"></svg>
+  </section>
+  <section class="ov-panel ov-area-hist">
+    <div class="ov-panel__head"><h2>过题数分布</h2><span class="ov-panel__hint">横轴过题数 · 柱上为队伍数</span></div>
+    <div class="ov-hist" id="histogram"></div>
+  </section>
+  <section class="ov-panel ov-area-verd">
+    <div class="ov-panel__head"><h2>评测结果</h2><span class="ov-panel__hint">提交数</span></div>
+    <div class="ov-verdicts" id="verdicts"></div>
+  </section>
+  <section class="ov-panel ov-area-sys">
+    <div class="ov-panel__head"><h2>系统负载</h2><span class="ov-panel__hint" id="sys-hint">服务器实时</span></div>
+    <div class="ov-sys">
+      <div class="ov-meter"><span>CPU</span><span class="ov-bar"><i id="cpu-bar"></i></span><b id="cpu">—</b><span class="ov-muted" id="cpu-note"></span></div>
+      <div class="ov-meter"><span>内存</span><span class="ov-bar"><i id="mem-bar"></i></span><b id="mem">—</b><span class="ov-muted" id="mem-note"></span></div>
+      <div class="ov-sys__facts" id="sys-facts"></div>
+      <div class="ov-rows ov-rows--judge" id="judges"></div>
+    </div>
+  </section>
+  <footer class="ov-foot"><span id="updated">正在加载…</span><button type="button" id="full" title="全屏 (F)">全屏</button></footer>
+</main>
+<script type="application/json" id="overview-runtime">{{ runtimeJson | safe }}</script>
+<script type="module" src="{{ codeBase }}/js/hydro-overview.js"></script>
+</body>
+</html>

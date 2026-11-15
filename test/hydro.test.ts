@@ -88,6 +88,7 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
         screens: (name = 's') => new (routes.get(`contest_xcpcio_screen${name}`))(),
         live: (name = '') => new (routes.get(`contest_xcpcio_live${name}`))(),
         monitor: (name = '') => new (routes.get(`contest_xcpcio_monitor${name}`))(),
+        overview: (name = '') => new (routes.get(`contest_xcpcio_overview${name}`))(),
         resolverTables: resolverDb.tables,
         hooks: ctx.on,
         broadcast: ctx.broadcast,
@@ -147,6 +148,37 @@ describe('Hydro 数据与权限', () => {
             hydro.Hydro = previous;
         }
     }, 10_000);
+    it('赛况总览：只有比赛管理员可看，封榜期间也给实时数字', async () => {
+        const begin = state.contest.beginAt.getTime() / 1000;
+        state.locked = true; state.ended = false;
+        state.entries = [
+            { uid: 1, unrank: false, journal: [record(begin + 600)] },
+            { uid: 2, unrank: true, journal: [record(begin + 4.5 * 3600, STATUS.STATUS_ACCEPTED, 2)] }, // after the freeze
+        ];
+        state.users[2] = { _id: 2, uname: '打星', school: '东南大学', avatar: '' };
+        state.judges = [{ mid: 'judge-1', type: 'judge', updateAt: new Date(), memory: { total: 8, active: 2 }, load: { currentLoad: 20 } }];
+        const app = setup(); await app.init();
+        expect(app.routeNames()).toEqual(expect.arrayContaining(['contest_xcpcio_overview', 'contest_xcpcio_overview_data']));
+        const guest = app.overview('_data'); guest.user._id = 0;
+        await expect(guest.prepare('system', state.contest.docId)).rejects.toThrow('PrivilegeError');
+        await expect(app.overview('_data').prepare('system', state.contest.docId)).rejects.toThrow('Forbidden');
+        const page = app.overview(); page.user.own = () => true;
+        await page.prepare('system', state.contest.docId); await page.get();
+        expect(page.response.template).toBe('xcpcio_overview.html');
+        expect(JSON.parse(page.response.body.runtimeJson).dataUrl).toBe(`/d/system/contest/${state.contest.docId}/overview/data`);
+        const data = app.overview('_data'); data.user.hasPerm = () => true;
+        await data.prepare('system', state.contest.docId); await data.get();
+        const body = JSON.parse(data.response.body);
+        expect(body).toMatchObject({ title: '测试比赛', teams: 2, officialTeams: 1, unofficialTeams: 1, schools: 2, submissions: 2, accepted: 2, solvedTeams: 2 });
+        expect(body.topTeams).toEqual([{ rank: 1, name: '测试选手', school: '南京晓庄学院', solved: 1, penaltyMinutes: 10 }]);
+        // Machine pressure: this server live, judges from Hydro's status collection, the whole judge queue.
+        expect(body.system.host.cores).toBeGreaterThan(0);
+        expect(body.system.queue).toBe(2);
+        expect(body.system.judges.map((judge: { name: string }) => judge.name)).toEqual(['judge-1']);
+        state.contest.rule = 'oi';
+        const oi = app.overview(); oi.user.own = () => true;
+        await expect(oi.prepare('system', state.contest.docId)).rejects.toThrow('ACM');
+    });
     it('组队比赛：队伍用公开队名，队员按身份规则显示，单人参赛仍是一人一队', async () => {
         state.contest.allowTeam = true;
         const begin = state.contest.beginAt.getTime() / 1000;
