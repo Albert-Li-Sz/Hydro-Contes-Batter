@@ -13,16 +13,17 @@ Hydro OJ 的 ACM 比赛榜单、滚榜、大屏与直播插件，集成 XCPCIO �
 - 评测监控：比赛管理员实时查看每台评测机的连接状态、并发占用、评测速度与用时、通过率、系统错误和 CPU、内存、温度，以及各评测机上正在评测的任务和最新评测结果、本场待评测提交，异常时页面告警。
 - 赛况总览：供来宾视察的全屏大屏，一屏显示比赛时间、八项核心指标、实时排名前十、各题通过与首解、学校情况、最近通过、提交趋势、过题数分布、评测结果分布，以及服务器与评测机的 CPU、内存压力，实时数据，仅比赛管理员可打开。
 - 组队比赛（Hydro 5.1）：榜单、滚榜和直播显示队名与队员，单人参赛仍按一人一队显示。
+- CCS API：按 ICPC Contest API 2026-01 提供比赛、账号、提交与判题、澄清、奖项、解说、分组榜、持久化事件流及 webhook；支持 Basic 认证、分角色可见性与规范写入能力。每场比赛默认关闭，详见 [CCS API](docs/usage.md#ccs-api2026-01)。
 
 ## 安装
 
 需要 Node.js 22+ 和 Hydro 5.x。请使用运行 Hydro 的系统用户，在主服务所在环境执行。
 
-下载完整安装包 `hydro-scoreboard-xcpcio-plus-0.9.0.tgz`，解压到固定目录，注册 addon 后重启。安装包包含预构建页面、字体和完整校徽。
+下载完整安装包 `hydro-scoreboard-xcpcio-plus-1.0.0.tgz`，解压到固定目录，注册 addon 后重启。安装包包含预构建页面、字体和完整校徽。
 
 ```bash
 mkdir -p "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
-tar -xzf hydro-scoreboard-xcpcio-plus-0.9.0.tgz \
+tar -xzf hydro-scoreboard-xcpcio-plus-1.0.0.tgz \
   -C "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus" --strip-components=1
 hydrooj addon add "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
 pm2 restart hydrooj
@@ -36,7 +37,7 @@ pm2 restart hydrooj
 
 ```bash
 mkdir -p xcpcio-update
-tar -xzf hydro-scoreboard-xcpcio-plus-0.9.0.tgz -C xcpcio-update
+tar -xzf hydro-scoreboard-xcpcio-plus-1.0.0.tgz -C xcpcio-update
 bash xcpcio-update/package/install.sh install
 
 # 升级时下载并解压新包，运行新包中的脚本

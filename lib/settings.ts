@@ -31,6 +31,9 @@ export interface BoardSettings extends BoardAwards {
     replaceNative: boolean;
     /** Show Hydro's private display name and school to viewers without PERM_VIEW_USER_PRIVATE_INFO. */
     showIdentity: boolean;
+    /** Serve the contest through the ICPC CCS Contest API (lib/ccs). */
+    ccsApi: boolean;
+    ccsAutoFinalize: boolean;
 }
 
 export const defaultSettings: BoardSettings = {
@@ -44,6 +47,8 @@ export const defaultSettings: BoardSettings = {
     publicAccess: false,
     replaceNative: true,
     showIdentity: false,
+    ccsApi: false,
+    ccsAutoFinalize: false,
 };
 
 function object(value: unknown, label: string): Record<string, unknown> {
@@ -94,7 +99,7 @@ export function awardsFor(settings: BoardSettings, boardId: string): BoardAwards
 
 export function normalizeSettings(value: unknown): BoardSettings {
     const input = object(value, '榜单设置');
-    for (const key of ['schoolBoards', 'participationBoards', 'publicAccess', 'replaceNative', 'unofficialAwards', 'showIdentity']) {
+    for (const key of ['schoolBoards', 'participationBoards', 'publicAccess', 'replaceNative', 'unofficialAwards', 'showIdentity', 'ccsApi', 'ccsAutoFinalize']) {
         if (input[key] !== undefined && typeof input[key] !== 'boolean') throw new Error(`${key} 必须是布尔值`);
     }
     if (!Array.isArray(input.manualBoards) || input.manualBoards.length > 50) {
@@ -140,6 +145,8 @@ export function normalizeSettings(value: unknown): BoardSettings {
         publicAccess: input.publicAccess === true,
         replaceNative: input.replaceNative === undefined ? true : input.replaceNative as boolean,
         showIdentity: input.showIdentity === true,
+        ccsApi: input.ccsApi === true,
+        ccsAutoFinalize: input.ccsAutoFinalize === true,
     };
 }
 

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Context, Tdoc } from 'hydrooj';
 import { awardsFor, defaultSettings } from '../lib/settings';
 import { defaultProfileFields } from '../lib/roster';
@@ -35,6 +35,8 @@ vi.mock('hydrooj', () => {
         STATUS: Object.fromEntries(names.map((name, index) => [`STATUS_${name}`, index + 1])),
         PERM: { PERM_EDIT_CONTEST: 1n, PERM_VIEW_CONTEST_HIDDEN_SCOREBOARD: 2n, PERM_VIEW_USER_PRIVATE_INFO: 4n },
         PRIV: { PRIV_USER_PROFILE: 1 },
+        BUILTIN_ROLES: {}, DocumentModel: {}, DomainModel: {}, ProblemModel: {}, StorageModel: {},
+        SettingModel: { langs: {} }, SystemModel: { get: () => undefined },
         avatar: () => '/avatar.png', getAlphabeticId: (index: number) => String.fromCharCode(65 + index),
         NotFoundError: class extends Error {}, ValidationError: class extends Error {}, ForbiddenError: class extends Error {},
         ContestModel: {
@@ -50,6 +52,8 @@ vi.mock('hydrooj', () => {
 });
 import { ObjectId, STATUS } from 'hydrooj';
 import { apply, loadContestData, loadRoster } from '../index';
+const cleanup: (() => unknown)[] = [];
+afterEach(async () => { for (const stop of cleanup.splice(0)) await stop(); });
 
 function record(second: number, status = STATUS.STATUS_ACCEPTED, suffix = 1) {
     return { rid: `${Math.floor(second).toString(16)}${suffix.toString(16).padStart(16, '0')}`, pid: 100, status };
@@ -67,10 +71,10 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
     };
     const ctx: any = {
         db: { collection: (name: string) => (name === 'status' ? { find: () => ({ toArray: async () => state.judges }) }
-            : name.startsWith('xcpcio.resolver.') || name === 'xcpcio.screens' || name.startsWith('xcpcio.live') ? resolverDb.db.collection(name as any) : collection) },
+            : name.startsWith('xcpcio.resolver.') || name.startsWith('xcpcio.ccs.') || name === 'xcpcio.screens' || name.startsWith('xcpcio.live') ? resolverDb.db.collection(name as any) : collection) },
         Route: (name: string, _path: string, handler: any) => { routes.set(name, handler); },
         Connection: (name: string, _path: string, handler: any) => { routes.set(name, handler); },
-        effect: vi.fn(),
+        effect: vi.fn((factory: () => () => unknown) => { const stop = factory(); if (typeof stop === 'function') cleanup.push(stop); }),
         broadcast: vi.fn(),
         i18n: { load: vi.fn() },
         inject: (_deps: string[], callback: any) => callback({

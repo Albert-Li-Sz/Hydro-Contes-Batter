@@ -32,6 +32,40 @@ if (root) {
     document.getElementById('xp-replace-native').checked = settings.replaceNative;
     const showIdentity = document.getElementById('xp-show-identity');
     showIdentity.checked = settings.showIdentity;
+    const ccsApi = document.getElementById('xp-ccs-api');
+    ccsApi.checked = !!settings.ccsApi;
+    const ccsLink = document.getElementById('xp-ccs-url');
+    ccsLink.textContent = ccsLink.href;
+    const autoFinalize = document.getElementById('xp-ccs-auto-finalize');
+    autoFinalize.checked = !!settings.ccsAutoFinalize;
+    const finalize = document.getElementById('xp-ccs-finalize');
+    const ccsStatus = document.getElementById('xp-ccs-status');
+    const updateCcsLink = () => {
+        document.getElementById('xp-ccs-url-wrap').hidden = !ccsApi.checked;
+        document.getElementById('xp-ccs-controls').hidden = !ccsApi.checked;
+        finalize.disabled = !settings.ccsApi;
+        if (!settings.ccsApi) ccsStatus.textContent = '请先保存“开放 CCS API”设置。';
+    };
+    ccsApi.addEventListener('change', updateCcsLink); updateCcsLink();
+    const copyCcs = document.getElementById('xp-copy-ccs-url');
+    copyCcs.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(ccsLink.href); copyCcs.textContent = '已复制'; } catch { copyCcs.textContent = '请手动复制'; }
+        setTimeout(() => { copyCcs.textContent = '复制链接'; }, 2000);
+    });
+    finalize.addEventListener('click', async () => {
+        if (!confirm('确认 CCS 最终结果后将保存不可变快照，并结束事件流。后续重测不会更新 CCS 数据。是否继续？')) return;
+        finalize.disabled = true;
+        try {
+            const response = await fetch(`${ccsLink.href.replace(/\/$/, '')}/finalize`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin',
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message || '确认失败');
+            ccsStatus.textContent = result.message;
+        } catch (error) {
+            ccsStatus.textContent = error.message || '确认失败'; finalize.disabled = false;
+        }
+    });
     function updatePublicLink() {
         document.getElementById('xp-public-url-wrap').hidden = !publicAccess.checked;
         document.getElementById('xp-public-disabled').hidden = publicAccess.checked;
@@ -327,6 +361,8 @@ if (root) {
             publicAccess: publicAccess.checked,
             replaceNative: document.getElementById('xp-replace-native').checked,
             showIdentity: showIdentity.checked,
+            ccsApi: ccsApi.checked,
+            ccsAutoFinalize: autoFinalize.checked,
             manualBoards: editors.map((editor) => editor.read()),
         });
         store.set(payload.value);

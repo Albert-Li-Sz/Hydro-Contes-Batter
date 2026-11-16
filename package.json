@@ -1,7 +1,7 @@
 {
   "name": "hydro-scoreboard-xcpcio-plus",
-  "version": "0.9.0",
-  "description": "Hydro XCPCIO 榜单增强、Resolver 滚榜、大屏与 ICPC Live 直播，奖项及分榜管理",
+  "version": "1.0.0",
+  "description": "Hydro XCPCIO 榜单增强、Resolver 滚榜、大屏、ICPC Live 直播与 CCS Contest API 2026-01",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Albert-Li-Sz/Hydro-Contes-Batter.git"
@@ -27,6 +27,7 @@
     "licenses",
     "scripts/assets.mjs",
     "scripts/fetch-logos.mjs",
+    "scripts/logo-png.mjs",
     "scripts/build-live.mjs",
     "scripts/manage-addon.mjs",
     "install.sh",
@@ -43,7 +44,9 @@
     "test": "vitest run",
     "preview": "tsx scripts/preview.ts",
     "logos": "node scripts/fetch-logos.mjs",
-    "build:live": "node scripts/build-live.mjs"
+    "build:live": "node scripts/build-live.mjs",
+    "logos:png": "node scripts/logo-png.mjs",
+    "test:ccs:mongo": "tsx scripts/check-ccs-mongo.ts"
   },
   "dependencies": {
     "@xcpcio/board-app": "0.85.4",
@@ -57,6 +60,8 @@
     "@types/nunjucks": "^3.2.6",
     "@types/ws": "8.18.1",
     "@xcpcio/core": "0.85.4",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "hydrooj": "5.0.7",
     "nunjucks": "^3.2.4",
     "tsx": "^4.20.0",

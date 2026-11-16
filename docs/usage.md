@@ -18,15 +18,89 @@
 - 支持替换原生榜单，并提供无需登录、域权限或比赛权限的公开链接；公开数据继续遵守封榜规则和开赛前不显示榜单的规则。
 - 学校属于 Hydro 私有资料，默认只对有“查看用户私有信息”权限的用户显示；每场比赛可选择向所有观众显示。
 
+## CCS API（2026-01）
+
+1.0.0 起在插件内提供 [ICPC CCS Contest API 2026-01](https://ccs-specs.icpc.io/2026-01/contest_api)，不依赖 `hydro-dev/ccs-api`。两者的地址不同，可以同时安装。API 的排名、罚时、封榜及奖项复用增强榜和直播模块的规则。
+
+在 ACM 比赛的“奖牌与分榜设置”中勾选“开放 CCS API”并保存；默认关闭。根地址为 `/d/<域ID>/ccsapi/`，比赛地址为 `/d/<域ID>/ccsapi/contests/<Hydro比赛ID>`。设置页显示并可复制当前比赛地址。`contests` 只列出调用者可访问且已开启 API 的 ACM 比赛。
+
+### 认证与可见性
+
+支持 Hydro 用户名和密码的 HTTP Basic 认证，也接受浏览器已登录的 Hydro 会话。实际连接请使用站点 HTTPS 地址。启用双因素认证的账号不能仅凭 Basic 密码登录，需使用 Hydro 会话或专用的普通账号。停用账号、密码变化、角色变化和关闭 API 会使后续请求或持续事件连接失效。
+
+| 角色 | 对应用户 | 数据与操作 |
+| --- | --- | --- |
+| public | 匿名或非参赛普通用户；比赛须开启“公开榜单” | 开赛前隐藏题目、队伍与提交；封榜后不显示隐藏判题结果；比赛中错误结果按简化类型输出；只读 |
+| team | 已参加比赛的个人或组队成员 | 公开数据、本队完整判题与测试点、本队代码和发给本队的澄清；可提交及提问 |
+| judge | 有查看隐藏榜单权限的用户 | 全部实时数据、代码与账号；可发送裁判澄清及解说 |
+| admin | 比赛所有者或有编辑比赛权限的用户 | 全部数据、比赛时钟和解冻、代理与历史提交、代理与历史澄清、奖项管理、最终确认 |
+
+学校、校徽及学校分组遵守“向所有观众显示学校”。`access` 返回当前角色的端点、字段和能力。账号不返回密码；其他队伍及匿名访问不返回代码下载链接。所有 API 响应带 CORS 头，JSON 错误为 `{"code":400,"message":"…"}`；会话写请求拒绝跨站来源。
+
+### 端点
+
+下表中比赛端点均位于 `contests/<比赛ID>/` 下。列表端点也支持 `/<对象ID>` 获取单个对象，支持按其标量 ID 引用字段过滤，例如 `judgements?submission_id=…`、`submissions?team_id=1`；空过滤值匹配空引用。
+
+| 端点 | 内容 |
+| --- | --- |
+| 根地址 `/`、`contests`、`contests/<ID>` | 版本 2026-01、插件名称和版本，以及比赛信息 |
+| `access`、`account` | 当前角色的能力、可见字段与当前账号 |
+| `judgement-types`、`languages`、`problems` | 判题类型、语言、题号与颜色、限制、测试点数和附加文件 |
+| `groups`、`organizations`、`teams`、`persons`、`accounts` | 正式/非正式、学校与手动分榜，学校及 PNG 校徽、队伍、队员、管理人员与账号 |
+| `state` | started、frozen、ended、thawed、finalized、end_of_updates |
+| `submissions`、`judgements`、`runs` | 提交、每次评测（含重测历史）、测试点结果和运行时间 |
+| `clarifications`、`awards`、`commentary` | 原生问题与回复、定向/分组澄清、自动或手动奖项、中文自动解说及人工解说 |
+| `scoreboard` | 正式参赛主榜；`?group_id=…` 请求独立排名的分组榜 |
+| `event-feed` | 持久化 NDJSON 事件流及断点续传 |
+| 根地址下的 `webhooks`、`webhooks/<ID>` | 域内比赛管理员注册、查看、删除回调；不返回回调 token |
+
+个人队伍 ID 为 uid，负 uid 的虚拟队伍使用 `t<绝对值>`，例如 `t1001`；队伍 label 使用此编号。题目 ID 为 Hydro 数字 docId，提交默认使用评测记录 ID。语言、分组和派生对象 ID 保持稳定，必要时规范化并加哈希，满足规范长度与字符规则。
+
+### 读取与事件流
+
+```bash
+CCS_BASE='https://oj.example/d/system/ccsapi'
+CCS_CONTEST='替换为24位比赛ID'
+# curl -u 只填写用户名时，会提示输入密码。
+curl -u service "$CCS_BASE/contests/$CCS_CONTEST/access"
+curl -u service "$CCS_BASE/contests/$CCS_CONTEST/scoreboard?group_id=official"
+curl -N -u service "$CCS_BASE/contests/$CCS_CONTEST/event-feed"
+# 保存最后收到的完整 token，重连时原样传回；不是单纯的整数序号。
+curl -N -u service "$CCS_BASE/contests/$CCS_CONTEST/event-feed?since_token=替换为最后的token"
+```
+
+每条事件含 `type`、`id`、`data`、`token`；删除事件的 data 为 null。无 token 时重放此角色视图的持久日志，随后持续推送；每 60 秒空行保活。不同比赛、队伍、权限或学校可见性视图的 token 不能混用，非法或超前 token 返回 400。事件没有 TTL，不因服务重启过期。初次启动后由写入器生成视图，通常数秒内出现事件。
+
+MongoDB 租约让一个进程负责生成事件，其他进程读同一日志；事件批次先持久化再公开，重启可恢复未完成批次。比赛中兜底读取约每 2 秒一次，赛前较远或非活跃比赛约每 30 秒一次，评测与配置变化会提前触发。恢复时可能重复通知相同对象，消费者应按对象 ID 应用更新。
+
+webhook 只发送注册后的变更。使用 `POST $CCS_BASE/webhooks`，JSON 例如 `{"url":"https://receiver.example/ccs","token":"client-generated-secret","endpoints":["teams","judgements"],"contest_ids":[]}`。空数组表示全部事件类型/本域可管理且已开放的比赛。回调头为 `Webhook-Token`，请求体为 `{"contest_id":"…","notifications":[…]}`。同一接收方顺序发送，2xx 后推进游标，失败重试，连续失败 30 分钟停用；所有者失去管理权限后也停用。回调工作不会阻塞事件生成。接收方应处理崩溃恢复导致的重复投递。
+
+### 写入与最终结果
+
+- `PATCH contests/<ID>`：管理员修改开始时间、暂停/恢复倒计时、安排解冻。必须带 `id`。距开赛 30 秒内或已经开赛时不允许修改开始时间；暂停用 `start_time: null` 和可选的 `countdown_pause_time`。解冻用 `scoreboard_thaw_time`，不能早于比赛结束。
+- `POST submissions`：team 提交本队代码；admin 不带 time 时代理提交（必须带 team_id），带 time 时导入历史提交。`PUT submissions/<ID>` 必须有匹配的 id、time 和 team_id。files 是恰好一个含单个 UTF-8 源文件的 ZIP，以 base64 放入 data，mime 可省略或为 `application/zip`；遵守 Hydro 的代码长度、语言范围、参赛资格与比赛时间限制。入口由 Hydro 语言配置确定，entry_point 须省略或为 null。ZIP 校验拒绝路径越界、重复文件名、加密、损坏数据及超限解压。
+- `POST/PUT clarifications`：team 提问、judge 裁判回复/公告、admin 代理提问及历史导入。使用 `to_team_ids` / `to_group_ids`，可指定多队或分组；PUT 必须带 id 和 time。私有问题不会因向其他队共享回复而泄露。CCS 定向消息持久化在独立集合，可表达的普通问题与回复同时尝试镜像到 Hydro；多队/分组消息通过 CCS 查看。镜像失败不撤销已存储的 CCS 消息，并记录服务端日志。
+- `POST commentary`：judge/admin 提交 message、tags 及可选队伍/题目/提交引用；服务端设置作者与时间。
+- `POST/PUT/PATCH/DELETE awards`：admin 管理奖项。修改后该 ID 由管理员接管，不被自动计算覆盖。`team_ids: null` 表示暂停更新，空数组表示当前无人获奖。自动奖项包括冠军、金银铜、已开启的一血和分组冠军。一血奖要等更早的合资格待评测提交全部判完，避免提前公布后换队。
+- 设置页“确认 CCS 最终结果”（扩展 `POST contests/<ID>/finalize`）要求已结束、已解冻且无待评测提交。默认手动确认；可开启自动确认，在条件满足且数据稳定 30 秒后触发。确认后保存不可变 CCS 数据快照，拒绝后续 CCS 写入，`end_of_updates` 是事件流最后一条事件。之后 Hydro 中的重测、改题或修改奖项不改变该快照；关闭 API 和收紧学校可见性仍立即生效。需要修改最终结果时，应在确认前完成。
+
+### 数据边界与验证范围
+
+没有伪造 Hydro 未记录的数据：历史评测的开始时间仅在监控或写入器实际观察到时提供；测试点没有绝对完成时间，因此 runs 不提供 time/contest_time。没有原生 PDF 题面、Kattis 题目包、输出大小配置、ICPC CMS 编号、场地坐标、座位号、教练登记、队伍媒体流与反应视频等来源时，不输出这些字段。邮件、性别、账号密码等未作为本插件比赛公开资料提供。旧 `team.hidden`、单个 `to_team_id`、整数 penalty_time、XML Event Feed 和旧 JSON Scoreboard 不实现。
+
+Schema 测试固定使用官方 2026-01 分支文件；上游 schema 对 runs 时间和 submission files 的无条件 required 与可见性/缺失数据有差异，本地测试仅放宽这些要求，原始 schema 文件不改。历史 judgement 开始时间缺失也属于上述数据例外。因此不能把测试结果解释为所有响应均通过未调整的官方校验器。
+
+本地预览：`pnpm preview` 后在演示设置页开启 API，根地址为 `http://127.0.0.1:18900/d/system/ccsapi/`（设置 `XCPCIO_PREVIEW_PORT` 可改端口），演示比赛 ID 为 `68ea00000000000000000000`；账号 `admin`、`judge`、`team1` 等的演示密码均为 `preview`。预览使用内存模拟 Hydro，提交只进入模拟待评测状态，不连接真实评测机。生产插件使用 Hydro 模型和 MongoDB，不使用演示账号或内存数据库。具体测试结果与部署验证边界见 [验证记录](verification.md)。
+
 ## 安装
 
 需要 Node.js 22 或以上版本及 Hydro 5.x。使用运行 Hydro 的系统用户操作；命令中的 `$HOME` 对应这个用户。自 0.8.1 起，安装包包含供 Hydro 直接加载的源码和完整预构建资源。
 
-下载 `hydro-scoreboard-xcpcio-plus-0.9.0.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
+下载 `hydro-scoreboard-xcpcio-plus-1.0.0.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
 
 ```bash
 mkdir -p "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
-tar -xzf hydro-scoreboard-xcpcio-plus-0.9.0.tgz \
+tar -xzf hydro-scoreboard-xcpcio-plus-1.0.0.tgz \
   -C "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus" --strip-components=1
 hydrooj addon add "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
 pm2 restart hydrooj
@@ -38,7 +112,7 @@ pm2 restart hydrooj
 
 ```bash
 mkdir -p xcpcio-update
-tar -xzf hydro-scoreboard-xcpcio-plus-0.9.0.tgz -C xcpcio-update
+tar -xzf hydro-scoreboard-xcpcio-plus-1.0.0.tgz -C xcpcio-update
 bash xcpcio-update/package/install.sh install
 # 已有安装时
 bash xcpcio-update/package/install.sh upgrade

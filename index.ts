@@ -15,6 +15,7 @@ import { applyScreens } from './lib/screens-routes';
 import { applyLive } from './lib/live/routes';
 import { applyMonitor } from './lib/monitor-routes';
 import { applyOverview } from './lib/overview-routes';
+import { applyCcs } from './lib/ccs/routes';
 
 export const name = 'scoreboard-xcpcio-plus';
 export const Config = Schema.object({
@@ -218,6 +219,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>) {
                 tdoc: this.tdoc,
                 boardUrl: `${contestBase(this.tdoc)}/scoreboard/xcpcio-plus`,
                 publicUrl: publicPath(this.tdoc),
+                ccsUrl: `/d/${encodeURIComponent(this.tdoc.domainId)}/ccsapi/contests/${this.tdoc.docId}`,
                 replacementEnabled: config.asDefault,
                 assetBase: manifest.base,
                 settingsJson: toScriptJson({ settings, teams, automaticBoards: automaticBoards(teams), filterFields: rosterFields(teams, profileFields) }),
@@ -242,6 +244,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>) {
                 { $set: { settings, updatedBy: this.user._id, updatedAt: new Date() } },
                 { upsert: true },
             );
+            (ctx.broadcast as any)('xcpcio/ccs-touch', settingsKey(this.tdoc.domainId, `${this.tdoc.docId}`));
             this.response.redirect = `${contestBase(this.tdoc)}/xcpcio-settings?saved=1`;
         }
     }
@@ -276,6 +279,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>) {
     applyScreens(ctx, { loadSettings, loadData: loadContestData });
     applyMonitor(ctx);
     applyOverview(ctx, { loadSettings, loadData: loadContestData });
+    applyCcs(ctx, { loadSettings, loadData: loadContestData });
     if (config.live !== false) applyLive(ctx, { loadSettings, loadData: loadContestData });
     ctx.Route('contest_xcpcio_plus_public', '/contest/:tid/xcpcio-public', PublicBoardHandler);
     ctx.i18n.load('zh', { 'XCPCIO Plus': 'XCPCIO 增强榜' });

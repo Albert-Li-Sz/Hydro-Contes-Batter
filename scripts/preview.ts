@@ -12,6 +12,7 @@ import { createScreensPreview } from '../preview/screens';
 import { createLivePreview } from '../preview/live';
 import { createMonitorPreview } from '../preview/monitor';
 import { createOverviewPreview } from '../preview/overview';
+import { createCcsPreview, previewCcsId } from '../preview/ccs';
 import { previewDatabase } from '../preview/resolver-memory-db';
 
 async function main() {
@@ -31,6 +32,7 @@ const screensPreview = createScreensPreview(env, logoNames, pluginVersion, previ
 const monitorPreview = createMonitorPreview(env, pluginVersion, demoData);
 const overviewPreview = createOverviewPreview(env, pluginVersion);
 const livePreview = createLivePreview(env, logoNames, pluginVersion, demoData, () => settings);
+const ccsPreview = createCcsPreview(demoData(), () => settings);
 const base = '/contest/demo';
 const boardUrl = `${base}/scoreboard/xcpcio-plus`;
 const settingsUrl = `${base}/xcpcio-settings`;
@@ -47,6 +49,7 @@ const server = http.createServer(async (request, response) => {
         const displayData = url.searchParams.get('fixture') === 'wide' ? wideData() : url.searchParams.get('fixture') === 'team' ? teamData() : data;
         const displayDefaults = { ...defaults, hideSubmissions: url.searchParams.get('running') === '1',  tdoc: { title: displayData.contest.contest_name } };
         const fixtureQuery = ['wide', 'team'].includes(url.searchParams.get('fixture') || '') ? `&fixture=${url.searchParams.get('fixture')}` : '';
+        if (await ccsPreview.handle(request, response, url)) return;
         if (await resolverPreview(request, response, url, displayData, settings)) return;
         if (await screensPreview(request, response, url, displayData, settings)) return;
         if (await livePreview.handle(request, response, url)) return;
@@ -60,6 +63,8 @@ const server = http.createServer(async (request, response) => {
             await fs.writeFile(`${statePath}.tmp`, JSON.stringify(next, null, 2));
             await fs.rename(`${statePath}.tmp`, statePath);
             settings = next;
+            await ccsPreview.sync();
+            ccsPreview.app.writer.touch(`system/${previewCcsId}`);
             response.writeHead(303, { Location: `${settingsUrl}?saved=1` }).end(); return;
         }
         if (request.method !== 'GET') { response.writeHead(405).end(); return; }
@@ -68,7 +73,7 @@ const server = http.createServer(async (request, response) => {
         }
         if (url.pathname === settingsUrl) {
             response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(env.render('xcpcio_plus_settings.html', {
-                ...defaults, boardUrl, publicUrl, replacementEnabled: true,
+                ...defaults, boardUrl, publicUrl, ccsUrl: `/d/system/ccsapi/contests/${previewCcsId}`, replacementEnabled: true,
                 settingsJson: toScriptJson({ settings, teams, automaticBoards: automaticBoards(teams), filterFields: rosterFields(teams, defaultProfileFields) }),
             })); return;
         }
@@ -114,6 +119,7 @@ const server = http.createServer(async (request, response) => {
     }
 });
 livePreview.attach(server);
+server.on('close', () => { void ccsPreview.close(); });
 const port = Number(process.env.XCPCIO_PREVIEW_PORT || 18900);
 server.listen(port, '127.0.0.1', () => console.log(`Preview: http://127.0.0.1:${port}${boardUrl}\nSettings: http://127.0.0.1:${port}${settingsUrl}\nLive: http://127.0.0.1:${port}${base}/live`));
 }
