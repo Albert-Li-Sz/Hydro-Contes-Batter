@@ -13,6 +13,7 @@ import { createLivePreview } from '../preview/live';
 import { createMonitorPreview } from '../preview/monitor';
 import { createOverviewPreview } from '../preview/overview';
 import { createCcsPreview, previewCcsId } from '../preview/ccs';
+import { createManagePreview } from '../preview/manage';
 import { previewDatabase } from '../preview/resolver-memory-db';
 
 async function main() {
@@ -31,6 +32,7 @@ const resolverPreview = createResolverPreview(env, logoNames, pluginVersion, pre
 const screensPreview = createScreensPreview(env, logoNames, pluginVersion, previewDb);
 const monitorPreview = createMonitorPreview(env, pluginVersion, demoData);
 const overviewPreview = createOverviewPreview(env, pluginVersion);
+const managePreview = createManagePreview(env, pluginVersion);
 const livePreview = createLivePreview(env, logoNames, pluginVersion, demoData, () => settings);
 const ccsPreview = createCcsPreview(demoData(), () => settings);
 const base = '/contest/demo';
@@ -55,6 +57,7 @@ const server = http.createServer(async (request, response) => {
         if (await livePreview.handle(request, response, url)) return;
         if (await monitorPreview(request, response, url)) return;
         if (await overviewPreview(request, response, url)) return;
+        if (await managePreview(request, response, url)) return;
         if (request.method === 'POST' && url.pathname === settingsUrl) {
             let body = '';
             for await (const chunk of request) { body += chunk; if (body.length > 1000000) throw new Error('设置内容过大'); }

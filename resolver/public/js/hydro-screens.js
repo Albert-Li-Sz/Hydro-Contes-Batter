@@ -1,4 +1,4 @@
-// Hydro big-screen administration page: one card per program item with its settings and link.
+// Hydro big-screen administration page: pick a screen in the side menu, then edit its settings and link.
 const runtime = JSON.parse(document.getElementById('screens-runtime').textContent);
 const $ = (id) => document.getElementById(id);
 const message = $('message');
@@ -39,6 +39,7 @@ function select(options, value, onChange) {
 
 function changed() {
     dirty = true;
+    refreshMenu();
     $('save-status').textContent = '有未保存的更改';
 }
 
@@ -94,18 +95,10 @@ function card(type) {
     });
     const open = el('a', { class: 'button', target: '_blank', rel: 'noopener', text: '新窗口打开', href: link.value });
     open.dataset.type = type;
-    const preview = el('button', { class: 'button', type: 'button', text: '预览' });
-    preview.addEventListener('click', () => {
-        const frame = $('preview-frame');
-        frame.hidden = false;
-        frame.src = linkFor(type);
-        $('preview-title').textContent = `${runtime.labels[type]}${dirty ? '（显示的是已保存的设置）' : ''}`;
-        $('preview').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
     const body = el('div', { class: 'section__body' }, el('p', { class: 'resolver-muted', text: hints[type] || '' }));
     if (fields.childElementCount) body.append(fields);
-    body.append(el('div', { class: 'screen-link' }, link, copy, open, preview));
-    return el('section', { class: 'section visible screen-card', id: `screen-${type}` },
+    body.append(el('div', { class: 'screen-link' }, link, copy, open));
+    return el('section', { class: 'section visible screen-card', id: `screen-${type}`, 'data-type': type, hidden: '' },
         el('div', { class: 'section__header' }, el('h2', { class: 'section__title', text: runtime.labels[type] })), body);
 }
 
@@ -127,17 +120,53 @@ $('contest-title').textContent = runtime.title;
 $('back-link').href = runtime.contestUrl;
 $('locale').value = config.locale;
 $('locale').addEventListener('change', () => { config.locale = $('locale').value; changed(); });
-$('screen-cards').append(...runtime.types.map(card));
+$('screen-panel').append(...runtime.types.map(card));
+
+// Side menu: one entry per screen; the chosen screen's settings show on the left.
+const summary = (type) => {
+    const item = config.items[type];
+    const parts = [];
+    if (runtime.standingsTypes.includes(type)) parts.push(runtime.boards.find((board) => board.id === item.boardId)?.name || item.boardId);
+    if (runtime.variants[type]) parts.push(runtime.variants[type].find(([value]) => value === item.variant)?.[1] || item.variant);
+    if (type === 'countdown') parts.push({ end: '到比赛结束', start: '到比赛开始', custom: '到指定时间' }[item.target]);
+    if (type === 'message') parts.push(item.text.trim() ? item.text.trim().split('\n')[0].slice(0, 16) : '未填写');
+    if (type === 'resolver') parts.push(item.sessionId ? '已选择会话' : '未选择会话');
+    return parts.filter(Boolean).join(' · ');
+};
+const menuLinks = new Map(runtime.types.map((type) => {
+    const note = el('small', { class: 'screens-menu-note' });
+    const link = el('a', { class: 'menu__link', href: `#screen-${type}` }, el('span', { text: runtime.labels[type] }), note);
+    link.addEventListener('click', (event) => { event.preventDefault(); choose(type, true); });
+    $('screen-menu').append(el('li', { class: 'menu__item' }, link));
+    return [type, { link, note }];
+}));
+const refreshMenu = () => { for (const [type, { note }] of menuLinks) note.textContent = summary(type); };
+function choose(type, focus = false) {
+    if (!runtime.types.includes(type)) type = runtime.types[0];
+    for (const section of $('screen-panel').children) section.hidden = section.dataset.type !== type;
+    for (const [key, { link }] of menuLinks) {
+        link.classList.toggle('active', key === type);
+        if (key === type) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
+    }
+    history.replaceState(null, '', `#screen-${type}`);
+    if (focus && matchMedia('(max-width: 1024px)').matches) $('screen-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+choose(location.hash.replace(/^#screen-/, ''));
+refreshMenu();
+addEventListener('hashchange', () => choose(location.hash.replace(/^#screen-/, '')));
 $('save').addEventListener('click', async () => {
     message.hidden = true;
-    for (const field of document.querySelectorAll('#screen-cards input[required]')) if (!field.reportValidity()) return;
+    for (const field of document.querySelectorAll('#screen-panel input[required]')) {
+        if (field.checkValidity()) continue;
+        choose(field.closest('[data-type]').dataset.type);
+        field.reportValidity();
+        return;
+    }
     $('save').disabled = true;
     try {
         config = (await request({ config: JSON.stringify(config) })).config;
         dirty = false;
         $('save-status').textContent = `已保存 ${new Date().toLocaleTimeString('zh-CN')}`;
-        const frame = $('preview-frame');
-        if (!frame.hidden) frame.contentWindow?.location.reload();
     } catch (error) { showError(error); } finally { $('save').disabled = false; }
 });
 $('reset-token').addEventListener('click', () => $('reset-confirm').showModal());
@@ -145,11 +174,10 @@ $('reset-confirm').addEventListener('close', async () => {
     if ($('reset-confirm').returnValue !== 'confirm') return;
     try {
         linkBase = (await request({ operation: 'reset_token' })).linkBase;
-        for (const node of document.querySelectorAll('#screen-cards [data-type]')) {
+        for (const node of document.querySelectorAll('#screen-panel .screen-link [data-type]')) {
             if (node.tagName === 'INPUT') node.value = linkFor(node.dataset.type);
             else node.href = linkFor(node.dataset.type);
         }
-        $('preview-frame').hidden = true;
         $('save-status').textContent = '已生成新链接，旧链接已失效';
     } catch (error) { showError(error); }
 });

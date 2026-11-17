@@ -16,6 +16,7 @@ import { applyLive } from './lib/live/routes';
 import { applyMonitor } from './lib/monitor-routes';
 import { applyOverview } from './lib/overview-routes';
 import { applyCcs } from './lib/ccs/routes';
+import { applyManage } from './lib/manage-routes';
 
 export const name = 'scoreboard-xcpcio-plus';
 export const Config = Schema.object({
@@ -280,6 +281,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>) {
     applyMonitor(ctx);
     applyOverview(ctx, { loadSettings, loadData: loadContestData });
     applyCcs(ctx, { loadSettings, loadData: loadContestData });
+    applyManage(ctx);
     if (config.live !== false) applyLive(ctx, { loadSettings, loadData: loadContestData });
     ctx.Route('contest_xcpcio_plus_public', '/contest/:tid/xcpcio-public', PublicBoardHandler);
     ctx.i18n.load('zh', { 'XCPCIO Plus': 'XCPCIO 增强榜' });

@@ -77,6 +77,7 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
         effect: vi.fn((factory: () => () => unknown) => { const stop = factory(); if (typeof stop === 'function') cleanup.push(stop); }),
         broadcast: vi.fn(),
         i18n: { load: vi.fn() },
+        injectUI: vi.fn(),
         inject: (_deps: string[], callback: any) => callback({
             scoreboard: { addView: (_id: string, _name: string, args: any, next: any) => { view = { ...next, args }; } },
             server: { addHandlerLayer: (_name: string, handler: any) => { middleware = handler; } },
@@ -97,6 +98,7 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
         overview: (name = '') => new (routes.get(`contest_xcpcio_overview${name}`))(),
         resolverTables: resolverDb.tables,
         hooks: ctx.on,
+        injectUI: ctx.injectUI,
         broadcast: ctx.broadcast,
         routeNames: () => [...routes.keys()],
     };
@@ -182,6 +184,17 @@ describe('Hydro 数据与权限', () => {
             hydro.Hydro = previous;
         }
     }, 10_000);
+    it('系统管理：用户配置排在“导入用户”下方，评测机控制与批量重测追加到控制面板', async () => {
+        const app = setup(); await app.init();
+        expect(app.routeNames()).toEqual(expect.arrayContaining([
+            'manage_xcpcio_users', 'manage_xcpcio_users_data', 'manage_xcpcio_judges', 'manage_xcpcio_judges_data', 'manage_xcpcio_rejudge', 'manage_xcpcio_rejudge_data',
+        ]));
+        const calls = app.injectUI.mock.calls;
+        expect(calls).toContainEqual(['ControlPanel', 'manage_xcpcio_users', { before: 'manage_user_priv' }, undefined]);
+        expect(calls.map((call: unknown[]) => call[1])).toEqual(expect.arrayContaining(['manage_xcpcio_judges', 'manage_xcpcio_rejudge']));
+        // Judge daemons are watched on connect so dispatch rules apply before they start taking tasks.
+        expect(app.hooks.mock.calls.filter(([name]: [string]) => name === 'connection/active').length).toBeGreaterThanOrEqual(2);
+    });
     it('赛况总览：只有比赛管理员可看，封榜期间也给实时数字', async () => {
         const begin = state.contest.beginAt.getTime() / 1000;
         state.locked = true; state.ended = false;

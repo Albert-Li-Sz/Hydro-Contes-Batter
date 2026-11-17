@@ -1,0 +1,16 @@
+{% extends "layout/basic.html" %}
+{% block content %}
+<style>
+.preview-manage{display:flex;gap:24px;align-items:flex-start;max-width:1200px;margin:0 auto;padding:0 15px}
+.preview-manage__main{flex:1;min-width:0}.preview-manage__side{width:240px;flex:none}
+.preview-manage__side ol{list-style:none;margin:0;padding:8px 0}.preview-manage__side a{display:block;padding:8px 16px;color:inherit;text-decoration:none}
+.preview-manage__side a.active{background:rgba(95,159,214,.15);border-left:3px solid #5f9fd6;padding-left:13px;font-weight:600}
+@media(max-width:900px){.preview-manage{flex-direction:column-reverse}.preview-manage__side{width:100%}}
+</style>
+<div class="preview-manage">
+  <div class="preview-manage__main">{% block manage_content %}{% endblock %}</div>
+  <div class="preview-manage__side"><div class="section side visible"><ol>
+    {% for item in manageMenu %}<li><a href="{{ item.href }}"{% if item.active %} class="active"{% endif %}>{{ item.label }}</a></li>{% endfor %}
+  </ol></div></div>
+</div>
+{% endblock %}

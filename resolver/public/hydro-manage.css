@@ -1,0 +1,58 @@
+/* System administration pages in Hydro's control panel (/manage). Hydro's own sections, tables and buttons. */
+#hydro-resolver-config.xcpcio-manage { --manage-line: rgba(127, 127, 127, .25); --manage-ok: #3cba54; --manage-bad: #e05d44; --manage-warn: #e6a23c; }
+.xcpcio-manage .manage-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.xcpcio-manage .manage-toolbar .textbox { flex: 1 1 220px; min-width: 0; margin: 0; }
+.xcpcio-manage .manage-toolbar .button { margin: 0; }
+.xcpcio-manage .manage-toolbar .manage-spacer { flex: 1; }
+.xcpcio-manage .manage-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--manage-line); margin-bottom: 14px; }
+.xcpcio-manage .manage-tabs button { font: inherit; background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 16px; margin-bottom: -1px; cursor: pointer; color: inherit; opacity: .7; }
+.xcpcio-manage .manage-tabs button[aria-selected="true"] { opacity: 1; border-bottom-color: #5f9fd6; font-weight: 600; }
+.xcpcio-manage .manage-scroll { overflow-x: auto; }
+.xcpcio-manage .data-table { width: 100%; }
+.xcpcio-manage .data-table td, .xcpcio-manage .data-table th { vertical-align: middle; }
+.xcpcio-manage .data-table .col-check { width: 32px; text-align: center; }
+.xcpcio-manage .data-table .col-check input { margin: 0; }
+.xcpcio-manage .data-table .col-actions { text-align: right; }
+.xcpcio-manage .data-table td.col-actions { min-width: 76px; white-space: normal; }
+.xcpcio-manage .data-table .col-actions .button { margin: 2px 0 2px 6px; padding: 0 10px; line-height: 28px; height: 30px; white-space: nowrap; }
+.xcpcio-manage .data-table tr.is-selected td { background: rgba(95, 159, 214, .1); }
+.xcpcio-manage .manage-nowrap { white-space: nowrap; }
+.xcpcio-manage .manage-dim { opacity: .6; }
+.xcpcio-manage .manage-small { font-size: 12px; }
+.xcpcio-manage .manage-tag { display: inline-block; font-size: 12px; line-height: 18px; padding: 0 6px; border-radius: 3px; border: 1px solid var(--manage-line); margin: 1px 4px 1px 0; white-space: nowrap; }
+.xcpcio-manage .manage-tag--ok { color: #fff; background: var(--manage-ok); border-color: var(--manage-ok); }
+.xcpcio-manage .manage-tag--bad { color: #fff; background: var(--manage-bad); border-color: var(--manage-bad); }
+.xcpcio-manage .manage-tag--warn { color: #fff; background: var(--manage-warn); border-color: var(--manage-warn); }
+.xcpcio-manage .manage-pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.xcpcio-manage .manage-pager .button { margin: 0; }
+.xcpcio-manage .manage-empty { text-align: center; padding: 24px 0; opacity: .6; }
+.xcpcio-manage dialog { width: 560px; }
+.xcpcio-manage dialog .resolver-fields { margin-bottom: 0; }
+.xcpcio-manage dialog .resolver-actions { justify-content: flex-end; }
+.xcpcio-manage dialog textarea.textbox { width: 100%; min-height: 72px; resize: vertical; }
+.xcpcio-manage dialog .manage-password { display: flex; gap: 8px; }
+.xcpcio-manage dialog .manage-password .textbox { flex: 1; margin: 4px 0 8px; }
+.xcpcio-manage dialog .manage-password .button { margin: 4px 0 8px; flex: none; }
+.xcpcio-manage .manage-readonly { padding: 6px 0 10px; font-family: var(--code-font-family, monospace); }
+.xcpcio-manage .manage-config { width: 100%; min-height: 170px; font-family: var(--code-font-family, monospace); font-size: 12px; white-space: pre; }
+.xcpcio-manage .manage-list { margin: 0 0 12px; padding-left: 18px; max-height: 180px; overflow: auto; }
+.xcpcio-manage .manage-error { color: #d74747; }
+.xcpcio-manage .manage-langs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 12px; max-height: 200px; overflow: auto; padding: 6px 0 10px; }
+.xcpcio-manage .manage-langs label { display: flex; gap: 6px; align-items: center; line-height: 1.6; font-size: 13px; }
+.xcpcio-manage .manage-langs input { margin: 0; }
+.xcpcio-manage .manage-problems { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 16px; }
+.xcpcio-manage .manage-problems label { display: flex; gap: 8px; align-items: center; line-height: 1.7; min-width: 0; }
+.xcpcio-manage .manage-problems label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xcpcio-manage .manage-statuses { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.xcpcio-manage .manage-statuses label { display: flex; gap: 6px; align-items: center; line-height: 1.8; }
+.xcpcio-manage .manage-group { margin-bottom: 18px; }
+.xcpcio-manage .manage-group > h3 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+.xcpcio-manage .manage-quick { display: inline-flex; gap: 6px; margin-left: 8px; }
+.xcpcio-manage .manage-quick .link { font-size: 13px; cursor: pointer; color: #5f9fd6; background: none; border: 0; padding: 0; }
+@media (max-width: 640px) {
+  .xcpcio-manage dialog { width: auto; }
+}
+#hydro-resolver-config.xcpcio-manage label.checkbox { display: flex; align-items: center; gap: 8px; line-height: 1.8; }
+#hydro-resolver-config.xcpcio-manage label.checkbox input { display: inline-block; margin: 0; flex: none; }
+#hydro-resolver-config.xcpcio-manage textarea.textbox { min-height: 64px; height: auto; resize: vertical; }
+#hydro-resolver-config.xcpcio-manage textarea.manage-config { min-height: 170px; }

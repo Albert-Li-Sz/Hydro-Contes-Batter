@@ -3,25 +3,33 @@
 {% block content %}
 <link rel="stylesheet" href="{{ codeBase }}/hydro-config.css">
 <link rel="stylesheet" href="{{ codeBase }}/hydro-screens.css">
-<div class="row resolver-config" id="hydro-resolver-config"><div class="medium-12 columns" id="hydro-screens">
-  <section class="section visible">
-    <div class="section__header resolver-heading"><div><h1 class="section__title">大屏</h1><p class="resolver-muted" id="contest-title"></p></div><a class="button" id="back-link">返回比赛</a></div>
-    <div class="section__body">
-      <p class="resolver-muted">每种画面有一个固定链接，在大屏电脑的浏览器中打开即可显示，无需登录 Hydro；点击画面、右上角“全屏”按钮或按 F 进入全屏，Esc 退出。榜单类画面与公开榜一致，封榜后冻结。修改设置并保存后，已打开的大屏会在几秒内更新。</p>
-      <p id="message" class="resolver-error" role="alert" hidden></p>
-      <div class="resolver-fields resolver-two">
-        <label>画面语言<select class="select" id="locale"><option value="zh-CN">中文</option><option value="en">English</option></select></label>
+<div class="row resolver-config" id="hydro-resolver-config" data-sticky-parent><div id="hydro-screens">
+  <div class="medium-9 columns">
+    <section class="section visible">
+      <div class="section__header resolver-heading"><div><h1 class="section__title">大屏</h1><p class="resolver-muted" id="contest-title"></p></div><a class="button" id="back-link">返回比赛</a></div>
+      <div class="section__body">
+        <p class="resolver-muted">在右侧选择一种画面进行设置。每种画面有一个固定链接，在大屏电脑的浏览器中打开即可显示，无需登录 Hydro；点击画面、右上角“全屏”按钮或按 F 进入全屏，Esc 退出。榜单类画面与公开榜一致，封榜后冻结。保存后，已打开的大屏会在几秒内更新。</p>
+        <p id="message" class="resolver-error" role="alert" hidden></p>
+        <div class="resolver-fields resolver-two">
+          <label>画面语言（全部画面）<select class="select" id="locale"><option value="zh-CN">中文</option><option value="en">English</option></select></label>
+        </div>
       </div>
-      <div class="resolver-actions"><button type="button" class="button primary" id="save">保存设置</button><span class="resolver-muted" id="save-status" role="status"></span><button type="button" class="button" id="reset-token">作废并重新生成全部链接</button></div>
-    </div>
-  </section>
-  <div id="screen-cards"></div>
-  <section class="section visible" id="preview">
-    <div class="section__header resolver-heading"><h2 class="section__title">预览</h2><span class="resolver-muted" id="preview-title">点击画面卡片上的“预览”，显示已保存的效果</span></div>
-    <div class="section__body"><div class="resolver-preview"><iframe id="preview-frame" title="大屏预览" allow="fullscreen" allowfullscreen hidden></iframe></div></div>
-  </section>
+    </section>
+    <div id="screen-panel"></div>
+    <section class="section visible">
+      <div class="section__body">
+        <div class="resolver-actions" style="margin-top:0"><button type="button" class="button primary" id="save">保存设置</button><span class="resolver-muted" id="save-status" role="status"></span><span class="screens-spacer"></span><button type="button" class="button" id="reset-token">作废并重新生成全部链接</button></div>
+      </div>
+    </section>
+    <p class="resolver-muted">画面移植自 ICPC Tools，经 Resolver-Web v1.4.0 · <a href="/hydro-resolver/licenses/ICPC-Software-License.txt">ICPC Software License</a> · <a href="/hydro-resolver/licenses/Resolver-Web-Apache-2.0.txt">Apache-2.0</a></p>
+  </div>
+  <div class="medium-3 columns"><div data-sticky="large">
+    <section class="section side visible">
+      <div class="section__header"><h2 class="section__title">画面</h2></div>
+      <ol class="menu" id="screen-menu" aria-label="大屏画面"></ol>
+    </section>
+  </div></div>
   <dialog id="reset-confirm" aria-labelledby="reset-title"><form method="dialog"><h2 id="reset-title">作废全部大屏链接</h2><p>所有已打开的大屏会立即失效，需要在每台大屏电脑上打开新链接。确定继续？</p><div class="resolver-actions"><button class="button" value="cancel">取消</button><button class="button primary" value="confirm">作废并重新生成</button></div></form></dialog>
-  <p class="resolver-muted">画面移植自 ICPC Tools，经 Resolver-Web v1.4.0 · <a href="/hydro-resolver/licenses/ICPC-Software-License.txt">ICPC Software License</a> · <a href="/hydro-resolver/licenses/Resolver-Web-Apache-2.0.txt">Apache-2.0</a></p>
 </div></div>
 <script type="application/json" id="screens-runtime">{{ runtimeJson | safe }}</script>
 <script type="module" src="{{ codeBase }}/js/hydro-screens.js"></script>

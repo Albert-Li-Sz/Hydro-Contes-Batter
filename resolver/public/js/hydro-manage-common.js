@@ -1,0 +1,109 @@
+// Shared helpers of the /manage pages: DOM building (text only, no HTML), requests and dialogs.
+export const runtime = JSON.parse(document.getElementById('manage-runtime').textContent);
+export const $ = (id) => document.getElementById(id);
+
+export function el(tag, attrs = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs)) {
+        if (value === undefined || value === null || value === false) continue;
+        if (key === 'class') node.className = value;
+        else if (key === 'text') node.textContent = value;
+        else if (key.startsWith('on') && typeof value === 'function') node.addEventListener(key.slice(2), value);
+        else if (value === true) node.setAttribute(key, '');
+        else node.setAttribute(key, value);
+    }
+    node.append(...children.filter((child) => child !== null && child !== undefined && child !== false));
+    return node;
+}
+
+async function parse(response) {
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.error) {
+        const message = typeof data.error === 'string' ? data.error : data.error?.message;
+        throw new Error(message || `请求失败（${response.status}），请检查登录状态与权限`);
+    }
+    return data;
+}
+
+/** Hydro routes `operation` to the handler's post<Operation> method. */
+export async function post(operation, payload) {
+    const response = await fetch(runtime.base, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ operation, payload: JSON.stringify(payload) }),
+    });
+    return parse(response);
+}
+
+export async function get(params = {}) {
+    const url = new URL(runtime.dataUrl, location.href);
+    for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, value);
+    return parse(await fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } }));
+}
+
+export const formatTime = (value) => {
+    if (!value) return '—';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) || date.getTime() <= 0 ? '—' : date.toLocaleString('zh-CN', { hour12: false });
+};
+
+export function randomPassword(length = 12) {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    const bytes = crypto.getRandomValues(new Uint8Array(length));
+    return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('');
+}
+
+export async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+}
+
+/** Status line under a toolbar; errors stand out. */
+export function notify(node, message, error = false) {
+    node.textContent = message;
+    node.classList.toggle('manage-error', error);
+    node.hidden = !message;
+}
+
+/**
+ * A modal form built on <dialog>. `submit` runs on confirm; throwing keeps the dialog open
+ * with the message shown, so a wrong password can be retyped.
+ */
+export function openDialog({ title, body = [], confirm = '确定', submit }) {
+    const error = el('p', { class: 'manage-error', role: 'alert', hidden: true });
+    const ok = el('button', { class: 'button primary', type: 'submit', text: confirm });
+    const cancel = el('button', { class: 'button', type: 'button', text: '取消' });
+    const form = el('form', { method: 'dialog' }, el('h2', { text: title }), ...body, error, el('div', { class: 'resolver-actions' }, cancel, ok));
+    const dialog = el('dialog', {}, form);
+    $('hydro-resolver-config').append(dialog);
+    const close = () => { dialog.close(); dialog.remove(); };
+    cancel.addEventListener('click', close);
+    dialog.addEventListener('cancel', (event) => { event.preventDefault(); close(); });
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!submit) { close(); return; }
+        error.hidden = true;
+        ok.disabled = true;
+        try {
+            await submit();
+            close();
+        } catch (failure) {
+            error.textContent = failure.message || String(failure);
+            error.hidden = false;
+        } finally { ok.disabled = false; }
+    });
+    dialog.showModal();
+    return { dialog, close };
+}
+
+export function field(label, control, hint) {
+    return el('label', {}, label, control, hint ? el('span', { class: 'resolver-muted manage-small', text: hint }) : null);
+}
+
+export function input(attrs = {}) {
+    return el('input', { class: 'textbox', type: 'text', ...attrs });
+}
+
+/** The operator's own password, asked before anything is deleted. */
+export function adminPassword() {
+    return input({ type: 'password', autocomplete: 'current-password', required: true, placeholder: '当前登录管理员的 Hydro 密码' });
+}
