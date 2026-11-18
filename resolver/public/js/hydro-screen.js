@@ -3,9 +3,12 @@
 // read-only like Resolver-Web's watch.js. Data comes from the plugin's tokenised data endpoint.
 import { PresentationView } from './render/presentation-view.js';
 import { ResolverView } from './render/resolver-view.js';
+import { HydroScreenExtras } from './hydro-screen-extras.js';
 
 const runtime = JSON.parse(document.getElementById('screen-runtime').textContent);
 const canvas = document.getElementById('screen');
+const content = document.getElementById('screen-content');
+const extras = new HydroScreenExtras(content);
 const statusEl = document.getElementById('screen-status');
 const isResolver = runtime.type === 'resolver';
 let state = null;          // last presentation payload
@@ -17,6 +20,8 @@ let resolver = null;       // { view, session, steps, playback }
 let failures = 0;
 let lastFrame = performance.now();
 let loaded = null;
+let nextContentFrame = 0;
+let paintedState = null;
 
 function status(text) {
     statusEl.textContent = text || '';
@@ -77,6 +82,9 @@ async function poll() {
         }
         const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(10000) });
         if (response.status === 404) {
+            resolver?.view.dispose?.();
+            resolver = null;
+            state = { item: noticeItem('大屏链接已作废，请向管理员获取新链接'), data: null, locale: state?.locale };
             status('大屏链接已作废，请向管理员获取新链接');
             delay = 30000;
             return;
@@ -86,7 +94,7 @@ async function poll() {
         offset = data.serverTime - Date.now();
         if (isResolver) applyResolver(data);
         else state = data.notice ? { item: noticeItem(data.notice), data: null, locale: data.locale } : data;
-        const key = JSON.stringify(state?.item || null);
+        const key = JSON.stringify([state?.item, state?.type === 'announce' ? state.data?.[0]?.id : undefined]);
         if (key !== itemKey) { itemKey = key; itemStartedAt = performance.now(); }
         failures = 0;
         status('');
@@ -104,9 +112,20 @@ function frame(now) {
     lastFrame = now;
     size();
     if (resolver && !state) {
+        canvas.hidden = false;
+        content.hidden = true;
         resolver.view.update(dt);
         resolver.view.render(now);
     } else if (state) {
+        if (paintedState !== state || now >= nextContentFrame) {
+            paintedState = state;
+            nextContentFrame = now + 250;
+            const custom = extras.show(state, now - itemStartedAt);
+            content.hidden = !custom;
+            canvas.hidden = custom;
+            if (custom && !failures) status('');
+        }
+        if (canvas.hidden) { requestAnimationFrame(frame); return; }
         presentation ||= new PresentationView();
         const ctx = canvas.getContext('2d');
         // render() returns false until the fonts (including the large Chinese font) have loaded.
@@ -144,7 +163,7 @@ function fullscreenChanged() {
     document.body.classList.toggle('fullscreen', full);
     fullButton.textContent = full ? '退出全屏' : '全屏';
     fullButton.title = full ? '退出全屏 (Esc)' : '全屏 (F)';
-    hint.hidden = full || !supported;
+    hint.hidden = full || !supported || window.self !== window.top;
     activity();
 }
 if (!supported) {
@@ -153,6 +172,7 @@ if (!supported) {
 }
 fullButton.addEventListener('click', (event) => { event.stopPropagation(); toggleFullscreen(); });
 canvas.addEventListener('click', enterFullscreen);
+content.addEventListener('click', enterFullscreen);
 canvas.addEventListener('dblclick', (event) => { if (document.fullscreenElement) { event.preventDefault(); document.exitFullscreen?.(); } });
 window.addEventListener('keydown', (event) => {
     if (event.key.toLowerCase() === 'f' && !event.ctrlKey && !event.metaKey && !event.altKey) toggleFullscreen();

@@ -1,3 +1,5 @@
+import type { Context } from 'hydrooj';
+
 /**
  * Hydro team contests (Hydro 5.1, `tdoc.allowTeam`): a team is a virtual user whose contest status
  * carries `displayName` and the member user ids in `members`. A participant who attends alone has
@@ -26,6 +28,18 @@ export function memberIds(tdoc: object, entries: TeamEntry[]) {
     // `allowTeam` exists from Hydro 5.1 on; older versions have no team contests.
     if (!(tdoc as { allowTeam?: unknown }).allowTeam) return [];
     return [...new Set(entries.flatMap((entry) => (isTeamEntry(entry) ? entry.members : [])))];
+}
+
+/** onsite-toolkit imports the seat into the corresponding user or virtual user document. */
+export async function loadSeats(db: Context['db'], uids: number[]) {
+    const distinct = [...new Set(uids)];
+    const read = (name: 'user' | 'vuser', ids: number[]) => ids.length
+        ? db.collection(name).find({ _id: { $in: ids }, seat: { $exists: true } } as never)
+            .project<{ _id: number; seat?: unknown }>({ _id: 1, seat: 1 }).toArray()
+        : [];
+    const [users, teams] = await Promise.all([read('user', distinct.filter((uid) => uid > 0)), read('vuser', distinct.filter((uid) => uid < 0))]);
+    return new Map([...users, ...teams].flatMap(({ _id, seat }) => (typeof seat === 'string' || typeof seat === 'number'
+        ? [[_id, String(seat)] as const] : [])));
 }
 
 /**

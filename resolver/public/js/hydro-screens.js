@@ -16,6 +16,20 @@ const hints = {
     countdown: '距目标时间的倒计时，到点后转为正计时。',
     message: '全屏文字公告，可换行。',
     resolver: '跟随一场滚榜会话的进度同步显示，没有控制权，也看不到尚未揭晓的内容。',
+    'problem-stats': '逐题显示提交和通过情况，支持柱状图或题目卡片。',
+    'rank-trend': '用 Hydro 的计分规则绘制领先队伍的名次变化。',
+    outcomes: '按比赛时间或题目汇总评测结果，封榜后隐藏的结果计入待定。',
+    groups: '按已配置的分榜或学校分组，逐组轮播或展示各组领先队伍。',
+    'logo-wall': '展示参赛学校的本地 Logo，读取公开榜的学校显示设置。',
+    'team-intro': '依次展示队伍名称、队员和可公开显示的学校。',
+    'problem-colors': '展示各题对应的气球颜色，颜色在 Hydro 的气球管理中设置。',
+    floor: '读取 onsite-toolkit 的座位号，按前缀分区排列。画面包含座位号，请按场馆需要分享链接。',
+    balloons: '按座位显示 Hydro 气球管理里的待配送气球，配送完成后自动消失。仅显示公开榜可见的通过记录。',
+    announce: '轮播最近通过的队伍和题目，可切换为只播报一血。',
+    judges: '展示评测机是否在线、评测队列及负载。对外只显示机器编号。',
+    poster: '按上传顺序轮播 PNG、JPEG 或 WebP 图片，每张最多 2 MiB，共 20 张。上传和移除立即生效。',
+    clarifications: '轮播裁判发给所有选手的比赛公告。',
+    'problem-list': '展示比赛题目标题、气球颜色和时空限制。',
 };
 
 function el(tag, attrs = {}, ...children) {
@@ -49,7 +63,57 @@ const toLocalInput = (iso) => {
     return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 };
 
-const linkFor = (type) => new URL(`${linkBase}/${type}`, location.href).href;
+const linkFor = (type) => new URL(`${linkBase}/${type}${runtime.query || ''}`, location.href).href;
+const imageFor = (id) => `${linkBase}/poster/images/${id}`;
+
+function readImage(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1]);
+        reader.onerror = () => reject(new Error('无法读取图片'));
+        reader.readAsDataURL(file);
+    });
+}
+
+let refreshPosters = () => {};
+function posterControls(item) {
+    const file = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp' });
+    const upload = el('button', { type: 'button', class: 'button', text: '上传图片' });
+    const list = el('ol', { class: 'screen-posters' });
+    const apply = async (body) => {
+        message.hidden = true;
+        upload.disabled = true;
+        for (const button of list.querySelectorAll('button')) button.disabled = true;
+        try {
+            item.images = (await request(body)).images;
+        } catch (error) { showError(error); }
+        finally {
+            refreshPosters();
+            refreshMenu();
+        }
+    };
+    upload.addEventListener('click', async () => {
+        const selected = file.files[0];
+        if (!selected) { showError(new Error('请选择图片')); return; }
+        if (selected.size > 2 * 1024 * 1024) { showError(new Error('图片不能超过 2 MiB')); return; }
+        upload.disabled = true;
+        try {
+            const image = await readImage(selected);
+            await apply({ operation: 'upload_poster', image });
+            file.value = '';
+        } catch (error) { showError(error); upload.disabled = false; }
+    });
+    refreshPosters = () => {
+        list.replaceChildren(...item.images.map((id, index) => {
+            const remove = el('button', { type: 'button', class: 'button', text: '移除', 'aria-label': `移除图片 ${index + 1}` });
+            remove.addEventListener('click', () => apply({ operation: 'remove_poster', imageId: id }));
+            return el('li', {}, el('img', { src: imageFor(id), alt: `图片 ${index + 1}`, loading: 'lazy' }), remove);
+        }));
+        upload.disabled = item.images.length >= 20;
+    };
+    refreshPosters();
+    return el('div', { class: 'screen-poster-controls' }, el('label', { text: '选择图片' }, file), upload, list);
+}
 
 function card(type) {
     const item = config.items[type];
@@ -61,6 +125,15 @@ function card(type) {
     }
     if (runtime.variants[type]) {
         fields.append(el('label', { text: '样式' }, select(runtime.variants[type], item.variant, (value) => { item.variant = value; })));
+    }
+    if (type === 'groups') {
+        fields.append(el('label', { text: '分组方式' }, select(runtime.groupSources, item.source, (value) => { item.source = value; })));
+    }
+    if (runtime.intervalTypes.includes(type)) {
+        const input = el('input', { class: 'textbox', type: 'number', min: '2', max: '600', step: '1', required: '' });
+        input.value = item.interval;
+        input.addEventListener('input', () => { item.interval = input.valueAsNumber; changed(); });
+        fields.append(el('label', { text: '切换间隔（秒）' }, input));
     }
     if (type === 'countdown') {
         const time = el('input', { class: 'textbox', type: 'datetime-local' });
@@ -95,9 +168,16 @@ function card(type) {
     });
     const open = el('a', { class: 'button', target: '_blank', rel: 'noopener', text: '新窗口打开', href: link.value });
     open.dataset.type = type;
+    const preview = el('button', { class: 'button', type: 'button', text: '预览' });
+    preview.addEventListener('click', () => {
+        $('preview-title').textContent = runtime.labels[type];
+        $('screen-preview-frame').src = linkFor(type);
+        $('screen-preview').showModal();
+    });
     const body = el('div', { class: 'section__body' }, el('p', { class: 'resolver-muted', text: hints[type] || '' }));
     if (fields.childElementCount) body.append(fields);
-    body.append(el('div', { class: 'screen-link' }, link, copy, open));
+    if (type === 'poster') body.append(posterControls(item));
+    body.append(el('div', { class: 'screen-link' }, link, copy, preview, open));
     return el('section', { class: 'section visible screen-card', id: `screen-${type}`, 'data-type': type, hidden: '' },
         el('div', { class: 'section__header' }, el('h2', { class: 'section__title', text: runtime.labels[type] })), body);
 }
@@ -107,7 +187,7 @@ async function request(body) {
         method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error((typeof data.error === 'string' ? data.error : data.error?.message) || `请求失败（${response.status}），请检查登录状态`);
+    if (!response.ok || data.url) throw new Error((typeof data.error === 'string' ? data.error : data.error?.message) || '请求失败，请检查登录状态');
     return data;
 }
 
@@ -131,15 +211,21 @@ const summary = (type) => {
     if (type === 'countdown') parts.push({ end: '到比赛结束', start: '到比赛开始', custom: '到指定时间' }[item.target]);
     if (type === 'message') parts.push(item.text.trim() ? item.text.trim().split('\n')[0].slice(0, 16) : '未填写');
     if (type === 'resolver') parts.push(item.sessionId ? '已选择会话' : '未选择会话');
+    if (type === 'groups') parts.push(runtime.groupSources.find(([value]) => value === item.source)?.[1]);
+    if (type === 'poster') parts.push(`${item.images.length} 张图片`);
     return parts.filter(Boolean).join(' · ');
 };
-const menuLinks = new Map(runtime.types.map((type) => {
-    const note = el('small', { class: 'screens-menu-note' });
-    const link = el('a', { class: 'menu__link', href: `#screen-${type}` }, el('span', { text: runtime.labels[type] }), note);
-    link.addEventListener('click', (event) => { event.preventDefault(); choose(type, true); });
-    $('screen-menu').append(el('li', { class: 'menu__item' }, link));
-    return [type, { link, note }];
-}));
+const menuLinks = new Map();
+for (const [label, types] of runtime.categories) {
+    $('screen-menu').append(el('li', { class: 'screens-menu-category', text: label }));
+    for (const type of types) {
+        const note = el('small', { class: 'screens-menu-note' });
+        const link = el('a', { class: 'menu__link', href: `#screen-${type}` }, el('span', { text: runtime.labels[type] }), note);
+        link.addEventListener('click', (event) => { event.preventDefault(); choose(type, true); });
+        $('screen-menu').append(el('li', { class: 'menu__item' }, link));
+        menuLinks.set(type, { link, note });
+    }
+}
 const refreshMenu = () => { for (const [type, { note }] of menuLinks) note.textContent = summary(type); };
 function choose(type, focus = false) {
     if (!runtime.types.includes(type)) type = runtime.types[0];
@@ -164,7 +250,11 @@ $('save').addEventListener('click', async () => {
     }
     $('save').disabled = true;
     try {
-        config = (await request({ config: JSON.stringify(config) })).config;
+        const saved = (await request({ config: JSON.stringify(config) })).config;
+        config.locale = saved.locale;
+        for (const type of runtime.types) Object.assign(config.items[type], saved.items[type]);
+        refreshPosters();
+        refreshMenu();
         dirty = false;
         $('save-status').textContent = `已保存 ${new Date().toLocaleTimeString('zh-CN')}`;
     } catch (error) { showError(error); } finally { $('save').disabled = false; }
@@ -178,7 +268,9 @@ $('reset-confirm').addEventListener('close', async () => {
             if (node.tagName === 'INPUT') node.value = linkFor(node.dataset.type);
             else node.href = linkFor(node.dataset.type);
         }
+        refreshPosters();
         $('save-status').textContent = '已生成新链接，旧链接已失效';
     } catch (error) { showError(error); }
 });
+$('screen-preview').addEventListener('close', () => $('screen-preview-frame').removeAttribute('src'));
 addEventListener('beforeunload', (event) => { if (dirty) event.preventDefault(); });

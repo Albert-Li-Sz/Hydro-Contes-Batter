@@ -278,8 +278,8 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>) {
 
     ctx.Route('contest_xcpcio_plus_settings', '/contest/:tid/xcpcio-settings', SettingsHandler);
     applyResolver(ctx, { loadSettings, loadData: loadContestData, sessionDays: config.resolverSessionDays ?? 0 });
-    applyScreens(ctx, { loadSettings, loadData: loadContestData });
     const monitor = applyMonitor(ctx);
+    applyScreens(ctx, { loadSettings, loadData: loadContestData, machines: monitor.machines });
     applyOverview(ctx, { loadSettings, loadData: loadContestData });
     applyCcs(ctx, { loadSettings, loadData: loadContestData });
     applyManage(ctx, { machines: monitor.machines });

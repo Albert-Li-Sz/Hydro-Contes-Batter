@@ -8,7 +8,7 @@ Hydro OJ 的 ACM 比赛榜单、滚榜、大屏与直播插件，集成 XCPCIO �
 - 支持只滚所选榜单，或将所选分榜设为正式参赛、其余选手设为非正式参赛。
 - 每位管理员可独立创建滚榜会话，进度保存至 MongoDB，支持刷新恢复，默认永久保留。
 - 高清校徽、字体与图标随包提供，运行时从本地加载；榜单使用缩略图，滚榜使用原图。
-- 大屏：实时榜单、领先队伍榜、方块榜、首解列表、判题队列、比赛时钟、倒计时、文字公告和滚榜观众画面，每种画面一个免登录链接，支持全屏，画面移植自 ICPC Tools。
+- 大屏：23 种比赛画面，涵盖榜单、统计图表、队伍与学校展示、场馆、气球、评测机、海报和公告。每种画面有一个免登录投屏链接，支持预览与全屏。
 - 直播：集成 ICPC Live v3 的 OBS 直播画面与导播台，后端改写为 Node.js 运行在 Hydro 内，无需 Java；榜单、评测队列、统计、滚动字幕、队伍画面、标题字幕、图片与自动解说，数据与公开榜一致。
 - 评测监控：比赛管理员实时查看每台评测机的连接状态、并发占用、评测速度与用时、通过率、系统错误和 CPU、内存、温度，以及各评测机上正在评测的任务和最新评测结果、本场待评测提交，异常时页面告警。
 - 赛况总览：供来宾视察的全屏大屏，一屏显示比赛时间、八项核心指标、实时排名前十、各题通过与首解、学校情况、最近通过、提交趋势、过题数分布、评测结果分布，以及服务器与评测机的 CPU、内存压力，实时数据，仅比赛管理员可打开。
@@ -20,11 +20,11 @@ Hydro OJ 的 ACM 比赛榜单、滚榜、大屏与直播插件，集成 XCPCIO �
 
 需要 Node.js 22+ 和 Hydro 5.x。请使用运行 Hydro 的系统用户，在主服务所在环境执行。
 
-下载完整安装包 `hydro-scoreboard-xcpcio-plus-1.5.0.tgz`，解压到固定目录，注册 addon 后重启。安装包包含预构建页面、字体和完整校徽。
+下载完整安装包 `hydro-scoreboard-xcpcio-plus-1.6.0.tgz`，解压到固定目录，注册 addon 后重启。安装包包含预构建页面、字体和完整校徽。
 
 ```bash
 mkdir -p "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
-tar -xzf hydro-scoreboard-xcpcio-plus-1.5.0.tgz \
+tar -xzf hydro-scoreboard-xcpcio-plus-1.6.0.tgz \
   -C "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus" --strip-components=1
 hydrooj addon add "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
 pm2 restart hydrooj
@@ -38,7 +38,7 @@ pm2 restart hydrooj
 
 ```bash
 mkdir -p xcpcio-update
-tar -xzf hydro-scoreboard-xcpcio-plus-1.5.0.tgz -C xcpcio-update
+tar -xzf hydro-scoreboard-xcpcio-plus-1.6.0.tgz -C xcpcio-update
 bash xcpcio-update/package/install.sh install
 
 # 升级时下载并解压新包，运行新包中的脚本
@@ -67,6 +67,10 @@ bash "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus/install.sh" uninstall
 | 比赛时钟 / 倒计时 | 多日比赛显示完整小时数；倒计时可为数字或环形 |
 | 文字公告 | 全屏文字 |
 | 滚榜观众画面 | 只读跟随一场滚榜，与主持端画面一致 |
+| 统计图表 | 题目通过统计、排名走势图、评测结果分布 |
+| 榜单与展示 | 分组排行轮播、学校 Logo 墙、队伍巡礼、题目与气球颜色 |
+| 场馆与现场 | 赛场平面图、气球配送图、通过播报、评测机状态 |
+| 信息与编排 | 图片海报、比赛公告滚动、题目列表 |
 
 - **系统管理**：Hydro 系统管理员在控制面板侧边栏使用“用户配置”（位于“导入用户”下方）、“评测机控制”、“打印服务器管理”和“批量重测”，详见 [系统管理](docs/usage.md#系统管理)。
 - **评测监控**：同样的管理员从比赛右侧菜单的“评测监控”进入，页面每 3 秒刷新。

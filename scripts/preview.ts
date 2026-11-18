@@ -45,7 +45,7 @@ const data = demoData();
 const teams = demoRoster();
 const manifest = JSON.parse(await fs.readFile(path.join(root, 'public/hydro-xcpcio/manifest.json'), 'utf8'));
 const defaults = { process: { env: {} }, UiContext: { cdn_prefix: '/' }, assetBase: manifest.base, tdoc: { title: data.contest.contest_name } };
-const contentTypes: Record<string, string> = { '.webp': 'image/webp', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.html': 'text/html', '.json': 'application/json', '.txt': 'text/plain' };
+const contentTypes: Record<string, string> = { '.webp': 'image/webp', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.gif': 'image/gif', '.html': 'text/html', '.json': 'application/json', '.txt': 'text/plain' };
 const server = http.createServer(async (request, response) => {
     try {
         const url = new URL(request.url || '/', 'http://localhost');

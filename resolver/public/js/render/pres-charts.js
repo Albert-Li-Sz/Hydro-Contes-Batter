@@ -342,6 +342,8 @@ export class ProblemSummaryChart extends AbstractChart {
     super("BAR", "Attempts & Solutions by Problem", "# of submissions");
   }
   setupChart() {
+    this.title = this.words.problemSummaryTitle || this.title;
+    this.verticalAxisTitle = this.words.submissionCount || this.verticalAxisTitle;
     const problems = this.getContest().getProblems();
     if (!problems.length) return;
     this.horizontalLabels = problems.map((p) => p.label);
@@ -359,8 +361,8 @@ export class ProblemSummaryChart extends AbstractChart {
       }
     this.dataSeries[0].setValues(attempts);
     this.dataSeries[1].setValues(solved);
-    this.dataSeries[0].title = "# of submissions";
-    this.dataSeries[1].title = "# of solved submissions";
+    this.dataSeries[0].title = this.words.submissionCount || "# of submissions";
+    this.dataSeries[1].title = this.words.solvedSubmissionCount || "# of solved submissions";
   }
 }
 

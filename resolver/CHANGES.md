@@ -60,3 +60,8 @@
 - `server/lib/engine.js` 的 `normalizeContest()` 保留队伍的 `members`（最多 10 个名字，各不超过 64 个字符），`publicContest()` 随队伍一起输出。
 - `public/js/render/resolver-view.js` 的 `_renderTeamAward()` 在队名下方以小号灰字显示队员（仅当队伍有队员时），其余绘制不变。
 
+## 扩展大屏
+
+- 题目统计、题目气球颜色和学校 Logo 墙使用现有 ICPC Tools 画面。`pres-charts.js` 和 `presentation-locale.js` 增加题目统计图的中英文标题、纵轴与图例文字，保留原图形布局。
+- `hydro-screen-extras.js` 使用同一套本地字体与 ICPC Tools 配色绘制 Hydro 大屏，数据读取公开榜结果、已配置分榜、onsite-toolkit 座位和比赛公告。
+

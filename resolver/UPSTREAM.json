@@ -212,7 +212,7 @@
       "source": "public/js/render/pres-charts.js",
       "destination": "resolver/public/js/render/pres-charts.js",
       "sha256": "6abc56f5bb5122257110b49cb756d84af97a1b056cb9434f65c783fd4d1666ad",
-      "modifiedSha256": "6abc56f5bb5122257110b49cb756d84af97a1b056cb9434f65c783fd4d1666ad"
+      "modifiedSha256": "da07d05dfbc14ebba18eac59ff1dc09ab7aad4cb84332ffd49af499f5ce38785"
     },
     {
       "source": "public/js/render/pres-clock.js",
@@ -278,7 +278,7 @@
       "source": "public/js/render/presentation-locale.js",
       "destination": "resolver/public/js/render/presentation-locale.js",
       "sha256": "7eef7eed896a42d446db1d33cd042cb62ac09633e51388ec958bb12d49725777",
-      "modifiedSha256": "7eef7eed896a42d446db1d33cd042cb62ac09633e51388ec958bb12d49725777"
+      "modifiedSha256": "68c0c7469faca2ff47cf8841c8af93576317545ed797b108455e950315d22179"
     },
     {
       "source": "public/js/render/presentation-metrics.js",

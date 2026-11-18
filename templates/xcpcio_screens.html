@@ -21,7 +21,7 @@
         <div class="resolver-actions" style="margin-top:0"><button type="button" class="button primary" id="save">保存设置</button><span class="resolver-muted" id="save-status" role="status"></span><span class="screens-spacer"></span><button type="button" class="button" id="reset-token">作废并重新生成全部链接</button></div>
       </div>
     </section>
-    <p class="resolver-muted">画面移植自 ICPC Tools，经 Resolver-Web v1.4.0 · <a href="/hydro-resolver/licenses/ICPC-Software-License.txt">ICPC Software License</a> · <a href="/hydro-resolver/licenses/Resolver-Web-Apache-2.0.txt">Apache-2.0</a></p>
+    <p class="resolver-muted">ICPC Tools 画面组件经 Resolver-Web v1.4.0 移植 · <a href="/hydro-resolver/licenses/ICPC-Software-License.txt">ICPC Software License</a> · <a href="/hydro-resolver/licenses/Resolver-Web-Apache-2.0.txt">Apache-2.0</a></p>
   </div>
   <div class="medium-3 columns"><div data-sticky="large">
     <section class="section side visible">
@@ -29,6 +29,7 @@
       <ol class="menu" id="screen-menu" aria-label="大屏画面"></ol>
     </section>
   </div></div>
+  <dialog id="screen-preview" aria-labelledby="preview-title"><form method="dialog" class="screen-preview-header"><h2 id="preview-title"></h2><button class="button">关闭</button></form><p class="resolver-muted">预览当前已保存的设置。</p><iframe id="screen-preview-frame" title="大屏预览" allowfullscreen></iframe></dialog>
   <dialog id="reset-confirm" aria-labelledby="reset-title"><form method="dialog"><h2 id="reset-title">作废全部大屏链接</h2><p>所有已打开的大屏会立即失效，需要在每台大屏电脑上打开新链接。确定继续？</p><div class="resolver-actions"><button class="button" value="cancel">取消</button><button class="button primary" value="confirm">作废并重新生成</button></div></form></dialog>
 </div></div>
 <script type="application/json" id="screens-runtime">{{ runtimeJson | safe }}</script>

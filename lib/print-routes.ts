@@ -11,7 +11,7 @@ import {
 import { printJob, type PrintSheet } from './print-render';
 import { resolverCodeBase } from './resolver-data';
 import { toScriptJson } from './settings';
-import { describeTeam, isTeamEntry, memberIds, type TeamEntry } from './teams';
+import { describeTeam, isTeamEntry, loadSeats, memberIds, type TeamEntry } from './teams';
 
 /** Hydro's print requests: documents of type 32 under a contest (model/contest.ts addPrintTask). */
 const TYPE_CONTEST_PRINT = 32;
@@ -104,24 +104,13 @@ export function applyPrintServers(ctx: Context) {
         return typeof configured === 'string' ? configured : '';
     };
 
-    /** The `seat` onsite-toolkit stored on each account (team accounts, and Hydro 5.1 teams' members). */
-    async function seatsOf(uids: number[]) {
-        const ids = [...new Set(uids)];
-        const [users, vusers] = await Promise.all([
-            ids.some((uid) => uid > 0) ? raw('user').find({ _id: { $in: ids.filter((uid) => uid > 0) }, seat: { $exists: true } }).project({ _id: 1, seat: 1 }).toArray() : [],
-            ids.some((uid) => uid < 0) ? raw('vuser').find({ _id: { $in: ids.filter((uid) => uid < 0) }, seat: { $exists: true } }).project({ _id: 1, seat: 1 }).toArray() : [],
-        ]);
-        return new Map<number, string>([...users, ...vusers].filter((doc: { seat?: unknown }) => typeof doc.seat === 'string' || typeof doc.seat === 'number')
-            .map((doc: { _id: number; seat: string | number }) => [doc._id, String(doc.seat)]));
-    }
-
     /** Team names, schools, members and seats of a contest's participants (staff see identity). */
     async function contestInfo(domainId: string, tid: ObjectId) {
         const tdoc = await ContestModel.get(domainId, tid);
         if (!tdoc) return null;
         const entries = await ContestModel.getMultiStatus(domainId, { docId: tid }).toArray() as unknown as (TeamEntry & { unrank?: boolean })[];
         const uids = [...entries.map((entry) => entry.uid), ...memberIds(tdoc, entries)];
-        const [users, seats] = await Promise.all([UserModel.getList(domainId, uids), seatsOf(uids)]);
+        const [users, seats] = await Promise.all([UserModel.getList(domainId, uids), loadSeats(ctx.db, uids)]);
         const byUid = new Map<number, { name: string; school: string; members: string[]; uname: string; seat: string; unofficial: boolean }>();
         for (const entry of entries) {
             const team = describeTeam(entry, users, true);

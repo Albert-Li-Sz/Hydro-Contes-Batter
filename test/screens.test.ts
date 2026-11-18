@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { defaultSettings } from '../lib/settings';
 import { resolverBoards } from '../lib/resolver-data';
-import { defaultScreenConfig, normalizeScreenConfig, presentationItem, screenData } from '../lib/screens-data';
+import { broadcastRows, decodePoster, defaultScreenConfig, hiddenBeforeStart, normalizeScreenConfig, presentationItem, saveScreenConfig,
+    screenCategories, screenData, screenProjection, screenTypes } from '../lib/screens-data';
 import { demoData } from './fixture';
 
 const settings = { ...defaultSettings, showIdentity: true, manualBoards: [{ id: 'mixed', name: '混合榜', teamIds: ['1', '4', '7'] }] };
@@ -39,6 +40,61 @@ describe('big-screen configuration', () => {
         expect(presentationItem('countdown', custom.items.countdown, data)).toMatchObject({ type: 'countdown', variant: 'digital', targetTime: Date.parse('2026-10-27T03:00:00Z') });
         expect(presentationItem('scoreboard', config.items.scoreboard, data)).toEqual({ type: 'scoreboard' });
         expect(presentationItem('queue', config.items.queue, data)).toEqual({ type: 'queue', variant: 'queue' });
+    });
+});
+
+describe('additional screens', () => {
+    it('lists every screen once, loads legacy settings and keeps uploads through settings saves', () => {
+        expect(screenCategories.flatMap(([, types]) => types)).toEqual([...screenTypes]);
+        const id = 'a'.repeat(24);
+        const config = normalizeScreenConfig({ items: { poster: { images: [id] } } });
+        expect(saveScreenConfig({ items: { poster: { images: [], interval: 3 } } }, config).items.poster).toMatchObject({ images: [id], interval: 3 });
+        expect(() => normalizeScreenConfig({ items: { poster: { interval: 1 } } })).toThrow();
+        expect(() => normalizeScreenConfig({ items: { groups: { source: 'all' } } })).toThrow();
+        expect(['outcomes', 'rank-trend', 'floor', 'balloons', 'announce', 'problem-list'].every((type) => hiddenBeforeStart.has(type as never))).toBe(true);
+    });
+
+    it('uses only freeze-visible results for rank history, outcome buckets, broadcasts and balloons', () => {
+        const data = demoData();
+        const freezeMs = 3600 * 1000;
+        data.contest.frozen_time = 4 * 3600;
+        data.submissions.push({ submission_id: 'edge', team_id: '8', problem_id: 1, status: 'CORRECT', timestamp: freezeMs });
+        data.submissions.push({ submission_id: 'late', team_id: '8', problem_id: 2, status: 'CORRECT', timestamp: freezeMs + 1000 });
+        data.submissions.push({ submission_id: 'late', team_id: '8', problem_id: 2, status: 'CORRECT', timestamp: freezeMs + 1000 });
+        const view = screenData(data, null, { ...env, seats: new Map([['8', 'A-08']]), trend: true });
+        const config = defaultScreenConfig();
+        const projection = (type: 'announce' | 'balloons' | 'floor' | 'outcomes' | 'rank-trend') => screenProjection(type, config.items[type], view, [
+            { teamId: '8', problemId: '1', submissionId: 'edge' }, { teamId: '8', problemId: '2', submissionId: 'late' },
+        ]);
+        expect(view.outcomes.filter((record) => record.submission_id === 'late')).toMatchObject([{ status: 'FROZEN' }]);
+        expect(projection('rank-trend')).toMatchObject({ times: expect.arrayContaining([0, 4800000]), teams: expect.arrayContaining([expect.objectContaining({ ranks: expect.any(Array) })]) });
+        expect(projection('outcomes')).toContainEqual(expect.objectContaining({ label: '60–90 min', counts: { CORRECT: 2, PENDING: 3 } }));
+        expect(projection('announce')).toContainEqual(expect.objectContaining({ id: 'edge' }));
+        expect(projection('announce')).not.toContainEqual(expect.objectContaining({ id: 'late' }));
+        expect(projection('balloons')).toMatchObject({ seats: [expect.objectContaining({ seat: 'A-08', balloons: ['1'] })] });
+        expect(projection('floor')).toMatchObject({ seats: [expect.objectContaining({ seat: 'A-08', latest: 'PENDING' })] });
+    });
+
+    it('supports overlapping groups and gives each group an independent official ranking', () => {
+        const data = demoData();
+        const item = defaultScreenConfig().items.groups;
+        const view = screenData(data, null, { ...env, groups: [
+            { id: 'g1', name: '甲', teamIds: ['1', '4', '5'] }, { id: 'g2', name: '乙', teamIds: ['4', '5'] },
+        ] });
+        expect(screenProjection('groups', item, view)).toMatchObject([
+            { name: '甲', rows: [expect.objectContaining({ name: '林澈', rank: 1 }), expect.objectContaining({ name: '许青', rank: 2 }), expect.objectContaining({ name: '苏禾', rank: '*' })] },
+            { name: '乙', rows: [expect.objectContaining({ name: '许青', rank: 1 }), expect.objectContaining({ name: '苏禾', rank: '*' })] },
+        ]);
+        expect(screenProjection('scoreboard', item, view)).not.toHaveProperty('seats');
+    });
+
+    it('exposes only jury broadcasts and rejects non-image uploads', () => {
+        const docId = { getTimestamp: () => new Date(4000) };
+        expect(broadcastRows([{ owner: 7, content: '私人提问', docId }, { owner: 0, subject: 6, content: '全场公告', docId }], [6], ['A']))
+            .toEqual([{ subject: 'A', text: '全场公告', at: 4000 }]);
+        const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO29l/8AAAAASUVORK5CYII=';
+        expect(decodePoster(png).mime).toBe('image/png');
+        expect(() => decodePoster(Buffer.from('<svg/>').toString('base64'))).toThrow('PNG');
     });
 });
 
