@@ -86,7 +86,7 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
     };
     return {
         saved,
-        init: () => apply(ctx as Context, { asDefault: true, publicByDefault: true, refreshInterval: 15000, resolverSessionDays: 0, live: true, profileFields: defaultProfileFields, ...config }),
+        init: () => apply(ctx as Context, { asDefault: true, publicByDefault: true, refreshInterval: 15000, resolverSessionDays: 0, live: true, liveCapture: true, profileFields: defaultProfileFields, ...config }),
         settings: () => new (routes.get('contest_xcpcio_plus_settings'))(),
         publicBoard: () => new (routes.get('contest_xcpcio_plus_public'))(),
         middleware: () => middleware,
@@ -862,6 +862,13 @@ describe('Hydro Resolver routes', () => {
         }
     });
 
+    it('offers 画面采集 with the live module, and leaves it out when its own setting is off', async () => {
+        const on = setup(); await on.init();
+        expect(on.routeNames()).toEqual(expect.arrayContaining(['contest_xcpcio_live_capture', 'contest_xcpcio_live_capture_page', 'contest_xcpcio_live_capture_device_ws', 'contest_xcpcio_live_capture_overlay_ws']));
+        const off = setup(new Map(), { liveCapture: false }); await off.init();
+        expect(off.routeNames().some((name) => name.startsWith('contest_xcpcio_live_capture'))).toBe(false);
+        expect(off.routeNames()).toContain('contest_xcpcio_live');
+    });
     it('leaves the live module out when it is switched off', async () => {
         const app = setup(new Map(), { live: false }); await app.init();
         expect(app.routeNames().some((name) => name.startsWith('contest_xcpcio_live'))).toBe(false);

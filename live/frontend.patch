@@ -3254,6 +3254,66 @@ index 739bcfa..b871d67 100644
  };
  
  const useWidgets = () => {
+diff --git a/src/frontend/overlay/src/components/organisms/holder/TeamMediaHolder.tsx b/src/frontend/overlay/src/components/organisms/holder/TeamMediaHolder.tsx
+index 9c41933..77c653b 100644
+--- a/src/frontend/overlay/src/components/organisms/holder/TeamMediaHolder.tsx
++++ b/src/frontend/overlay/src/components/organisms/holder/TeamMediaHolder.tsx
+@@ -5,6 +5,7 @@ import React, { useEffect, useRef } from "react";
+ import Hls from "hls.js";
+ import mpegts from "mpegts.js";
+ import { GrabberPlayerClient } from "@/utils/grabber/grabber_player";
++import { watchCapture } from "@/utils/hydroCapture";
+ 
+ type MediaHolderProps<M extends MediaType> = {
+     media: M;
+@@ -350,6 +351,37 @@ export const WebRTCProxyMediaHolder = ({
+     );
+ };
+ 
++// Hydro: 画面采集, a contestant computer's screen or webcam managed by Hydro.
++type HydroCaptureMedia = { type: "HydroCapture"; device: string; stream: string; vertical?: boolean };
++
++export const HydroCaptureMediaHolder = ({
++    onLoadStatus,
++    className,
++    media: { device, stream, vertical },
++}: Omit<MediaHolderProps<MediaType>, "media"> & { media: HydroCaptureMedia }) => {
++    const audio = useIsTeamMediaAudio();
++    const videoRef = useRef<HTMLVideoElement>(null);
++    useEffect(() => {
++        const video = videoRef.current;
++        if (!video) return;
++        // Shown at once (black until the computer answers), so the layout does not wait for the network.
++        onLoadStatus(true);
++        return watchCapture(device, stream, video, () => onLoadStatus(true));
++    }, [device, stream, onLoadStatus]);
++    return (
++        <MediaWrapper $vertical={vertical} className={className}>
++            <VideoContainer
++                ref={videoRef}
++                muted={!audio}
++                autoPlay
++                playsInline
++                controls={false}
++                $vertical={vertical}
++            />
++        </MediaWrapper>
++    );
++};
++
+ export const ObjectMediaHolder = ({
+     onLoadStatus,
+     media: { url },
+@@ -364,6 +396,9 @@ export const TeamMediaHolder = ({
+     media,
+     ...props
+ }: MediaHolderProps<MediaType>) => {
++    if ((media as { type: string }).type === "HydroCapture") {
++        return <HydroCaptureMediaHolder media={media as unknown as HydroCaptureMedia} {...props} />;
++    }
+     switch (media.type) {
+         case MediaType.Type.Image:
+             return (
 diff --git a/src/frontend/overlay/src/components/organisms/widgets/ContestOverview.tsx b/src/frontend/overlay/src/components/organisms/widgets/ContestOverview.tsx
 new file mode 100644
 index 0000000..4346465
@@ -4060,3 +4120,146 @@ index d8fd89d..46a0040 100644
              Object.keys(s.idAwards).forEach((id) => {
                  if (!(id in nextIdAwards)) delete s.idAwards[id];
              });
+diff --git a/src/frontend/overlay/src/utils/hydroCapture.ts b/src/frontend/overlay/src/utils/hydroCapture.ts
+new file mode 100644
+index 0000000..bc076f6
+--- /dev/null
++++ b/src/frontend/overlay/src/utils/hydroCapture.ts
+@@ -0,0 +1,137 @@
++// Hydro: 画面采集. A contestant computer's screen or webcam over WebRTC; Hydro passes the
++// handshake (lib/live/capture.ts in the plugin) and the video comes straight from that computer.
++// One websocket per page, shared by every media holder. Mirrors the plugin's
++// resolver/public/js/hydro-capture-viewer.js.
++const HYDRO_LIVE = (window as unknown as { __HYDRO_LIVE__: { captureWs?: string } }).__HYDRO_LIVE__;
++const RETRY_MS = 4000;
++const ANSWER_TIMEOUT_MS = 12000;
++
++type Message = { type: string; session?: string; sdp?: string; candidate?: RTCIceCandidateInit | null; message?: string; reason?: string; iceServers?: RTCIceServer[] };
++type Session = { handle: (message: Message) => void; fail: (reason: string) => void; close: () => void };
++
++class CaptureConnection {
++    private socket: WebSocket | null = null;
++    private iceServers: RTCIceServer[] = [];
++    private sessions = new Map<string, Session>();
++    private counter = 0;
++    private ready: Promise<void> = Promise.resolve();
++
++    constructor(private url: string) {
++        this.connect();
++        setInterval(() => {
++            if (this.socket?.readyState === WebSocket.OPEN) this.socket.send("ping");
++        }, 20000);
++    }
++
++    private connect() {
++        this.ready = new Promise((resolve) => {
++            const socket = new WebSocket(this.url);
++            this.socket = socket;
++            socket.onmessage = (event) => {
++                if (event.data === "ping") {
++                    socket.send("pong");
++                    return;
++                }
++                if (event.data === "pong") return;
++                let message: Message;
++                try {
++                    message = JSON.parse(event.data);
++                } catch {
++                    return;
++                }
++                if (message.type === "config") {
++                    this.iceServers = Array.isArray(message.iceServers) ? message.iceServers : [];
++                    resolve();
++                    return;
++                }
++                if (message.session) this.sessions.get(message.session)?.handle(message);
++            };
++            socket.onclose = () => {
++                for (const session of [...this.sessions.values()]) session.fail("websocket closed");
++                setTimeout(() => this.connect(), RETRY_MS);
++            };
++        });
++    }
++
++    private send(message: Record<string, unknown>) {
++        if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify(message));
++    }
++
++    /** Plays a device's stream in the video; retried until the returned function is called. */
++    watch(device: string, stream: string, video: HTMLVideoElement, onPlaying: () => void) {
++        let stopped = false;
++        let current: Session | null = null;
++        let retry: ReturnType<typeof setTimeout> | null = null;
++        const start = async () => {
++            if (stopped) return;
++            await this.ready;
++            if (stopped) return;
++            const id = `o${++this.counter}`;
++            const pc = new RTCPeerConnection({ iceServers: this.iceServers });
++            let timer: ReturnType<typeof setTimeout> | null = null;
++            const session: Session = {
++                handle: (message) => {
++                    if (message.type === "answer" && message.sdp) {
++                        if (timer) clearTimeout(timer);
++                        pc.setRemoteDescription({ type: "answer", sdp: message.sdp }).catch(() => session.fail("bad answer"));
++                    } else if (message.type === "ice" && message.candidate) {
++                        pc.addIceCandidate(message.candidate).catch(() => {});
++                    } else if (message.type === "error" || message.type === "ended") {
++                        console.warn(`HydroCapture ${device}/${stream}: ${message.message || message.reason}`);
++                        session.fail(message.message || message.reason || "ended");
++                    }
++                },
++                fail: () => {
++                    if (current !== session) return;
++                    current = null;
++                    if (timer) clearTimeout(timer);
++                    this.sessions.delete(id);
++                    pc.close();
++                    video.srcObject = null;
++                    if (!stopped) retry = setTimeout(start, RETRY_MS);
++                },
++                close: () => {
++                    if (timer) clearTimeout(timer);
++                    this.sessions.delete(id);
++                    this.send({ type: "stop", session: id });
++                    pc.close();
++                },
++            };
++            current = session;
++            this.sessions.set(id, session);
++            pc.addTransceiver("video", { direction: "recvonly" });
++            if (stream === "webcam") pc.addTransceiver("audio", { direction: "recvonly" });
++            const media = new MediaStream();
++            pc.ontrack = (event) => {
++                media.addTrack(event.track);
++                video.srcObject = media;
++                video.play().catch(() => {});
++            };
++            pc.onicecandidate = (event) => this.send({ type: "ice", session: id, candidate: event.candidate ? event.candidate.toJSON() : null });
++            pc.onconnectionstatechange = () => {
++                if (pc.connectionState === "connected") onPlaying();
++                else if (pc.connectionState === "failed") session.fail("failed");
++            };
++            const offer = await pc.createOffer();
++            await pc.setLocalDescription(offer);
++            this.send({ type: "watch", session: id, device, stream, sdp: offer.sdp });
++            timer = setTimeout(() => session.fail("no answer"), ANSWER_TIMEOUT_MS);
++        };
++        start().catch((error) => console.warn("HydroCapture:", error));
++        return () => {
++            stopped = true;
++            if (retry) clearTimeout(retry);
++            current?.close();
++            current = null;
++            video.srcObject = null;
++        };
++    }
++}
++
++let connection: CaptureConnection | null = null;
++
++export function watchCapture(device: string, stream: string, video: HTMLVideoElement, onPlaying: () => void) {
++    if (!HYDRO_LIVE.captureWs) return () => {};
++    connection ||= new CaptureConnection(HYDRO_LIVE.captureWs);
++    return connection.watch(device, stream, video, onPlaying);
++}

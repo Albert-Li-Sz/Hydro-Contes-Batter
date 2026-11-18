@@ -696,3 +696,13 @@ describe('live contest overview (赛况总览)', () => {
         hub.dispose();
     });
 });
+
+describe('live team medias from 画面采集', () => {
+    it('puts each team camera and screen into the contest info, and withholds them before the board is public', () => {
+        const camera = { type: 'HydroCapture', url: '', device: 'd1', stream: 'webcam' };
+        const info = buildContestInfo(source({ medias: { 1: { camera: [camera] } } }));
+        expect(info.teams.find((team) => team.id === '1')!.medias).toEqual({ camera: [camera] });
+        expect(info.teams.find((team) => team.id === '2')!.medias).toEqual({});
+        expect(buildContestInfo(source({ hidden: true, medias: { 1: { camera: [camera] } } })).teams).toEqual([]);
+    });
+});

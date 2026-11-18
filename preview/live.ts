@@ -10,6 +10,7 @@ import {
 } from '../lib/live/api';
 import { LiveHub } from '../lib/live/hub';
 import { stateFromEntries, type LiveStateEntries } from '../lib/live/state';
+import { createCapturePreview } from './capture';
 
 const verdicts = ['CORRECT', 'CORRECT', 'WRONG_ANSWER', 'TIME_LIMIT_EXCEEDED', 'RUNTIME_ERROR', 'COMPILATION_ERROR'];
 
@@ -33,6 +34,12 @@ export function createLivePreview(env: Environment, logoNames: Record<string, st
         lockAt: new Date(now + 150 * 60_000),
     };
     const submissions = template.submissions.map((record) => ({ ...record }));
+    // The demo teams sit at A-01, A-02, …, as onsite-toolkit would import.
+    const capture = createCapturePreview(env, {
+        codeBase, base, contest,
+        teams: () => template.teams.map((team, index) => ({ uid: Number(team.team_id), name: team.name, seat: `A-${String(index + 1).padStart(2, '0')}` })),
+        overlayToken: () => token,
+    });
     let next = 0;
     const timer = setInterval(() => {
         // A new submission is judged a few seconds later, so the queue shows both phases.
@@ -63,6 +70,7 @@ export function createLivePreview(env: Environment, logoNames: Record<string, st
             return {
                 contest, data, settings: current, identity: current.showIdentity, logoNames, now: Date.now(),
                 boards: resolverBoards(data, current, current.showIdentity),
+                medias: capture.medias(data),
             };
         },
         persist: async (patch) => {
@@ -89,12 +97,14 @@ export function createLivePreview(env: Environment, logoNames: Record<string, st
     }
 
     const handle = async (request: IncomingMessage, response: ServerResponse, url: URL) => {
+        if (await capture.handle(request, response, url, readBody)) return true;
         if (url.pathname === `${base}/live`) {
             if (request.method === 'POST') {
                 const body = await readBody(request);
                 if (body?.operation !== 'reset_token') { response.writeHead(400).end(); return true; }
                 token = `live${Date.now().toString(16).padStart(46, '0')}`;
                 for (const [socket, used] of overlaySockets) if (used !== token) socket.close(4004, '直播链接已作废');
+                capture.revoke(token);
                 response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ overlay: urls().overlay }));
                 return true;
             }
@@ -164,6 +174,7 @@ export function createLivePreview(env: Environment, logoNames: Record<string, st
     const attach = (server: Server) => {
         const sockets = new WebSocketServer({ noServer: true });
         server.on('upgrade', (request, socket, head) => {
+            if (capture.upgrade(request, socket, head, sockets)) return;
             const url = new URL(request.url || '/', 'http://localhost');
             const adminMatch = /^\/contest\/demo\/live\/ws\/admin\/(.+)$/.exec(url.pathname);
             const overlayMatch = /^\/contest\/demo\/live-overlay\/([^/]+)\/ws\/overlay\/(.+)$/.exec(url.pathname);

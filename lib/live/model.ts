@@ -4,7 +4,7 @@ import type { BoardSettings } from '../settings';
 import { awardsFor } from '../settings';
 import { resolverAssetBase } from '../resolver-data';
 import type {
-    AwardChain, ContestInfo, ContestStatus, GroupInfo, OrganizationInfo, ProblemInfo, RunInfo, RunResult, TeamInfo, Verdict,
+    AwardChain, ContestInfo, ContestStatus, GroupInfo, MediaType, OrganizationInfo, ProblemInfo, RunInfo, RunResult, TeamInfo, Verdict,
 } from './types';
 
 export interface LiveContestTimes {
@@ -32,6 +32,8 @@ export interface LiveSource {
     now: number;
     /** Before the public board may be shown (contest not started): no teams, no runs. */
     hidden?: boolean;
+    /** Each team's camera and screen from 画面采集 (lib/live/capture.ts), by team id. */
+    medias?: Record<string, Record<string, MediaType[]>>;
 }
 
 /** ICPC Live's ContestInfo defaults (cds/core ContestInfo.kt QueueSettings). */
@@ -134,7 +136,7 @@ export function buildContestInfo(source: LiveSource): ContestInfo {
         return {
             id: team.team_id, name: team.name, shortName: team.name,
             groups: [...new Set([unofficial ? 'unofficial' : 'official', ...(membership.get(team.team_id) || [])])],
-            hashTag: null, medias: {}, isHidden: false, isOutOfContest: unofficial,
+            hashTag: null, medias: source.medias?.[team.team_id] ?? {}, isHidden: false, isOutOfContest: unofficial,
             organizationId, color: null, reactionVideoTemplate: null, sourceTemplate: null,
             // Team contests: members for title templates ({team.customFields.members}) and the console.
             customFields: (team.members?.length ? { members: team.members.join(' · ') } : {}) as Record<string, string>,

@@ -12,6 +12,7 @@ import {
     adminApi, adminChannel, adminRuntime, type ApiResponse, builtinMediaNames, defaultVisualConfig, liveUrls, type LiveStore, overlayApi, overlayChannel,
     pluginRoot, previewRuntime, readBuiltinMedia, shell, storeName,
 } from './api';
+import { applyCapture } from './capture-routes';
 import { LiveHub, type LiveState } from './hub';
 import { stateEntries, stateFromEntries, stateUpdate, type LiveStateEntries, type LiveStatePatch } from './state';
 
@@ -61,6 +62,8 @@ export function applyLive(ctx: Context, dependencies: {
     loadSettings: (tdoc: Tdoc) => Promise<BoardSettings>;
     loadData: (tdoc: Tdoc, realtime: boolean, identity: boolean, staffResults: boolean) => Promise<BoardData>;
     intervalMs?: number;
+    /** 画面采集 (plugin setting): off, its pages and sockets are not offered and teams have no video. */
+    capture?: boolean;
 }) {
     const collection = ctx.db.collection('xcpcio.live');
     const media = ctx.db.collection('xcpcio.live.media');
@@ -94,6 +97,7 @@ export function applyLive(ctx: Context, dependencies: {
             const doc = await collection.findOne({ _id: contestKey });
             if (!doc) return;
             closeRevoked(contestKey, doc.token);
+            capture?.revoke(contestKey, doc.token);
             return;
         }
         const hub = await hubs.get(contestKey)?.catch(() => null);
@@ -160,6 +164,8 @@ export function applyLive(ctx: Context, dependencies: {
                             contest: current, data, settings, identity: settings.showIdentity, logoNames, now: Date.now(),
                             boards: resolverBoards(data, settings, settings.showIdentity),
                             hidden: !ContestModel.canShowScoreboard.call(nobody as never, current, false),
+                            // 画面采集: a broken capture setup must not take the rest of the broadcast down.
+                            medias: capture ? await capture.mediasFor(current, data).catch(() => ({})) : {},
                         };
                     },
                     announce: (kind, payload) => announce(name, kind, payload),
@@ -219,6 +225,11 @@ export function applyLive(ctx: Context, dependencies: {
         return { tdoc, doc };
     }
 
+    const capture = dependencies.capture === false ? null : applyCapture(ctx, {
+        codeBase, key, contestBase, checkAdmin, checkToken, sameSecret,
+        currentToken: async (contestKey) => (await collection.findOne({ _id: contestKey }))?.token ?? null,
+    });
+
     const respond = (handler: Handler, response: ApiResponse | null, what: string) => {
         if (!response) throw new NotFoundError(what);
         handler.response.status = response.status;
@@ -241,7 +252,7 @@ export function applyLive(ctx: Context, dependencies: {
             this.response.template = 'xcpcio_live.html';
             this.response.body = {
                 tdoc: this.tdoc, codeBase,
-                runtimeJson: toScriptJson({ base: links.root, contestUrl: contestBase(this.tdoc), title: this.tdoc.title, overlay: links.overlay, admin: links.adminBase }),
+                runtimeJson: toScriptJson({ base: links.root, contestUrl: contestBase(this.tdoc), title: this.tdoc.title, overlay: links.overlay, admin: links.adminBase, capture: !!capture }),
             };
         }
 
@@ -251,6 +262,7 @@ export function applyLive(ctx: Context, dependencies: {
             await collection.updateOne({ _id: doc._id }, { $set: { token, updatedAt: new Date() } });
             // Overlays already open with the old link stop at once, in every Hydro process.
             closeRevoked(doc._id, token);
+            capture?.revoke(doc._id, token);
             announce(doc._id, 'token');
             this.response.body = { overlay: urls(this.tdoc, { ...doc, token }).overlay };
         }

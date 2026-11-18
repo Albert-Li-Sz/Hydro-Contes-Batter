@@ -67,6 +67,9 @@ export interface LiveUrls {
     preview: string;
     previewApi: string;
     previewWs: string;
+    /** 画面采集 for the overlay (path only, like overlayWs). */
+    captureWs: string;
+    previewCaptureWs: string;
 }
 
 export function liveUrls(contestBase: string, token: string, mediaKey: string): LiveUrls {
@@ -82,12 +85,14 @@ export function liveUrls(contestBase: string, token: string, mediaKey: string): 
         preview: `${contestBase}/live/preview`,
         previewApi: `${contestBase}/live/api/overlay`,
         previewWs: `${contestBase}/live/ws/overlay`,
+        captureWs: `${contestBase}/live-overlay/${token}/ws/capture`,
+        previewCaptureWs: `${contestBase}/live/ws/capture`,
     };
 }
 
 /** The console previews the overlay through its own login, so a token reset never breaks it. */
 export const adminRuntime = (urls: LiveUrls): LiveUrls => ({ ...urls, overlay: urls.preview });
-export const previewRuntime = (urls: LiveUrls): LiveUrls => ({ ...urls, overlayApi: urls.previewApi, overlayWs: urls.previewWs });
+export const previewRuntime = (urls: LiveUrls): LiveUrls => ({ ...urls, overlayApi: urls.previewApi, overlayWs: urls.previewWs, captureWs: urls.previewCaptureWs });
 
 /** Admin websocket path -> hub channel. The console's contest info is the director's (full) view. */
 export function adminChannel(name: string) {
@@ -101,7 +106,7 @@ export function shell(app: 'overlay' | 'admin', runtime: LiveUrls, title: string
     const injected = '<meta name="referrer" content="no-referrer"><meta name="robots" content="noindex">'
         // WebSocket addresses follow the page's own scheme and host (also behind an HTTPS proxy).
         + `<script>window.__HYDRO_LIVE__=${toScriptJson(runtime)};(function(c){var o=(location.protocol==='https:'?'wss://':'ws://')+location.host;`
-        + 'c.adminWs=o+c.adminWs;c.overlayWs=o+c.overlayWs;'
+        + 'c.adminWs=o+c.adminWs;c.overlayWs=o+c.overlayWs;c.captureWs=o+c.captureWs;'
         // Clocks follow the Hydro server, not the (possibly unsynchronised) OBS computer: offset
         // from the render time, then measured against /serverTime every minute.
         + `c.clockOffset=${serverNow}-Date.now();function s(){var t=Date.now();fetch(c.overlayApi+'/serverTime',{cache:'no-store'})`

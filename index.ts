@@ -26,6 +26,7 @@ export const Config = Schema.object({
     refreshInterval: Schema.number().min(5000).max(300000).default(15000).description('榜单刷新间隔（毫秒）'),
     resolverSessionDays: Schema.number().min(0).max(365).step(1).default(0).description('滚榜会话闲置清理天数，0 为永久保留'),
     live: Schema.boolean().default(true).description('启用直播模块（ICPC Live 导播台与 OBS 画面）'),
+    liveCapture: Schema.boolean().default(true).description('启用直播的画面采集（选手屏幕与摄像头，需同时启用直播模块；各场比赛还需在“画面采集”页单独启用）'),
     profileFields: Schema.array(Schema.object({
         key: Schema.string().required().description('Hydro 公开个人资料字段名'),
         label: Schema.string().required().description('筛选项名称'),
@@ -284,7 +285,7 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>) {
     applyCcs(ctx, { loadSettings, loadData: loadContestData });
     applyManage(ctx, { machines: monitor.machines });
     applyPrintServers(ctx);
-    if (config.live !== false) applyLive(ctx, { loadSettings, loadData: loadContestData });
+    if (config.live !== false) applyLive(ctx, { loadSettings, loadData: loadContestData, capture: config.liveCapture !== false });
     ctx.Route('contest_xcpcio_plus_public', '/contest/:tid/xcpcio-public', PublicBoardHandler);
     ctx.i18n.load('zh', { 'XCPCIO Plus': 'XCPCIO 增强榜' });
     ctx.inject(['scoreboard', 'server'], ({ scoreboard, server }) => {

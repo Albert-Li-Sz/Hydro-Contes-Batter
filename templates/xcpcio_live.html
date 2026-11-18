@@ -26,6 +26,13 @@
       <div class="resolver-actions"><button type="button" class="button" id="reset-token">作废并重新生成链接</button><span class="resolver-muted" id="save-status" role="status"></span></div>
     </div>
   </section>
+  <section class="section visible screen-card" id="capture-card" hidden>
+    <div class="section__header"><h2 class="section__title">画面采集（选手屏幕与摄像头）</h2></div>
+    <div class="section__body">
+      <p class="resolver-muted">为每个座位生成采集链接，选手机用浏览器打开后，屏幕和摄像头由 Hydro 统一管理，导播台的队伍画面和放大播放可直接使用。视频在选手机与 OBS 之间点对点传输，不经过 Hydro 服务器。</p>
+      <div class="screen-link"><a class="button" id="open-capture">管理画面采集</a></div>
+    </div>
+  </section>
   <dialog id="reset-confirm" aria-labelledby="reset-title"><form method="dialog"><h2 id="reset-title">作废直播画面链接</h2><p>OBS 中正在使用的直播画面会立即失效，需要在 OBS 中换成新链接。导播台和已上传的媒体不受影响。确定继续？</p><div class="resolver-actions"><button class="button" value="cancel">取消</button><button class="button primary" value="confirm">作废并重新生成</button></div></form></dialog>
   <p class="resolver-muted">直播移植自 <a href="https://github.com/icpc/live-v3" target="_blank" rel="noopener">ICPC Live v3.5.1</a> · <a href="/hydro-live/LICENSE.txt">MIT</a></p>
 </div></div>

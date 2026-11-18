@@ -16,6 +16,9 @@ function showError(error) {
 $('contest-title').textContent = runtime.title;
 $('back-link').href = runtime.contestUrl;
 $('open-admin').href = absolute(`${runtime.admin}/controls`);
+// Hidden when the plugin setting turns 画面采集 off.
+$('capture-card').hidden = !runtime.capture;
+$('open-capture').href = absolute(`${runtime.base}/capture`);
 showOverlay(runtime.overlay);
 
 $('copy-overlay').addEventListener('click', async () => {

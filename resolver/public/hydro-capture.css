@@ -1,0 +1,31 @@
+/* 画面采集: the capture page on contestant computers, and the device grid on the management page. */
+.capture-device { margin: 0; min-height: 100vh; font: 15px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; color: #e8edf3; background: #111820; }
+.capture-device main { max-width: 960px; margin: 0 auto; padding: 24px 16px 32px; }
+.capture-device header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; }
+.capture-device h1 { margin: 0; font-size: 28px; }
+.capture-device header p { margin: 0; opacity: .7; }
+.capture-device #status { margin: 16px 0; padding: 10px 14px; border-radius: 8px; background: rgba(255, 255, 255, .06); }
+.capture-device #status[data-tone="ok"] { background: rgba(60, 186, 84, .18); }
+.capture-device #status[data-tone="warn"] { background: rgba(230, 162, 60, .2); }
+.capture-device #status[data-tone="bad"] { background: rgba(224, 93, 68, .25); }
+.capture-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.capture-tiles figure { margin: 0; overflow: hidden; border-radius: 10px; background: #000; border: 2px solid transparent; }
+.capture-tiles figure[data-on="true"] { border-color: #3cba54; }
+.capture-tiles video { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; }
+.capture-tiles figcaption { padding: 6px 10px; font-size: 13px; background: rgba(255, 255, 255, .06); }
+.capture-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px 0; }
+.capture-actions button { font: inherit; font-size: 16px; padding: 8px 22px; border: 0; border-radius: 6px; color: #fff; background: #3b82c4; cursor: pointer; }
+.capture-actions span { opacity: .75; }
+.capture-note { font-size: 13px; opacity: .6; }
+
+/* Management page */
+.xcpcio-manage .capture-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 12px; }
+.xcpcio-manage .capture-preview { position: relative; border: 1px solid var(--manage-line); border-radius: 6px; overflow: hidden; background: #000; }
+.xcpcio-manage .capture-preview video { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; }
+.xcpcio-manage .capture-preview .capture-caption { display: flex; justify-content: space-between; gap: 8px; padding: 4px 8px; font-size: 12px; color: #fff; background: rgba(0, 0, 0, .7); }
+.xcpcio-manage .capture-preview .capture-state { position: absolute; inset: 0 0 auto; padding: 4px 8px; font-size: 12px; color: #fff; background: rgba(0, 0, 0, .45); }
+.xcpcio-manage .capture-command { width: 100%; font-family: var(--code-font-family, monospace); font-size: 12px; min-height: 64px; }
+.xcpcio-manage .capture-links { width: 100%; font-family: var(--code-font-family, monospace); font-size: 12px; min-height: 160px; white-space: pre; }
+.xcpcio-manage .capture-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 14px; border-color: var(--manage-ok); background: rgba(60, 186, 84, .1); }
+.xcpcio-manage .capture-switch.manage-alert--error { border-color: var(--manage-warn); background: rgba(230, 162, 60, .12); }
+.xcpcio-manage .capture-switch .button { margin: 0; }

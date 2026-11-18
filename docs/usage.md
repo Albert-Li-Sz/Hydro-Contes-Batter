@@ -96,11 +96,11 @@ Schema 测试固定使用官方 2026-01 分支文件；上游 schema 对 runs �
 
 需要 Node.js 22 或以上版本及 Hydro 5.x。使用运行 Hydro 的系统用户操作；命令中的 `$HOME` 对应这个用户。自 0.8.1 起，安装包包含供 Hydro 直接加载的源码和完整预构建资源。
 
-下载 `hydro-scoreboard-xcpcio-plus-1.7.0.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
+下载 `hydro-scoreboard-xcpcio-plus-1.8.0.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
 
 ```bash
 mkdir -p "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
-tar -xzf hydro-scoreboard-xcpcio-plus-1.7.0.tgz \
+tar -xzf hydro-scoreboard-xcpcio-plus-1.8.0.tgz \
   -C "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus" --strip-components=1
 hydrooj addon add "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
 pm2 restart hydrooj
@@ -112,7 +112,7 @@ pm2 restart hydrooj
 
 ```bash
 mkdir -p xcpcio-update
-tar -xzf hydro-scoreboard-xcpcio-plus-1.7.0.tgz -C xcpcio-update
+tar -xzf hydro-scoreboard-xcpcio-plus-1.8.0.tgz -C xcpcio-update
 bash xcpcio-update/package/install.sh install
 # 已有安装时
 bash xcpcio-update/package/install.sh upgrade
@@ -486,11 +486,31 @@ Hydro 的系统管理员（`PRIV_EDIT_SYSTEM`）可在控制面板（`/manage`�
 - 画面上的比赛时钟按 Hydro 服务器时间显示，打开时及之后每分钟校准一次，OBS 电脑的系统时间不准也不影响。
 - 导播被撤销比赛管理权限后，已打开的导播台连接在一分钟内断开。
 - 插件配置中的“启用直播模块”关闭后，直播的页面、接口和侧边栏入口都不再提供，已保存的直播设置保留。
-- Hydro 中没有队伍摄像头、屏幕录像、按键记录和评测时间数据，TeamView 的视频画面、Featured run、队伍定位（Locator）的摄像机场景等依赖这些数据的功能缺少对应素材。Featured run 会明确提示该队伍缺少所选视频画面。
+- Hydro 中没有屏幕录像、按键记录和评测时间数据，依赖这些数据的功能（如队伍定位 Locator 的摄像机场景）缺少对应素材。队伍的摄像头和屏幕来自“画面采集”（见下节），没有采集设备的队伍在 TeamView 和 Featured run 中没有视频画面，Featured run 会明确提示该队伍缺少所选视频画面。
 - ICPC Live 的 settings.json、advanced.json 和自定义字段由 Hydro 比赛数据取代，导播台的 Configuration 中只保留 Contest Info（只读）和 Visual config（画面颜色、标题文字等，保存后刷新 OBS 画面生效）。画面配置通过 JSON 对象提交，上限为 200 KB（200000 字节，按 UTF-8 计算），超限时显示明确提示。后端地址由 Hydro 决定，Visual config 中不能设置以 `BASE_URL` 开头的项。
 - 上传的媒体文件单个不超过 12 MB，支持图片、视频、SVG 和 JSON；文件名保留中文、字母和数字，其他字符替换为下划线，同名文件会覆盖；SVG 字幕模板中的 `{name}` 等占位符由标题设置中的数据替换，`teamId` 可引用队伍名与学校（`{team.name}`、`{org.displayName}`）。
 
+### 画面采集（选手屏幕与摄像头）
+
+直播设置页的“管理画面采集”（`/contest/<比赛ID>/live/capture`）由 Hydro 统一管理选手机的屏幕和摄像头，需要比赛管理权限。不需要另外部署中继服务器：Hydro 只转交建立 WebRTC 连接所需的少量消息，视频在选手机和观看端（OBS 直播画面、导播台预览、管理页预览）之间点对点传输，不经过 Hydro 服务器。
+
+画面采集有两级开关：插件配置中的“启用直播的画面采集”（默认开启，关闭后画面采集的页面、接口和设置页入口都不再提供），以及每场比赛管理页顶部的“启用画面采集”（**默认不启用**）。比赛未启用时可以先添加设备、分发链接，选手机打开采集链接后会等待，启用后半分钟内自动连接；停用后所有采集页立即断开，导播台和直播画面中不再有队伍画面，设备和链接保留。
+
+1. 用 onsite-toolkit 导入座位后，在管理页点击“按座位批量添加”，每个座位生成一台采集设备和一条采集链接；没有座位号的队伍可以逐台添加并手动绑定。设备按座位号自动对应到坐在该座位的队伍，手动绑定优先。
+2. 在每台选手机上用 Chrome 或 Edge 打开这台机器的采集链接（“复制链接”或“导出采集链接”导出 CSV）。页面会请求共享屏幕和使用摄像头；普通启动的浏览器需要点击“开始采集”并选择整个屏幕。管理页给出了免操作的启动命令（Chrome 参数 `--auto-select-desktop-capture-source`、`--use-fake-ui-for-media-stream` 和 `--disable-features=WebRtcHideLocalIpsWithMdns`），可以设为比赛镜像的开机自启动。Linux 请使用 X11 桌面会话。
+3. 设备显示“在线”后，在管理页点“预览”确认画面。导播台“队伍画面”中的摄像头（camera）和屏幕（screen），以及评测队列的放大播放，会自动使用这些画面。
+
+规则与限制：
+
+- 摄像头随时可用。屏幕会显示正在写的代码，默认只在比赛结束后提供给直播画面；勾选“比赛结束前也在直播画面提供屏幕”可提前提供。比赛管理员在管理页的预览不受此限制。这一规则在 Hydro 服务器端执行，直播画面链接无法绕过。
+- 采集链接带有设备密钥，无需登录，可在管理页查看、复制或重新生成。重新生成、删除设备或关闭画面采集后，对应的采集页立即断开；作废直播画面链接后，旧链接上的画面也立即断开。同一设备的链接在第二个页面打开时，第一个页面断开。
+- 选手机只在有人观看时才上传画面，同时观看的路数越多，上传带宽越大；每个观看页面最多同时观看 16 个画面。屏幕默认 720p、15 帧，可改为 1080p 或其他帧率；摄像头默认 480p，可选择同时采集声音。修改后正在采集的选手机立即使用新设置；取消“比赛结束前也在直播画面提供屏幕”时，直播画面中正在播放的屏幕立即停止。
+- 网络：OBS 电脑（及导播、管理员的电脑）需要能和选手机直接通信，UDP 不能被拦截。同一局域网可以直接使用；不同网段之间有路由时，按启动命令关闭 Chrome 的本机地址隐藏，或在设置中填写 STUN 服务器；选手网和直播网完全隔离时，需要在设置中填写一台两边都能访问的 TURN 服务器（如 coturn）。
+- 采集页需要保持打开；选手关闭页面或停止共享时，管理页显示离线或不再列出屏幕，已在播放的画面停止，重新打开后自动恢复。页面在浏览器中会显示“正在共享屏幕”的提示。
+- 多进程（PM2 集群）部署时，选手机和观看端可能连在不同进程上，连接消息通过 Hydro 的进程间广播转交。
+- 浏览器启动参数的效果因系统和浏览器版本而异，赛前请在实际的比赛镜像和网络中逐项实测。
+
 ### 直播来源与许可
 
-ICPC Live 的 MIT 许可证见 `licenses/ICPC-Live-MIT.txt`。前端由 `scripts/build-live.mjs` 从固定提交 `200c82f81ffdea91ffec9cc17b314ffc72436a0f` 打上 `live/frontend.patch` 后构建，修改内容为：后端地址改为从 Hydro 页面读取、画面时钟改用 Hydro 服务器时间、移除依赖 Java 服务配置文件的页面、用本地文本编辑器替换从 CDN 加载的 Monaco 编辑器。排名、奖牌与一血改用本插件统一的规则，不再使用 ICPC Live 按最后通过时间区分并列和按奖项链整组发放的做法。后端移植位置见 `live/UPSTREAM.json`。
+ICPC Live 的 MIT 许可证见 `licenses/ICPC-Live-MIT.txt`。前端由 `scripts/build-live.mjs` 从固定提交 `200c82f81ffdea91ffec9cc17b314ffc72436a0f` 打上 `live/frontend.patch` 后构建，修改内容为：后端地址改为从 Hydro 页面读取、画面时钟改用 Hydro 服务器时间、移除依赖 Java 服务配置文件的页面、用本地文本编辑器替换从 CDN 加载的 Monaco 编辑器，新增赛况总览组件、导播台中英双语，以及播放 Hydro 画面采集的队伍画面类型。排名、奖牌与一血改用本插件统一的规则，不再使用 ICPC Live 按最后通过时间区分并列和按奖项链整组发放的做法。后端移植位置见 `live/UPSTREAM.json`。
 

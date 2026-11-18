@@ -11,7 +11,7 @@ Hydro OJ 的 ACM 比赛榜单、滚榜、大屏与直播插件，集成 XCPCIO �
 - 每位管理员可独立创建滚榜会话，进度保存至 MongoDB，支持刷新恢复，默认永久保留。
 - 高清校徽、字体与图标随包提供，运行时从本地加载；榜单使用缩略图，滚榜使用原图。
 - 大屏：23 种比赛画面，涵盖榜单、统计图表、队伍与学校展示、场馆、气球、评测机、海报和公告。每种画面有一个免登录投屏链接，支持预览与全屏。
-- 直播：集成 ICPC Live v3 的 OBS 直播画面与导播台，后端改写为 Node.js 运行在 Hydro 内，无需 Java；榜单、评测队列、统计、赛况总览、滚动字幕、队伍画面、标题字幕、图片与自动解说，数据与公开榜一致；导播台中英双语，默认中文。
+- 直播：集成 ICPC Live v3 的 OBS 直播画面与导播台，后端改写为 Node.js 运行在 Hydro 内，无需 Java；榜单、评测队列、统计、赛况总览、滚动字幕、队伍画面、标题字幕、图片与自动解说，数据与公开榜一致；导播台中英双语，默认中文；选手屏幕与摄像头由 Hydro 统一管理采集，免装中继服务器。
 - 评测监控：比赛管理员实时查看每台评测机的连接状态、并发占用、评测速度与用时、通过率、系统错误和 CPU、内存、温度，以及各评测机上正在评测的任务和最新评测结果、本场待评测提交，异常时页面告警。
 - 赛况总览：供来宾视察的全屏大屏，一屏显示比赛时间、八项核心指标、实时排名前十、各题通过与首解、学校情况、最近通过、提交趋势、过题数分布、评测结果分布，以及服务器与评测机的 CPU、内存压力，实时数据，仅比赛管理员可打开。
 - 系统管理（`/manage`）：用户配置（修改用户与 Hydro 5.1 队伍资料，验证管理员密码后批量删除）、评测机控制（含内置评测机在内的评测机健康监控；一键生成评测账号与配置，每次复制自动换密码；暂停、并发上限、语言与重测分流）、打印服务器管理（为打印电脑生成连接信息，免安装的多平台打印客户端领取选手的打印请求，可仅服务指定的一场或多场比赛、按 onsite-toolkit 导入的座位分区、多台打印机按权重负载均衡，打印机自动同步到管理页；黑白代码高亮、行号，每页页眉显示队伍与座位）、批量重测（按比赛、搜索选题或整个域，按结果类型筛选，可设 AC 不参与重测；保留重测记录与每条提交的结果变化，如 AC → WA）。
@@ -22,11 +22,11 @@ Hydro OJ 的 ACM 比赛榜单、滚榜、大屏与直播插件，集成 XCPCIO �
 
 需要 Node.js 22+ 和 Hydro 5.x。请使用运行 Hydro 的系统用户，在主服务所在环境执行。
 
-下载完整安装包 `hydro-scoreboard-xcpcio-plus-1.7.0.tgz`，解压到固定目录，注册 addon 后重启。安装包包含预构建页面、字体和完整校徽。
+下载完整安装包 `hydro-scoreboard-xcpcio-plus-1.8.0.tgz`，解压到固定目录，注册 addon 后重启。安装包包含预构建页面、字体和完整校徽。
 
 ```bash
 mkdir -p "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
-tar -xzf hydro-scoreboard-xcpcio-plus-1.7.0.tgz \
+tar -xzf hydro-scoreboard-xcpcio-plus-1.8.0.tgz \
   -C "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus" --strip-components=1
 hydrooj addon add "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
 pm2 restart hydrooj
@@ -40,7 +40,7 @@ pm2 restart hydrooj
 
 ```bash
 mkdir -p xcpcio-update
-tar -xzf hydro-scoreboard-xcpcio-plus-1.7.0.tgz -C xcpcio-update
+tar -xzf hydro-scoreboard-xcpcio-plus-1.8.0.tgz -C xcpcio-update
 bash xcpcio-update/package/install.sh install
 
 # 升级时下载并解压新包，运行新包中的脚本
