@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// CUPS commands with English output, so they parse the same in every locale.
+// Request English output where CUPS honors the process locale.
 func cups(name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Env = append(os.Environ(), "LANG=C", "LC_ALL=C")
@@ -42,8 +42,8 @@ func listPrinters() ([]SysPrinter, error) {
 	}
 	defaultName := ""
 	if d, err := cups("lpstat", "-d"); err == nil {
-		if i := strings.Index(d, ":"); i >= 0 {
-			defaultName = strings.TrimSpace(d[i+1:])
+		if _, name, ok := strings.Cut(strings.ReplaceAll(d, "：", ":"), ":"); ok {
+			defaultName = strings.TrimSpace(name)
 		}
 	}
 	var printers []SysPrinter
@@ -58,17 +58,68 @@ func listPrinters() ([]SysPrinter, error) {
 			}
 			continue
 		}
-		p := SysPrinter{Name: m[1], Status: "idle", IsDefault: m[1] == defaultName}
+		p := SysPrinter{Name: m[1], Status: "idle"}
 		switch {
 		case strings.Contains(line, "disabled"):
 			p.Status = "paused"
 		case strings.Contains(line, "now printing"):
 			p.Status = "printing"
 		}
+		printers = append(printers, p)
+	}
+	if len(printers) == 0 && strings.TrimSpace(out) != "" {
+		// macOS CUPS can use the user's preferred language despite LC_ALL.
+		printers, err = listCUPSDestinations()
+		if err != nil {
+			return nil, err
+		}
+	}
+	for i := range printers {
+		p := &printers[i]
+		p.IsDefault = p.Name == defaultName
 		p.Virtual = virtualPrinter(p.Name)
 		if jobs, err := cups("lpstat", "-o", p.Name); err == nil {
 			if trimmed := strings.TrimSpace(jobs); trimmed != "" {
 				p.Queue = strings.Count(trimmed, "\n") + 1
+			}
+		}
+	}
+	return printers, nil
+}
+
+// lpoptions quotes option values that contain spaces. Match whole options so
+// that a printer description cannot be mistaken for a state attribute.
+var cupsOption = regexp.MustCompile(`[^=\s]+=(?:'[^']*'|\S+)`)
+
+func listCUPSDestinations() ([]SysPrinter, error) {
+	out, err := cups("lpstat", "-l", "-e")
+	if err != nil {
+		return nil, fmt.Errorf("无法读取 CUPS 打印队列：%w", err)
+	}
+	var printers []SysPrinter
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		// Only registered queues have a permanent or temporary CUPS destination.
+		if len(fields) < 3 || (fields[1] != "permanent" && fields[1] != "temporary") {
+			continue
+		}
+		p := SysPrinter{Name: fields[0], Status: "offline"}
+		if options, err := cups("lpoptions", "-p", p.Name); err == nil {
+			accepting := true
+			for _, option := range cupsOption.FindAllString(options, -1) {
+				switch option {
+				case "printer-state=3":
+					p.Status = "idle"
+				case "printer-state=4":
+					p.Status = "printing"
+				case "printer-state=5":
+					p.Status = "paused"
+				case "printer-is-accepting-jobs=false":
+					accepting = false
+				}
+			}
+			if !accepting {
+				p.Status = "paused"
 			}
 		}
 		printers = append(printers, p)

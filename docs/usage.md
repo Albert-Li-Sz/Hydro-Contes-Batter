@@ -96,11 +96,11 @@ Schema 测试固定使用官方 2026-01 分支文件；上游 schema 对 runs �
 
 需要 Node.js 22 或以上版本及 Hydro 5.x。使用运行 Hydro 的系统用户操作；命令中的 `$HOME` 对应这个用户。自 0.8.1 起，安装包包含供 Hydro 直接加载的源码和完整预构建资源。
 
-下载 `hydro-scoreboard-xcpcio-plus-1.6.0.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
+下载 `hydro-scoreboard-xcpcio-plus-1.6.1.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
 
 ```bash
 mkdir -p "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
-tar -xzf hydro-scoreboard-xcpcio-plus-1.6.0.tgz \
+tar -xzf hydro-scoreboard-xcpcio-plus-1.6.1.tgz \
   -C "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus" --strip-components=1
 hydrooj addon add "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
 pm2 restart hydrooj
@@ -112,7 +112,7 @@ pm2 restart hydrooj
 
 ```bash
 mkdir -p xcpcio-update
-tar -xzf hydro-scoreboard-xcpcio-plus-1.6.0.tgz -C xcpcio-update
+tar -xzf hydro-scoreboard-xcpcio-plus-1.6.1.tgz -C xcpcio-update
 bash xcpcio-update/package/install.sh install
 # 已有安装时
 bash xcpcio-update/package/install.sh upgrade
@@ -425,6 +425,8 @@ Hydro 的系统管理员（`PRIV_EDIT_SYSTEM`）可在控制面板（`/manage`�
 4. 连接成功后，这台电脑的打印机出现在本页对应的打印服务器下；点击“打印测试页”确认打印效果。
 
 打印电脑需要能访问 Hydro 的地址（连接信息中的地址取自系统设置的站点地址，未设置时为生成时浏览器访问的地址）。自签名 HTTPS 证书可加 `--insecure`。
+
+使用网络打印机时，先在打印电脑的系统设置中添加它，再运行客户端的 `--printers` 检查是否列出该队列。macOS 中文环境请使用 v1.6.1 或更新的客户端。
 
 **打印方式**：Windows 直接调用系统打印接口（winspool / GDI），使用打印机自身的纸张，中文使用系统自带的微软雅黑；macOS、Linux 由客户端生成 PDF，交给系统的 CUPS（`lp`）打印，纸张默认 A4（`--paper Letter` 可改）。PDF 中代码使用标准等宽字体，中文使用 PDF 预定义的中文字体，由系统自动替换为已安装的中文字体，不需要额外的字体文件；Linux 需要安装中文字体（如 Noto CJK）。
 

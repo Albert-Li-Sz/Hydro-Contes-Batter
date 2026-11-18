@@ -2,9 +2,60 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestListPrintersWithLocalizedCUPS(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("CUPS is used on macOS and Linux")
+	}
+	dir := t.TempDir()
+	commands := map[string]string{
+		"lpstat": `#!/bin/sh
+case "$*" in
+    -p) printf '打印机Office闲置，启用时间始于今天\n打印机Lab现在正在打印\n打印机Hall已停用\n' ;;
+    '-l -e') printf 'Office permanent ipp://localhost/printers/Office dnssd://Office.local\nLab permanent ipp://localhost/printers/Lab ipps://Lab.local\nHall permanent ipp://localhost/printers/Hall ipp://Hall.local\nNearby network none ipp://Nearby.local\n' ;;
+    -d) printf '系统默认目的位置：Office\n' ;;
+    '-o Lab') printf 'Lab-1\nLab-2\n' ;;
+esac
+`,
+		"lpoptions": `#!/bin/sh
+case "$*" in
+    '-p Office') printf 'printer-state=3 printer-state-reasons=none\n' ;;
+    '-p Lab') printf 'printer-state=4 printer-state-reasons=none\n' ;;
+    '-p Hall') printf 'printer-state=5 printer-state-reasons=paused\n' ;;
+    *) exit 1 ;;
+esac
+`,
+	}
+	for name, script := range commands {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir)
+	printers, err := listPrinters()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []SysPrinter{
+		{Name: "Office", Status: "idle", IsDefault: true},
+		{Name: "Lab", Status: "printing", Queue: 2},
+		{Name: "Hall", Status: "paused"},
+	}
+	if len(printers) != len(want) {
+		t.Fatalf("want %d configured printers, got %+v", len(want), printers)
+	}
+	for i, printer := range printers {
+		if printer != want[i] {
+			t.Errorf("printer %d: got %+v, want %+v", i, printer, want[i])
+		}
+	}
+}
 
 func longJob(lines int) Job {
 	job := sampleJob()
