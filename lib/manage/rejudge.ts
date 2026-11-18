@@ -114,3 +114,76 @@ export function chunks<T>(items: T[], size = REJUDGE_CHUNK) {
     for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
     return result;
 }
+
+// ---------------------------------------------------------------- Rejudge history
+
+/** Short names of every Hydro STATUS a rejudged record can show before or after. */
+const shortNames: Record<number, string> = {
+    0: 'WAIT', 1: 'AC', 2: 'WA', 3: 'TLE', 4: 'MLE', 5: 'OLE', 6: 'RE', 7: 'CE', 8: 'SE', 9: 'CANCELED', 10: 'UKE', 11: 'HACKED',
+    20: 'JUDGING', 21: 'COMPILING', 22: 'FETCHED', 30: 'IGN', 31: 'PE', 32: 'HACK', 33: 'HACK',
+};
+export const statusShort = (status: number) => shortNames[status] ?? `#${status}`;
+
+/** Judging ended: neither waiting nor in progress. */
+export const isFinalStatus = (status: number) => status !== 0 && !(status >= 20 && status <= 22);
+
+/** One rejudge run, kept for the history list. */
+export interface RejudgeJob {
+    _id: unknown;
+    domainId: string;
+    scope: RejudgeScope;
+    contest: string | null;
+    contestTitle: string | null;
+    pids: number[];
+    statuses: number[];
+    skipAccepted: boolean;
+    operator: number;
+    createdAt: Date;
+    finishedAt: Date | null;
+    total: number;
+    queued: number;
+    failed: string[];
+}
+
+/** A rejudged record: its result before, and after once judged again (null while judging). */
+export interface RejudgeItem {
+    job: unknown;
+    rid: unknown;
+    domainId: string;
+    pid: number;
+    uid: number;
+    contest: string | null;
+    before: number;
+    beforeScore: number | null;
+    after: number | null;
+    afterScore: number | null;
+    judgedAt: Date | null;
+}
+
+/** How the results moved, from (before, after) counts: changes first, the largest first. */
+export function summarizeTransitions(rows: { before: number; after: number | null; count: number }[]) {
+    let pending = 0;
+    let changed = 0;
+    let unchanged = 0;
+    const transitions: { before: number; after: number; count: number; label: string; changed: boolean }[] = [];
+    for (const row of rows) {
+        if (row.after === null) { pending += row.count; continue; }
+        const moved = row.after !== row.before;
+        if (moved) changed += row.count; else unchanged += row.count;
+        transitions.push({ before: row.before, after: row.after, count: row.count, changed: moved, label: `${statusShort(row.before)} → ${statusShort(row.after)}` });
+    }
+    transitions.sort((a, b) => Number(b.changed) - Number(a.changed) || b.count - a.count || a.label.localeCompare(b.label));
+    const done = changed + unchanged;
+    return { total: done + pending, done, pending, changed, unchanged, transitions };
+}
+
+/** A short description of what a job covered, for the history list. */
+export function describeJob(job: Pick<RejudgeJob, 'scope' | 'contestTitle' | 'pids' | 'statuses' | 'skipAccepted' | 'domainId'>) {
+    const scope = job.scope === 'contest' ? `比赛 ${job.contestTitle || ''}`.trim()
+        : job.scope === 'domain' ? `整个域 ${job.domainId}` : `${job.pids.length} 道题`;
+    const parts = [scope];
+    if (job.scope === 'contest' && job.pids.length) parts.push(`${job.pids.length} 道题`);
+    parts.push(job.statuses.length ? job.statuses.map(statusShort).join('/') : '全部结果');
+    if (job.skipAccepted) parts.push('AC 不参与');
+    return parts.join(' · ');
+}

@@ -12,7 +12,8 @@ import {
     judgeScopes, normalizeJudgeRule, readDaemonConfig,
 } from './manage/judges';
 import {
-    chunks, groupByProblem, MAX_REJUDGE, normalizeRejudgeSelection, problemSearchFilter, rejudgeFilter, rejudgeStatuses,
+    chunks, describeJob, groupByProblem, isFinalStatus, MAX_REJUDGE, normalizeRejudgeSelection, problemSearchFilter, rejudgeFilter,
+    type RejudgeItem, type RejudgeJob, rejudgeStatuses, summarizeTransitions,
 } from './manage/rejudge';
 import {
     type Account, isTeamDoc, MAX_BATCH, ManageError, normalizeTeamEdit, normalizeUserEdit, PRIV_JUDGE, protectedReason,
@@ -523,10 +524,59 @@ export function applyManage(ctx: Context, dependencies: {
         if (selection.contest && !tdoc) throw new ManageError('比赛不存在', 404);
         if (tdoc && selection.pids.some((pid) => !tdoc.pids.includes(pid))) throw new ManageError('所选题目不属于该比赛');
         const filter = rejudgeFilter(selection, tdoc?.docId ?? null, [RecordModel.RECORD_PRETEST, RecordModel.RECORD_GENERATE]);
-        const records = await RecordModel.getMulti(domainId, filter, { projection: { _id: 1, pid: 1, contest: 1, status: 1 } })
+        const records = await RecordModel.getMulti(domainId, filter, { projection: { _id: 1, pid: 1, uid: 1, contest: 1, status: 1, score: 1 } })
             .limit(MAX_REJUDGE + 1).toArray();
         if (records.length > MAX_REJUDGE) throw new ManageError(`符合条件的提交超过 ${MAX_REJUDGE} 条，请缩小范围`);
         return { selection, tdoc, records };
+    }
+
+    // Every rejudge run is kept: the job, and each record's result before and (once judged again) after.
+    const jobs = raw('xcpcio.manage.rejudge.jobs');
+    const items = raw('xcpcio.manage.rejudge.items');
+    on('app/started', async () => {
+        await jobs.createIndex({ createdAt: -1 });
+        await items.createIndex({ job: 1, _id: 1 });
+        await items.createIndex({ rid: 1, after: 1 });
+    });
+    // Hydro fires record/judge in the process that judged the record, after the new result is saved.
+    on('record/judge', async (rdoc: { _id?: unknown; status?: number; score?: number; rejudged?: boolean } | null) => {
+        if (!rdoc?._id || !rdoc.rejudged || typeof rdoc.status !== 'number' || !isFinalStatus(rdoc.status)) return;
+        try {
+            // The latest job holding this record gets the result; an older one still waiting reads it lazily.
+            await items.findOneAndUpdate(
+                { rid: rdoc._id, after: null },
+                { $set: { after: rdoc.status, afterScore: typeof rdoc.score === 'number' ? rdoc.score : null, judgedAt: new Date() } },
+                { sort: { _id: -1 } },
+            );
+        } catch { /* history only: never disturb judging */ }
+    });
+
+    /** Results a missed event left open (a restart while judging): read them from the records. */
+    async function fillPending(filter: Record<string, unknown>, limit = 2000) {
+        const open: { _id: unknown; rid: unknown }[] = await items.find({ ...filter, after: null }).project({ _id: 1, rid: 1 }).limit(limit).toArray();
+        if (!open.length) return;
+        const rdocs = await RecordModel.coll.find({ _id: { $in: open.map((item) => item.rid) as ObjectId[] } }).project({ _id: 1, status: 1, score: 1, judgeAt: 1 }).toArray();
+        const byId = new Map(rdocs.map((rdoc) => [String(rdoc._id), rdoc]));
+        const updates = open.flatMap((item) => {
+            const rdoc = byId.get(String(item.rid));
+            if (!rdoc || !isFinalStatus(rdoc.status)) return [];
+            return [{ updateOne: { filter: { _id: item._id, after: null }, update: { $set: { after: rdoc.status, afterScore: rdoc.score ?? null, judgedAt: rdoc.judgeAt || new Date() } } } }];
+        });
+        if (updates.length) await items.bulkWrite(updates, { ordered: false });
+    }
+
+    type JobStat = { total: number; pending: number; changed: number };
+    async function jobStats(ids: unknown[]): Promise<Map<string, JobStat>> {
+        if (!ids.length) return new Map();
+        const rows = await items.aggregate([
+            { $match: { job: { $in: ids } } },
+            { $group: {
+                _id: '$job', total: { $sum: 1 },
+                pending: { $sum: { $cond: [{ $eq: ['$after', null] }, 1, 0] } },
+                changed: { $sum: { $cond: [{ $and: [{ $ne: ['$after', null] }, { $ne: ['$after', '$before'] }] }, 1, 0] } },
+            } },
+        ]).toArray();
+        return new Map(rows.map((row: JobStat & { _id: unknown }) => [String(row._id), row]));
     }
 
     async function summary(domainId: string, records: { pid: number; status: number }[], tdoc: { pids: number[] } | null) {
@@ -550,7 +600,10 @@ export function applyManage(ctx: Context, dependencies: {
             this.response.template = 'xcpcio_manage_rejudge.html';
             this.response.body = {
                 codeBase,
-                runtimeJson: toScriptJson({ base: this.request.path, dataUrl: `${this.request.path}/data`, domainId: this.domain._id, statuses: rejudgeStatuses, max: MAX_REJUDGE }),
+                runtimeJson: toScriptJson({
+                    base: this.request.path, dataUrl: `${this.request.path}/data`, historyUrl: `${this.request.path}/history`,
+                    domainId: this.domain._id, statuses: rejudgeStatuses, max: MAX_REJUDGE,
+                }),
             };
         }
 
@@ -572,11 +625,23 @@ export function applyManage(ctx: Context, dependencies: {
             await this.limitRate('xcpcio_manage_rejudge', 60, 10);
             const failed: string[] = [];
             let queued = 0;
+            const jobId = new ObjectId();
+            const job: RejudgeJob = {
+                _id: jobId, domainId: target, scope: selection.scope, contest: selection.contest, contestTitle: tdoc?.title ?? null,
+                pids: selection.pids, statuses: selection.statuses, skipAccepted: selection.skipAccepted, operator: this.user._id,
+                createdAt: new Date(), finishedAt: null, total: records.length, queued: 0, failed: [],
+            };
+            await jobs.insertOne(job);
             for (const [pid, group] of groupByProblem(records)) {
                 const pdoc = await ProblemModel.get(target, pid);
                 if (!pdoc?.config || typeof pdoc.config === 'string') { failed.push(`${pdoc?.pid || `#${pid}`} 题目配置无效，已跳过`); continue; }
                 for (const part of chunks(group)) {
                     const ids = part.map((record) => record._id);
+                    // The result before, saved ahead of the reset that clears it.
+                    await items.insertMany(part.map((record): RejudgeItem => ({
+                        job: jobId, rid: record._id, domainId: target, pid: record.pid, uid: record.uid, contest: record.contest ? String(record.contest) : null,
+                        before: record.status, beforeScore: typeof record.score === 'number' ? record.score : null, after: null, afterScore: null, judgedAt: null,
+                    })), { ordered: false });
                     // As Hydro's problem rejudge: below fresh submissions, contest records without details.
                     const priority = await RecordModel.submissionPriority(this.user._id, -10000 - ids.length * 5 - 50);
                     await RecordModel.reset(target, ids, true);
@@ -589,7 +654,76 @@ export function applyManage(ctx: Context, dependencies: {
                     queued += ids.length;
                 }
             }
-            this.response.body = { ...await summary(target, records, tdoc), queued, failed };
+            await jobs.updateOne({ _id: jobId }, { $set: { queued, failed, finishedAt: new Date() } });
+            this.response.body = { ...await summary(target, records, tdoc), queued, failed, job: String(jobId) };
+        }
+    }
+
+    /** The rejudge history: runs, and per run how each record's result moved (AC → WA and so on). */
+    class RejudgeHistoryHandler extends ManageHandler {
+        notUsage = true;
+
+        @param('job', Types.String, true)
+        @param('changed', (value: unknown) => Types.Boolean[0](value), true)
+        @param('page', Types.PositiveInt, true)
+        async get(_domainId: string, jobInput?: string, changedOnly = false, page = 1) {
+            if (jobInput) {
+                if (!/^[a-f\d]{24}$/i.test(jobInput)) throw new ManageError('记录编号无效');
+                const jobId = new ObjectId(jobInput);
+                const job: RejudgeJob | null = await jobs.findOne({ _id: jobId });
+                if (!job) throw new ManageError('重测记录不存在', 404);
+                await fillPending({ job: jobId });
+                const groups = await items.aggregate([
+                    { $match: { job: jobId } },
+                    { $group: { _id: { before: '$before', after: '$after' }, count: { $sum: 1 } } },
+                ]).toArray();
+                const stats = summarizeTransitions(groups.map((row: { _id: { before: number; after: number | null }; count: number }) => ({ ...row._id, count: row.count })));
+                const filter: Record<string, unknown> = { job: jobId };
+                if (changedOnly) filter.$expr = { $and: [{ $ne: ['$after', null] }, { $ne: ['$after', '$before'] }] };
+                const [count, rows] = await Promise.all([
+                    items.countDocuments(filter),
+                    items.find(filter).sort({ _id: 1 }).skip((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).toArray() as Promise<(RejudgeItem & { _id: unknown })[]>,
+                ]);
+                const [udict, tdoc, pdocs] = await Promise.all([
+                    UserModel.getList(job.domainId, [...new Set(rows.map((row) => row.uid))]),
+                    job.contest ? ContestModel.get(job.domainId, new ObjectId(job.contest)) : null,
+                    ProblemModel.getList(job.domainId, [...new Set(rows.map((row) => row.pid))], true, false, ['docId', 'pid', 'title']),
+                ]);
+                const label = (pid: number) => (tdoc && tdoc.pids.includes(pid) ? String.fromCharCode(65 + tdoc.pids.indexOf(pid))
+                    : (pdocs as Record<number, { pid?: string }>)[pid]?.pid || `#${pid}`);
+                this.response.body = {
+                    job: { ...job, _id: String(job._id), description: describeJob(job) },
+                    stats, total: count, page, pageSize: PAGE_SIZE,
+                    items: rows.map((row) => ({
+                        rid: String(row.rid), pid: row.pid, problem: label(row.pid), title: (pdocs as Record<number, { title?: string }>)[row.pid]?.title || '',
+                        uid: row.uid, user: udict[row.uid]?.uname ?? `UID ${row.uid}`, displayName: (udict[row.uid] as { displayName?: string } | undefined)?.displayName || '',
+                        before: row.before, after: row.after, beforeScore: row.beforeScore, afterScore: row.afterScore, judgedAt: row.judgedAt,
+                        url: `/d/${encodeURIComponent(job.domainId)}/record/${row.rid}`,
+                    })),
+                };
+                return;
+            }
+            const [total, list] = await Promise.all([
+                jobs.countDocuments({}),
+                jobs.find({}).sort({ createdAt: -1 }).skip((page - 1) * 20).limit(20).toArray() as Promise<RejudgeJob[]>,
+            ]);
+            await fillPending({ job: { $in: list.map((job) => job._id) } });
+            const [stats, operators] = await Promise.all([
+                jobStats(list.map((job) => job._id)),
+                UserModel.coll.find({ _id: { $in: [...new Set(list.map((job) => job.operator))] } }).project<{ _id: number; uname: string }>({ _id: 1, uname: 1 }).toArray(),
+            ]);
+            const unames = new Map(operators.map((udoc) => [udoc._id, udoc.uname]));
+            this.response.body = {
+                total, page, pageSize: 20,
+                jobs: list.map((job) => {
+                    const stat = stats.get(String(job._id));
+                    return {
+                        _id: String(job._id), domainId: job.domainId, createdAt: job.createdAt, finishedAt: job.finishedAt,
+                        operator: unames.get(job.operator) ?? `UID ${job.operator}`, description: describeJob(job),
+                        total: stat?.total ?? 0, pending: stat?.pending ?? 0, changed: stat?.changed ?? 0, failed: job.failed?.length ?? 0,
+                    };
+                }),
+            };
         }
     }
 
@@ -633,6 +767,7 @@ export function applyManage(ctx: Context, dependencies: {
     ctx.Route('manage_xcpcio_judges_data', '/manage/xcpcio-judges/data', JudgesDataHandler);
     ctx.Route('manage_xcpcio_rejudge', '/manage/xcpcio-rejudge', RejudgeHandler);
     ctx.Route('manage_xcpcio_rejudge_data', '/manage/xcpcio-rejudge/data', RejudgeDataHandler);
+    ctx.Route('manage_xcpcio_rejudge_history', '/manage/xcpcio-rejudge/history', RejudgeHistoryHandler);
     // User configuration directly below Hydro's "Import User"; the others at the end of the menu.
     ctx.injectUI('ControlPanel', 'manage_xcpcio_users', { before: 'manage_user_priv' }, PRIV.PRIV_EDIT_SYSTEM);
     ctx.injectUI('ControlPanel', 'manage_xcpcio_judges', {}, PRIV.PRIV_EDIT_SYSTEM);

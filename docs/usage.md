@@ -96,11 +96,11 @@ Schema 测试固定使用官方 2026-01 分支文件；上游 schema 对 runs �
 
 需要 Node.js 22 或以上版本及 Hydro 5.x。使用运行 Hydro 的系统用户操作；命令中的 `$HOME` 对应这个用户。自 0.8.1 起，安装包包含供 Hydro 直接加载的源码和完整预构建资源。
 
-下载 `hydro-scoreboard-xcpcio-plus-1.2.0.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
+下载 `hydro-scoreboard-xcpcio-plus-1.3.0.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
 
 ```bash
 mkdir -p "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
-tar -xzf hydro-scoreboard-xcpcio-plus-1.2.0.tgz \
+tar -xzf hydro-scoreboard-xcpcio-plus-1.3.0.tgz \
   -C "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus" --strip-components=1
 hydrooj addon add "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
 pm2 restart hydrooj
@@ -112,7 +112,7 @@ pm2 restart hydrooj
 
 ```bash
 mkdir -p xcpcio-update
-tar -xzf hydro-scoreboard-xcpcio-plus-1.2.0.tgz -C xcpcio-update
+tar -xzf hydro-scoreboard-xcpcio-plus-1.3.0.tgz -C xcpcio-update
 bash xcpcio-update/package/install.sh install
 # 已有安装时
 bash xcpcio-update/package/install.sh upgrade
@@ -405,6 +405,7 @@ Hydro 的系统管理员（`PRIV_EDIT_SYSTEM`）可在控制面板（`/manage`�
   - 整个域：重测该域的全部提交，开始前需要输入管理员密码。按比赛、按题目时没有选择比赛或题目会提示，不会变成整域重测。
 - 评测结果：可多选，如只重测 TLE、MLE；不选为全部结果，已取消的提交始终不重测。“AC 不参与重测”默认勾选，已通过的提交保持原结果。
 - 先“预览数量”查看按结果、按题目的统计，确认后开始重测。与 Hydro 题目页的“重测”相同：原结果清空后重新排队，优先级低于新提交，比赛中的提交按比赛设置显示结果，任务带有重测标记，可配合评测机控制的“任务范围”分流。一次最多 100000 条，按每批 2000 条加入评测队列。
+- 重测记录：页面下方保留每次重测的时间、操作人、范围与筛选条件、提交数和进度，记录永久保存在 `xcpcio.manage.rejudge.jobs`。点击“查看变化”可看到结果如何变化，例如“AC → WA × 3”“WA → AC × 5”，以及每条提交重测前后的结果与得分（默认只看结果变化的提交，可切换为全部），提交编号可打开 Hydro 的评测记录；仍在评测的提交显示为“评测中”，页面每 5 秒更新。重测前的结果在清空前写入 `xcpcio.manage.rejudge.items`，重测后的结果在 Hydro 评测完成时记录；若期间 Hydro 重启错过了评测完成，打开记录时按提交的当前结果补全。同一提交被再次重测时，新结果记入最近的一次重测。
 
 ## 直播
 

@@ -3,7 +3,9 @@ import {
     defaultJudgeRule, dispatchFor, emptyDaemonConfig, judgeConfig, judgeHealth, judgePassword, normalizeJudgeRule, readDaemonConfig, checkJudgeName,
 } from '../lib/manage/judges';
 import { JudgeTracker } from '../lib/judge-tracker';
-import { chunks, groupByProblem, normalizeRejudgeSelection, problemSearchFilter, rejudgeFilter } from '../lib/manage/rejudge';
+import {
+    chunks, describeJob, groupByProblem, isFinalStatus, normalizeRejudgeSelection, problemSearchFilter, rejudgeFilter, summarizeTransitions,
+} from '../lib/manage/rejudge';
 import { normalizeTeamEdit, normalizeUserEdit, PRIV_EDIT_SYSTEM, protectedReason, searchPattern, uidList } from '../lib/manage/users';
 
 describe('用户与队伍配置', () => {
@@ -125,6 +127,22 @@ describe('批量重测', () => {
         expect(() => normalizeRejudgeSelection({ pids: [1], statuses: [1], skipAccepted: true })).toThrow('没有需要重测的提交');
         expect(() => normalizeRejudgeSelection({ pids: [1], statuses: [99] })).toThrow('结果类型无效');
         expect(() => normalizeRejudgeSelection({ contest: 'x' })).toThrow('比赛编号无效');
+    });
+
+    it('重测记录：统计结果变化，变化在前、数量多的在前，评测中的单独计数', () => {
+        const stats = summarizeTransitions([
+            { before: 2, after: 2, count: 30 }, { before: 1, after: 2, count: 3 }, { before: 2, after: 1, count: 5 }, { before: 3, after: null, count: 4 },
+        ]);
+        expect(stats).toMatchObject({ total: 42, done: 38, pending: 4, changed: 8, unchanged: 30 });
+        expect(stats.transitions.map((row) => [row.label, row.count, row.changed])).toEqual([['WA → AC', 5, true], ['AC → WA', 3, true], ['WA → WA', 30, false]]);
+        expect(isFinalStatus(1)).toBe(true);
+        expect([0, 20, 21, 22].some(isFinalStatus)).toBe(false);
+    });
+
+    it('重测记录：范围说明', () => {
+        expect(describeJob({ scope: 'contest', contestTitle: '校赛', pids: [1, 2], statuses: [3, 4], skipAccepted: true, domainId: 'system' })).toBe('比赛 校赛 · 2 道题 · TLE/MLE · AC 不参与');
+        expect(describeJob({ scope: 'domain', contestTitle: null, pids: [], statuses: [], skipAccepted: false, domainId: 'oj' })).toBe('整个域 oj · 全部结果');
+        expect(describeJob({ scope: 'problems', contestTitle: null, pids: [5], statuses: [2], skipAccepted: true, domainId: 'system' })).toBe('1 道题 · WA · AC 不参与');
     });
 
     it('按题目分组，Hydro 的评测队列每次只处理一道题', () => {

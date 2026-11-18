@@ -5,7 +5,9 @@ import { toScriptJson } from '../lib/settings';
 import { defaultJudgeRule, judgeConfig, judgeHealth, judgePassword, type JudgeRule, judgeScopes, normalizeJudgeRule, checkJudgeName } from '../lib/manage/judges';
 import { JudgeTracker } from '../lib/judge-tracker';
 import type { MonitorMachine } from '../lib/monitor';
-import { groupByProblem, MAX_REJUDGE, normalizeRejudgeSelection, rejudgeStatuses } from '../lib/manage/rejudge';
+import {
+    describeJob, groupByProblem, MAX_REJUDGE, normalizeRejudgeSelection, type RejudgeItem, type RejudgeJob, rejudgeStatuses, summarizeTransitions,
+} from '../lib/manage/rejudge';
 import {
     type Account, ManageError, normalizeTeamEdit, normalizeUserEdit, PRIV_EDIT_SYSTEM, PRIV_JUDGE, protectedReason, searchPattern, uidList,
 } from '../lib/manage/users';
@@ -50,6 +52,33 @@ export function createManagePreview(env: Environment, version: string) {
     const records = contests.flatMap((tdoc, c) => Array.from({ length: c ? 40 : 240 }, (_, index) => ({
         _id: `${c}-${index}`, contest: tdoc.id, pid: tdoc.pids[index % tdoc.pids.length], status: statusCycle[index % statusCycle.length],
     })));
+    // Rejudge history: results arrive a few seconds after a run; some move (WA → AC, AC → WA, TLE → AC).
+    const jobs: RejudgeJob[] = [];
+    const items: (RejudgeItem & { judgeAfter: number })[] = [];
+    const outcome = (index: number, before: number) => (index % 7 === 0 && before === 1 ? 2 : index % 5 === 0 && before === 2 ? 1 : index % 4 === 0 && before === 3 ? 1 : before);
+    function addJob(job: Omit<RejudgeJob, '_id'>, rows: { _id: string; pid: number; contest: string; status: number }[], delay: number) {
+        const id = `6740b${String(jobs.length + 1).padStart(19, '0')}`;
+        jobs.unshift({ ...job, _id: id });
+        rows.forEach((row, index) => items.push({
+            job: id, rid: `6740c${row._id.replace('-', '').padStart(19, '0')}`, domainId: 'system', pid: row.pid, uid: 10 + (index % 60), contest: row.contest,
+            before: row.status, beforeScore: row.status === 1 ? 100 : 0, after: null, afterScore: null, judgedAt: null,
+            judgeAfter: Date.now() + delay + index * 15,
+        }));
+    }
+    const settle = () => {
+        const at = Date.now();
+        items.forEach((item, index) => {
+            if (item.after !== null || item.judgeAfter > at) return;
+            item.after = outcome(index, item.before);
+            item.afterScore = item.after === 1 ? 100 : 0;
+            item.judgedAt = new Date(item.judgeAfter);
+        });
+    };
+    addJob({ domainId: 'system', scope: 'contest', contest: '6740a0000000000000000002', contestTitle: '2026 校赛热身赛', pids: [], statuses: [2, 3], skipAccepted: true,
+        operator: 2, createdAt: new Date(now - 2 * day), finishedAt: new Date(now - 2 * day), total: 0, queued: 0, failed: [] },
+    records.filter((record) => record.contest === '6740a0000000000000000002' && [2, 3].includes(record.status)), -day);
+    jobs[0].total = jobs[0].queued = items.length;
+
     const menu = [['manage_dashboard', '控制面板', '#'], ['manage_script', '脚本管理', '#'], ['manage_user_import', '导入用户', '#'],
         ['manage_xcpcio_users', '用户配置', '/manage/xcpcio-users'], ['manage_user_priv', '用户权限', '#'], ['manage_setting', '系统设置', '#'],
         ['manage_config', '配置管理', '#'], ['manage_xcpcio_judges', '评测机控制', '/manage/xcpcio-judges'], ['manage_xcpcio_rejudge', '批量重测', '/manage/xcpcio-rejudge']];
@@ -169,7 +198,11 @@ export function createManagePreview(env: Environment, version: string) {
             for (const record of matched) byStatus[record.status] = (byStatus[record.status] || 0) + 1;
             const label = (pid: number) => (tdoc ? String.fromCharCode(65 + tdoc.pids.indexOf(pid)) : `P${pid}`);
             const summary = { total: matched.length, byStatus, byProblem: [...groupByProblem(matched)].map(([pid, group]) => ({ pid, label: label(pid), title: titles[pid], count: group.length })) };
-            return name === 'run' ? { ...summary, queued: matched.length, failed: [] } : summary;
+            if (name !== 'run') return summary;
+            addJob({ domainId: 'system', scope: selection.scope, contest: selection.contest, contestTitle: tdoc?.title ?? null, pids: selection.pids,
+                statuses: selection.statuses, skipAccepted: selection.skipAccepted, operator: 2, createdAt: new Date(), finishedAt: new Date(),
+                total: matched.length, queued: matched.length, failed: [] }, matched, 2000);
+            return { ...summary, queued: matched.length, failed: [], job: String(jobs[0]._id) };
         }
         default: throw new ManageError('未知操作');
         }
@@ -203,6 +236,44 @@ export function createManagePreview(env: Environment, version: string) {
                 })),
             };
         }
+        if (pathname === '/manage/xcpcio-rejudge/history') {
+            settle();
+            const number = Math.max(1, Number(query.get('page')) || 1);
+            const jobId = query.get('job');
+            if (jobId) {
+                const job = jobs.find((candidate) => candidate._id === jobId);
+                if (!job) throw new ManageError('重测记录不存在', 404);
+                const own = items.filter((item) => item.job === jobId);
+                const groups = new Map<string, { before: number; after: number | null; count: number }>();
+                for (const item of own) {
+                    const key = `${item.before}:${item.after}`;
+                    const group = groups.get(key) ?? { before: item.before, after: item.after, count: 0 };
+                    group.count++;
+                    groups.set(key, group);
+                }
+                const tdoc = contests.find((candidate) => candidate.id === job.contest);
+                const shown = query.get('changed') === 'true' ? own.filter((item) => item.after !== null && item.after !== item.before) : own;
+                return {
+                    job: { ...job, description: describeJob(job) }, stats: summarizeTransitions([...groups.values()]), total: shown.length, page: number, pageSize: 50,
+                    items: page(shown, number).map((item) => ({
+                        rid: String(item.rid), pid: item.pid, problem: tdoc ? String.fromCharCode(65 + tdoc.pids.indexOf(item.pid)) : `P${item.pid}`, title: titles[item.pid],
+                        uid: item.uid, user: users.find((user) => user._id === item.uid)?.uname ?? `UID ${item.uid}`, displayName: users.find((user) => user._id === item.uid)?.displayName || '',
+                        before: item.before, after: item.after, beforeScore: item.beforeScore, afterScore: item.afterScore, judgedAt: item.judgedAt, url: '#',
+                    })),
+                };
+            }
+            return {
+                total: jobs.length, page: number, pageSize: 20,
+                jobs: jobs.slice((number - 1) * 20, number * 20).map((job) => {
+                    const own = items.filter((item) => item.job === job._id);
+                    return {
+                        _id: String(job._id), domainId: job.domainId, createdAt: job.createdAt, finishedAt: job.finishedAt, operator: 'admin', description: describeJob(job),
+                        total: own.length, pending: own.filter((item) => item.after === null).length,
+                        changed: own.filter((item) => item.after !== null && item.after !== item.before).length, failed: job.failed.length,
+                    };
+                }),
+            };
+        }
         if (pathname === '/manage/xcpcio-rejudge/data') {
             if (query.has('search')) {
                 const text = (query.get('search') || '').trim().toLowerCase();
@@ -222,7 +293,7 @@ export function createManagePreview(env: Environment, version: string) {
             template: 'xcpcio_manage_judges.html',
             runtime: () => ({ scopes: judgeScopes, langs: [['c', 'C'], ['cc', 'C++'], ['cc.cc17', 'C++17'], ['java', 'Java'], ['py3', 'Python 3'], ['pypy3', 'PyPy3'], ['go', 'Go'], ['rs', 'Rust']] }),
         },
-        '/manage/xcpcio-rejudge': { template: 'xcpcio_manage_rejudge.html', runtime: () => ({ domainId: 'system', statuses: rejudgeStatuses, max: MAX_REJUDGE }) },
+        '/manage/xcpcio-rejudge': { template: 'xcpcio_manage_rejudge.html', runtime: () => ({ domainId: 'system', statuses: rejudgeStatuses, max: MAX_REJUDGE, historyUrl: '/manage/xcpcio-rejudge/history' }) },
     };
 
     return async (request: IncomingMessage, response: ServerResponse, url: URL) => {

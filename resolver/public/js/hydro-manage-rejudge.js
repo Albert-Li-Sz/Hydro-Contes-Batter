@@ -13,6 +13,7 @@ const skipAccepted = el('input', { type: 'checkbox', checked: true });
 const statuses = el('div', { class: 'manage-statuses' }, ...runtime.statuses.map(([code, short, label]) => el('label', {},
     el('input', { type: 'checkbox', value: code }), el('span', { text: `${short} ${label}` }))));
 const result = el('div');
+const history = el('div');
 
 // Scope: contest problems, searched problems, or everything in the domain.
 const scopeBox = el('div', { class: 'manage-tabs', role: 'radiogroup', 'aria-label': '重测范围' });
@@ -66,6 +67,7 @@ $('manage-root').replaceChildren(
         el('button', { class: 'button', type: 'button', text: '预览数量', onclick: () => preview() }),
         el('button', { class: 'button primary', type: 'button', text: '开始重测', onclick: () => run() })),
     result,
+    el('div', { class: 'manage-group', style: 'margin-top:28px' }, history),
 );
 
 function setScope(scope) {
@@ -240,12 +242,109 @@ async function run() {
         submit: async () => {
             const done = await post('run', whole ? { ...selection(), password: password.value } : selection());
             result.replaceChildren(describe(done, `已加入评测队列 ${done.queued} 条`));
+            if (done.job) openJob(done.job); else loadHistory();
             notify(status, done.failed.length ? `部分题目已跳过：${done.failed.join('；')}` : `已提交重测 ${done.queued} 条，可在“评测机控制”或评测记录中查看进度`, !!done.failed.length);
         },
     });
     password?.focus();
 }
 
+// ---------------------------------------------------------------- History: every run and how results moved.
+
+const historyState = { view: 'list', page: 1, job: null, jobPage: 1, changedOnly: true, pending: 0 };
+/** replaceChildren without the empty entries optional parts leave. */
+const fill = (node, ...children) => node.replaceChildren(...children.filter((child) => child !== null && child !== undefined && child !== false));
+const tone = (code) => (code === 1 ? 'manage-tag--ok' : code === 8 || code === 10 ? 'manage-tag--warn' : code === null ? '' : 'manage-tag--bad');
+const statusTag = (code) => el('span', { class: `manage-tag ${tone(code)}`, text: code === null ? '评测中' : statusShortName(code), title: code === null ? undefined : statusLabel.get(code) });
+const shortNames = { 0: 'WAIT', 1: 'AC', 2: 'WA', 3: 'TLE', 4: 'MLE', 5: 'OLE', 6: 'RE', 7: 'CE', 8: 'SE', 9: 'CANCELED', 10: 'UKE', 11: 'HACKED', 30: 'IGN', 31: 'PE' };
+const statusShortName = (code) => shortNames[code] ?? `#${code}`;
+
+function pager(page, size, total, go) {
+    const pages = Math.max(1, Math.ceil(total / size));
+    return el('div', { class: 'manage-pager' },
+        el('span', { class: 'resolver-muted', text: `共 ${total} 条 · 第 ${page} / ${pages} 页` }),
+        el('span', { class: 'manage-toolbar' },
+            el('button', { class: 'button', type: 'button', text: '上一页', disabled: page <= 1, onclick: () => go(page - 1) }),
+            el('button', { class: 'button', type: 'button', text: '下一页', disabled: page >= pages, onclick: () => go(page + 1) })));
+}
+
+async function loadHistory() {
+    historyState.view = 'list';
+    try {
+        const data = await get({ page: historyState.page }, runtime.historyUrl);
+        historyState.pending = data.jobs.reduce((sum, job) => sum + job.pending, 0);
+        fill(history,
+            el('h3', {}, '重测记录', el('span', { class: 'resolver-muted manage-small', style: 'font-weight:normal;margin-left:8px', text: '保留每次重测的范围、操作人，以及每条提交重测前后的结果' })),
+            el('div', { class: 'manage-scroll' }, el('table', { class: 'data-table' },
+                el('thead', {}, el('tr', {}, ...['时间', '操作人', '范围', '提交', '结果变化', '进度'].map((text) => el('th', { text })), el('th', { class: 'col-actions', text: '' }))),
+                el('tbody', {}, ...data.jobs.length ? data.jobs.map((job) => el('tr', {},
+                    el('td', { class: 'manage-nowrap manage-small', text: formatTime(job.createdAt) }),
+                    el('td', { text: job.operator }),
+                    el('td', {}, job.description, job.failed ? el('span', { class: 'manage-tag manage-tag--warn', text: `${job.failed} 题跳过` }) : null),
+                    el('td', { text: job.total }),
+                    el('td', {}, job.changed ? el('span', { class: 'manage-tag manage-tag--bad', text: `${job.changed} 条变化` }) : el('span', { class: 'manage-dim', text: job.pending ? '—' : '无变化' })),
+                    el('td', { class: 'manage-nowrap', text: job.pending ? `评测中 ${job.total - job.pending} / ${job.total}` : '已完成' }),
+                    el('td', { class: 'col-actions' }, el('button', { class: 'button', type: 'button', text: '查看变化', onclick: () => openJob(job._id) })),
+                )) : [el('tr', {}, el('td', { class: 'manage-empty', colspan: 7, text: '还没有重测记录' }))]))),
+            data.total > data.pageSize ? pager(data.page, data.pageSize, data.total, (page) => { historyState.page = page; loadHistory(); }) : null,
+        );
+    } catch (error) { history.replaceChildren(el('p', { class: 'manage-error', text: error.message })); }
+}
+
+function openJob(id) {
+    historyState.view = 'job';
+    historyState.job = id;
+    historyState.jobPage = 1;
+    loadJob();
+    history.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function loadJob() {
+    try {
+        const data = await get({ job: historyState.job, changed: historyState.changedOnly ? 'true' : 'false', page: historyState.jobPage }, runtime.historyUrl);
+        const { job, stats } = data;
+        historyState.pending = stats.pending;
+        const only = el('input', { type: 'checkbox', checked: historyState.changedOnly });
+        only.addEventListener('change', () => { historyState.changedOnly = only.checked; historyState.jobPage = 1; loadJob(); });
+        fill(history,
+            el('div', { class: 'manage-toolbar' },
+                el('button', { class: 'button', type: 'button', text: '← 全部重测记录', onclick: () => loadHistory() }),
+                el('span', { class: 'manage-spacer' }),
+                el('span', { class: 'resolver-muted manage-small', text: `${formatTime(job.createdAt)} · ${job.domainId}` })),
+            el('h3', { text: job.description }),
+            el('div', { class: 'resolver-stats' },
+                el('div', {}, el('strong', { text: stats.total }), el('span', { text: '重测提交' })),
+                el('div', {}, el('strong', { text: stats.changed, class: stats.changed ? 'manage-error' : undefined }), el('span', { text: '结果变化' })),
+                el('div', {}, el('strong', { text: stats.unchanged }), el('span', { text: '结果不变' })),
+                el('div', {}, el('strong', { text: stats.pending }), el('span', { text: '仍在评测' }))),
+            job.failed?.length ? el('p', { class: 'manage-error manage-small', text: `已跳过：${job.failed.join('；')}` }) : null,
+            stats.transitions.length ? el('div', { class: 'manage-transitions' }, ...stats.transitions.map((row) => el('span', {
+                class: `manage-transition${row.changed ? ' is-changed' : ''}`,
+            }, statusTag(row.before), el('span', { class: 'manage-arrow', text: '→' }), statusTag(row.after), el('strong', { text: `× ${row.count}` })))) : null,
+            el('label', { class: 'checkbox', style: 'margin:12px 0' }, only, '只看结果变化的提交'),
+            el('div', { class: 'manage-scroll' }, el('table', { class: 'data-table' },
+                el('thead', {}, el('tr', {}, ...['提交', '题目', '用户', '重测前', '', '重测后', '评测完成'].map((text) => el('th', { text })))),
+                el('tbody', {}, ...data.items.length ? data.items.map((item) => el('tr', { class: item.after !== null && item.after !== item.before ? 'is-selected' : undefined },
+                    el('td', {}, el('a', { href: item.url, target: '_blank', rel: 'noopener', text: item.rid.slice(-8), title: item.rid })),
+                    el('td', { title: item.title }, el('strong', { text: item.problem }), item.title ? el('span', { class: 'manage-dim', text: ` ${item.title}` }) : null),
+                    el('td', { text: item.displayName ? `${item.displayName}（${item.user}）` : item.user }),
+                    el('td', {}, statusTag(item.before), item.beforeScore !== null ? el('span', { class: 'manage-dim manage-small', text: ` ${item.beforeScore} 分` }) : null),
+                    el('td', { class: 'manage-arrow', text: '→' }),
+                    el('td', {}, statusTag(item.after), item.after !== null && item.afterScore !== null ? el('span', { class: 'manage-dim manage-small', text: ` ${item.afterScore} 分` }) : null),
+                    el('td', { class: 'manage-nowrap manage-small', text: formatTime(item.judgedAt) }),
+                )) : [el('tr', {}, el('td', { class: 'manage-empty', colspan: 7, text: historyState.changedOnly ? (stats.pending ? '暂无结果变化，仍有提交在评测' : '没有结果变化的提交') : '没有记录' }))]))),
+            data.total > data.pageSize ? pager(data.page, data.pageSize, data.total, (page) => { historyState.jobPage = page; loadJob(); }) : null,
+        );
+    } catch (error) { history.replaceChildren(el('p', { class: 'manage-error', text: error.message })); }
+}
+
+// While records are still being judged, follow their new results.
+setInterval(() => {
+    if (document.hidden || !historyState.pending || document.querySelector('dialog[open]')) return;
+    if (historyState.view === 'job') loadJob(); else loadHistory();
+}, 5000);
+
 setScope('contest');
 renderPicked();
 loadContests();
+loadHistory();

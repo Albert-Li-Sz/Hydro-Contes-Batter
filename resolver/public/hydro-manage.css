@@ -83,3 +83,10 @@
 #hydro-resolver-config.xcpcio-manage .data-table { table-layout: auto; }
 #hydro-resolver-config.xcpcio-manage .data-table th { overflow: visible; text-overflow: clip; white-space: nowrap; }
 #hydro-resolver-config.xcpcio-manage .resolver-actions .manage-spacer { flex: 1; }
+.xcpcio-manage .manage-transitions { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0; }
+.xcpcio-manage .manage-transition { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border: 1px solid var(--manage-line); border-radius: 4px; font-size: 13px; }
+.xcpcio-manage .manage-transition.is-changed { border-color: rgba(224, 93, 68, .55); background: rgba(224, 93, 68, .06); }
+.xcpcio-manage .manage-transition .manage-tag { margin: 0; }
+.xcpcio-manage .manage-transition strong { margin-left: 4px; }
+.xcpcio-manage .manage-arrow { opacity: .55; }
+.xcpcio-manage .data-table td.manage-arrow { width: 16px; text-align: center; padding-left: 0; padding-right: 0; }

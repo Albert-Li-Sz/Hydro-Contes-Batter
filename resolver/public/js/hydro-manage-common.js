@@ -35,8 +35,8 @@ export async function post(operation, payload) {
     return parse(response);
 }
 
-export async function get(params = {}) {
-    const url = new URL(runtime.dataUrl, location.href);
+export async function get(params = {}, path = runtime.dataUrl) {
+    const url = new URL(path, location.href);
     for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, value);
     return parse(await fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } }));
 }
