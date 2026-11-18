@@ -68,11 +68,13 @@ export function notify(node, message, error = false) {
  * A modal form built on <dialog>. `submit` runs on confirm; throwing keeps the dialog open
  * with the message shown, so a wrong password can be retyped.
  */
-export function openDialog({ title, body = [], confirm = '确定', submit }) {
+/** `extra` buttons sit at the start of the action row, apart from Cancel and the confirm button. */
+export function openDialog({ title, body = [], confirm = '确定', submit, extra = [] }) {
     const error = el('p', { class: 'manage-error', role: 'alert', hidden: true });
     const ok = el('button', { class: 'button primary', type: 'submit', text: confirm });
     const cancel = el('button', { class: 'button', type: 'button', text: '取消' });
-    const form = el('form', { method: 'dialog' }, el('h2', { text: title }), ...body, error, el('div', { class: 'resolver-actions' }, cancel, ok));
+    const actions = el('div', { class: 'resolver-actions' }, ...extra, extra.length ? el('span', { class: 'manage-spacer' }) : null, cancel, ok);
+    const form = el('form', { method: 'dialog' }, el('h2', { text: title }), ...body, error, actions);
     const dialog = el('dialog', {}, form);
     $('hydro-resolver-config').append(dialog);
     const close = () => { dialog.close(); dialog.remove(); };

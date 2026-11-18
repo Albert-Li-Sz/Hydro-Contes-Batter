@@ -278,10 +278,10 @@ export async function apply(ctx: Context, config: ReturnType<typeof Config>) {
     ctx.Route('contest_xcpcio_plus_settings', '/contest/:tid/xcpcio-settings', SettingsHandler);
     applyResolver(ctx, { loadSettings, loadData: loadContestData, sessionDays: config.resolverSessionDays ?? 0 });
     applyScreens(ctx, { loadSettings, loadData: loadContestData });
-    applyMonitor(ctx);
+    const monitor = applyMonitor(ctx);
     applyOverview(ctx, { loadSettings, loadData: loadContestData });
     applyCcs(ctx, { loadSettings, loadData: loadContestData });
-    applyManage(ctx);
+    applyManage(ctx, { machines: monitor.machines });
     if (config.live !== false) applyLive(ctx, { loadSettings, loadData: loadContestData });
     ctx.Route('contest_xcpcio_plus_public', '/contest/:tid/xcpcio-public', PublicBoardHandler);
     ctx.i18n.load('zh', { 'XCPCIO Plus': 'XCPCIO 增强榜' });

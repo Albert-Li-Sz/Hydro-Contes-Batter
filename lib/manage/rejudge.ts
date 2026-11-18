@@ -24,9 +24,13 @@ export const rejudgeStatuses: [number, string, string][] = [
     [0, 'WAIT', '等待评测（卡住的提交）'],
 ];
 
-export const MAX_REJUDGE = 20000;
+export const MAX_REJUDGE = 100000;
+
+export type RejudgeScope = 'contest' | 'problems' | 'domain';
 
 export interface RejudgeSelection {
+    /** A contest's submissions, chosen problems' submissions anywhere in the domain, or the whole domain. */
+    scope: RejudgeScope;
     /** Contest id (hex), or null for every submission outside contests and inside them. */
     contest: string | null;
     /** Problem docIds; empty means every problem (of the contest, when one is chosen). */
@@ -53,8 +57,11 @@ export function normalizeRejudgeSelection(input: unknown): RejudgeSelection {
     const known = new Set(rejudgeStatuses.map(([code]) => code));
     const statuses = list(raw.statuses, '结果类型');
     if (statuses.some((status) => !known.has(status))) throw new ManageError('结果类型无效');
-    const selection = { contest, pids, statuses, skipAccepted: raw.skipAccepted !== false };
-    if (!selection.contest && !selection.pids.length) throw new ManageError('请选择比赛或至少一道题目，避免重测整个域的全部提交');
+    const scope: RejudgeScope = raw.scope === 'domain' || raw.scope === 'problems' || raw.scope === 'contest' ? raw.scope : contest ? 'contest' : 'problems';
+    const selection: RejudgeSelection = { scope, contest: scope === 'contest' ? contest : null, pids: scope === 'domain' ? [] : pids, statuses, skipAccepted: raw.skipAccepted !== false };
+    // Rejudging a whole domain must be asked for, never the result of an empty form.
+    if (scope === 'contest' && !selection.contest) throw new ManageError('请选择比赛');
+    if (scope === 'problems' && !selection.pids.length) throw new ManageError('请至少选择一道题目；如需重测全部提交，请选择“整个域”');
     if (selection.skipAccepted && selection.statuses.length === 1 && selection.statuses[0] === ACCEPTED) {
         throw new ManageError('只选择了“通过”，又勾选了“AC 不参与重测”，没有需要重测的提交');
     }
@@ -87,4 +94,23 @@ export function groupByProblem<T extends { pid: number }>(records: T[]) {
         else groups.set(record.pid, [record]);
     }
     return groups;
+}
+
+/** Problems matching what is typed into the search box: number, problem id (prefix) or title. */
+export function problemSearchFilter(query: string) {
+    const text = query.trim().slice(0, 64);
+    if (!text) return null;
+    const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const or: Record<string, unknown>[] = [{ pid: { $regex: `^${escaped}`, $options: 'i' } }, { title: { $regex: escaped, $options: 'i' } }];
+    if (/^\d+$/.test(text) && Number.isSafeInteger(Number(text))) or.unshift({ docId: Number(text) });
+    return { $or: or };
+}
+
+/** Hydro's queue receives at most this many records per call, so a domain-wide rejudge stays bounded. */
+export const REJUDGE_CHUNK = 2000;
+
+export function chunks<T>(items: T[], size = REJUDGE_CHUNK) {
+    const result: T[][] = [];
+    for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
+    return result;
 }

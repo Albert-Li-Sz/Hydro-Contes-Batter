@@ -3,13 +3,15 @@ import {
     $, adminPassword, copyText, el, field, formatTime, get, input, notify, openDialog, post, runtime,
 } from './hydro-manage-common.js';
 
-const state = { judges: [], selected: new Set(), queued: 0, rejudges: 0, builtin: [] };
+const state = { judges: [], selected: new Set(), queued: 0, rejudges: 0, health: { alerts: [], machines: [] } };
 const scopes = new Map(runtime.scopes);
 const langNames = new Map(runtime.langs);
 
 const status = el('p', { class: 'resolver-muted', role: 'status', hidden: true });
 const stats = el('div', { class: 'resolver-stats' });
 const table = el('table', { class: 'data-table' });
+const alerts = el('ul', { class: 'manage-alerts', 'aria-live': 'polite' });
+const healthTable = el('table', { class: 'data-table' });
 const deleteButton = el('button', { class: 'button', type: 'button', text: '删除所选', disabled: true });
 const uname = input({ placeholder: '例如 judge-1', maxlength: 31, required: true, pattern: '[A-Za-z][\\w\\-]{2,30}', 'aria-label': '评测机账号' });
 const note = input({ placeholder: '备注（可选），如机房位置、配置', maxlength: 200, 'aria-label': '备注' });
@@ -17,11 +19,13 @@ const note = input({ placeholder: '备注（可选），如机房位置、配置
 $('manage-root').replaceChildren(
     el('p', { class: 'resolver-muted', text: '每台独立评测机（hydrojudge）使用一个评测账号登录 Hydro。添加后会生成 judge.yaml 配置；每次“复制配置”都会为该账号生成新密码，之前复制的配置随即失效，已连接的评测机不受影响，重启后需使用新配置。' }),
     stats,
+    el('div', { class: 'manage-group' }, el('h3', {}, '评测机健康', el('span', { class: 'resolver-muted manage-small', style: 'font-weight:normal;margin-left:8px', text: '每 5 秒刷新；包括随 Hydro 运行的内置评测机' })),
+        alerts, el('div', { class: 'manage-scroll' }, healthTable)),
     el('div', { class: 'manage-group' }, el('h3', { text: '添加评测机' }),
         el('form', { class: 'manage-toolbar', onsubmit: (event) => { event.preventDefault(); create(); } },
             uname, note, el('button', { class: 'button primary', type: 'submit', text: '添加并复制配置' }))),
     el('div', { class: 'manage-group' },
-        el('div', { class: 'manage-toolbar' }, el('h3', { text: '评测机', style: 'margin:0' }), el('span', { class: 'manage-spacer' }), deleteButton),
+        el('div', { class: 'manage-toolbar' }, el('h3', { text: '评测机账号', style: 'margin:0' }), el('span', { class: 'manage-spacer' }), deleteButton),
         status,
         el('div', { class: 'manage-scroll' }, table)),
     el('div', { class: 'manage-group' }, el('h3', { text: '负载均衡说明' }),
@@ -45,14 +49,49 @@ const ruleSummary = (rule) => {
 };
 
 function renderStats() {
-    const online = state.judges.filter((judge) => judge.connections.length).length;
-    const busy = state.judges.reduce((sum, judge) => sum + judge.connections.reduce((total, connection) => total + connection.active, 0), 0);
+    const machines = state.health.machines;
+    const online = machines.filter((machine) => machine.online);
     stats.replaceChildren(...[
-        [`${online} / ${state.judges.length}`, '在线评测机'],
-        [busy, '正在评测'],
+        [`${online.length} / ${machines.length}`, '在线评测机'],
+        [online.reduce((sum, machine) => sum + machine.activeCount, 0), '正在评测'],
         [state.queued, '排队任务'],
         [state.rejudges, '其中重测任务'],
     ].map(([value, label]) => el('div', {}, el('strong', { text: value }), el('span', { text: label }))));
+}
+
+const percent = (value) => (value === null || value === undefined ? '—' : `${Math.round(value)}%`);
+const ago = (seconds) => {
+    if (seconds === null || seconds === undefined) return '—';
+    if (seconds < 60) return `${seconds} 秒前`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
+    return `${Math.floor(seconds / 3600)} 小时前`;
+};
+const states = { busy: ['评测中', 'manage-tag--ok'], idle: ['空闲', 'manage-tag--ok'], offline: ['离线', 'manage-tag--bad'] };
+const meter = (value, warn) => el('span', { class: value !== null && value !== undefined && value >= warn ? 'manage-error' : undefined, text: percent(value) });
+
+function renderHealth() {
+    alerts.replaceChildren(...state.health.alerts.map((alert) => el('li', { class: `manage-alert manage-alert--${alert.level}`, text: alert.text })));
+    const machines = state.health.machines;
+    healthTable.replaceChildren(
+        el('thead', {}, el('tr', {}, ...['评测机', '状态', '正在评测', '最近 5 分钟', '平均用时', '系统错误', 'CPU', '内存', '温度', '机器数据'].map((text) => el('th', { text })))),
+        el('tbody', {}, ...machines.length ? machines.map((machine) => {
+            const [label, tone] = machine.reportOnly ? ['未连接', 'manage-tag--warn'] : states[machine.state] || [machine.state, ''];
+            const metrics = machine.metrics;
+            return el('tr', {},
+                el('td', {}, machine.name,
+                    el('div', { class: 'manage-dim manage-small', text: machine.kind === 'builtin' ? '内置评测（随 Hydro 运行）' : [machine.account, machine.ip].filter(Boolean).join(' · ') || '独立评测机' })),
+                el('td', {}, el('span', { class: `manage-tag ${tone}`, text: label })),
+                el('td', { class: 'manage-nowrap', text: machine.online ? (machine.concurrency ? `${machine.activeCount} / ${machine.concurrency}` : String(machine.activeCount)) : '—' }),
+                el('td', { class: 'manage-nowrap', text: `${machine.judged5} 个`, title: `最近 15 分钟 ${machine.judged15} 个，累计 ${machine.totalJudged} 个` }),
+                el('td', { class: 'manage-nowrap', text: machine.averageSeconds === null ? '—' : `${machine.averageSeconds} 秒` }),
+                el('td', { class: machine.systemErrors15 ? 'manage-error' : undefined, text: String(machine.systemErrors15), title: '最近 15 分钟' }),
+                el('td', {}, meter(metrics?.cpu, 95)),
+                el('td', {}, meter(metrics?.memoryRate, 90)),
+                el('td', { text: metrics?.temperature ? `${Math.round(metrics.temperature)}°C` : '—' }),
+                el('td', { class: 'manage-small manage-nowrap', text: !metrics ? '无数据' : metrics.live ? '实时' : `${ago(metrics.reportedSecondsAgo)}上报` }),
+            );
+        }) : [el('tr', {}, el('td', { class: 'manage-empty', colspan: 10, text: '没有检测到评测机：既没有独立评测机连接，Hydro 也没有加载内置评测（hydrojudge 插件）。' }))]),
+    );
 }
 
 function renderTable() {
@@ -95,9 +134,10 @@ function renderTable() {
 async function load() {
     try {
         const data = await get();
-        Object.assign(state, { judges: data.judges, queued: data.queued, rejudges: data.rejudges, builtin: data.builtin });
+        Object.assign(state, { judges: data.judges, queued: data.queued, rejudges: data.rejudges, health: data.health });
         for (const id of [...state.selected]) if (!state.judges.some((judge) => judge._id === id)) state.selected.delete(id);
         renderStats();
+        renderHealth();
         renderTable();
     } catch (error) { notify(status, error.message, true); }
 }

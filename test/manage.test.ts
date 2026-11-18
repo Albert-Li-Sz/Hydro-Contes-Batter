@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-    defaultJudgeRule, dispatchFor, emptyDaemonConfig, judgeConfig, judgePassword, normalizeJudgeRule, readDaemonConfig, checkJudgeName,
+    defaultJudgeRule, dispatchFor, emptyDaemonConfig, judgeConfig, judgeHealth, judgePassword, normalizeJudgeRule, readDaemonConfig, checkJudgeName,
 } from '../lib/manage/judges';
-import { groupByProblem, normalizeRejudgeSelection, rejudgeFilter } from '../lib/manage/rejudge';
+import { JudgeTracker } from '../lib/judge-tracker';
+import { chunks, groupByProblem, normalizeRejudgeSelection, problemSearchFilter, rejudgeFilter } from '../lib/manage/rejudge';
 import { normalizeTeamEdit, normalizeUserEdit, PRIV_EDIT_SYSTEM, protectedReason, searchPattern, uidList } from '../lib/manage/users';
 
 describe('用户与队伍配置', () => {
@@ -67,6 +68,19 @@ describe('评测机控制', () => {
         expect(() => checkJudgeName('1judge')).toThrow('字母开头');
     });
 
+    it('健康状态包括随 Hydro 运行的内置评测机', () => {
+        const now = Date.UTC(2026, 10, 18, 2, 0, 0);
+        const tracker = new JudgeTracker('hydro', () => now);
+        tracker.builtinChange({ rid: 'r1', domainId: 'system', uid: 1, pid: 1, lang: 'cc', contest: null }, 20, 2, null);
+        tracker.builtinFinish({ rid: 'r2', domainId: 'system', uid: 1, pid: 1, lang: 'cc', contest: null }, { status: 1 });
+        const [builtin] = tracker.snapshot();
+        const health = judgeHealth(now, [{ key: builtin.id, name: '内置评测（hydro）', kind: 'builtin', tracked: builtin,
+            metrics: { cpu: 97, memoryRate: 40, memoryTotal: null, temperature: null, cores: 8, model: null, os: null, compilers: null, reportedAt: null } }], 0);
+        expect(health.machines[0]).toMatchObject({ kind: 'builtin', online: true, state: 'busy', activeCount: 1, judged5: 1, metrics: { live: true, cpu: 97 } });
+        expect(health.alerts).toEqual([{ level: 'warning', text: '评测机 内置评测（hydro） CPU 使用率 97%' }]);
+        expect(judgeHealth(now, [], 3).alerts).toEqual([{ level: 'error', text: '没有在线的评测机' }]);
+    });
+
     it('每次生成新密码，配置为 hydrojudge 的 judge.yaml', () => {
         const a = judgePassword();
         expect(a).toMatch(/^[A-Za-z2-9]{24}$/);
@@ -89,8 +103,25 @@ describe('批量重测', () => {
         expect(rejudgeFilter(noAc, null, special)).toEqual({ contest: { $nin: special }, 'files.hack': { $exists: false }, pid: { $in: [5] }, status: { $nin: [9, 1] } });
     });
 
+    it('整个域必须明确选择，按比赛、按题目各自要求比赛或题目', () => {
+        const whole = normalizeRejudgeSelection({ scope: 'domain', contest: '6740a0000000000000000001', pids: [3], statuses: [3] });
+        expect(whole).toMatchObject({ scope: 'domain', contest: null, pids: [] });
+        expect(rejudgeFilter(whole, null, special)).toEqual({ contest: { $nin: special }, 'files.hack': { $exists: false }, status: { $in: [3] } });
+        expect(() => normalizeRejudgeSelection({ scope: 'contest' })).toThrow('请选择比赛');
+        expect(() => normalizeRejudgeSelection({ scope: 'problems', contest: '6740a0000000000000000001' })).toThrow('整个域');
+        // A contest picked earlier does not narrow a problem rejudge.
+        expect(normalizeRejudgeSelection({ scope: 'problems', contest: '6740a0000000000000000001', pids: [7] }).contest).toBeNull();
+    });
+
+    it('题目搜索按编号、题目 ID 前缀与标题，并转义输入', () => {
+        expect(problemSearchFilter('1001')).toEqual({ $or: [{ docId: 1001 }, { pid: { $regex: '^1001', $options: 'i' } }, { title: { $regex: '1001', $options: 'i' } }] });
+        expect(problemSearchFilter('a.b(')).toEqual({ $or: [{ pid: { $regex: '^a\\.b\\(', $options: 'i' } }, { title: { $regex: 'a\\.b\\(', $options: 'i' } }] });
+        expect(problemSearchFilter('   ')).toBeNull();
+        expect(chunks([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+    });
+
     it('拒绝不完整或矛盾的条件', () => {
-        expect(() => normalizeRejudgeSelection({ statuses: [2] })).toThrow('请选择比赛或至少一道题目');
+        expect(() => normalizeRejudgeSelection({ statuses: [2] })).toThrow('请至少选择一道题目');
         expect(() => normalizeRejudgeSelection({ pids: [1], statuses: [1], skipAccepted: true })).toThrow('没有需要重测的提交');
         expect(() => normalizeRejudgeSelection({ pids: [1], statuses: [99] })).toThrow('结果类型无效');
         expect(() => normalizeRejudgeSelection({ contest: 'x' })).toThrow('比赛编号无效');

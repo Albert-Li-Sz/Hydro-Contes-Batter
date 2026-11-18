@@ -2,8 +2,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Environment } from 'nunjucks';
 import { resolverCodeBase } from '../lib/resolver-data';
 import { toScriptJson } from '../lib/settings';
-import { defaultJudgeRule, judgeConfig, judgePassword, type JudgeRule, judgeScopes, normalizeJudgeRule, checkJudgeName } from '../lib/manage/judges';
-import { groupByProblem, normalizeRejudgeSelection, rejudgeStatuses } from '../lib/manage/rejudge';
+import { defaultJudgeRule, judgeConfig, judgeHealth, judgePassword, type JudgeRule, judgeScopes, normalizeJudgeRule, checkJudgeName } from '../lib/manage/judges';
+import { JudgeTracker } from '../lib/judge-tracker';
+import type { MonitorMachine } from '../lib/monitor';
+import { groupByProblem, MAX_REJUDGE, normalizeRejudgeSelection, rejudgeStatuses } from '../lib/manage/rejudge';
 import {
     type Account, ManageError, normalizeTeamEdit, normalizeUserEdit, PRIV_EDIT_SYSTEM, PRIV_JUDGE, protectedReason, searchPattern, uidList,
 } from '../lib/manage/users';
@@ -43,7 +45,7 @@ export function createManagePreview(env: Environment, version: string) {
         { id: '6740a0000000000000000001', title: '2026 校赛正式赛', rule: 'acm', beginAt: new Date(now - 3 * day), endAt: new Date(now - 3 * day + 5 * 3600_000), pids: [1001, 1002, 1003, 1004, 1005] },
         { id: '6740a0000000000000000002', title: '2026 校赛热身赛', rule: 'acm', beginAt: new Date(now - 4 * day), endAt: new Date(now - 4 * day + 2 * 3600_000), pids: [1101, 1102] },
     ];
-    const titles: Record<number, string> = { 1001: '签到题', 1002: '最短路', 1003: '区间合并', 1004: '字符串匹配', 1005: '树上背包', 1101: 'A + B', 1102: '排序' };
+    const titles: Record<number, string> = { 1001: '签到题', 1002: '最短路', 1003: '区间合并', 1004: '字符串匹配', 1005: '树上背包', 1101: 'A + B', 1102: '排序', 1201: '次短路', 1202: '最短路计数' };
     const statusCycle = [1, 2, 1, 3, 1, 4, 6, 1, 2, 7, 1, 3];
     const records = contests.flatMap((tdoc, c) => Array.from({ length: c ? 40 : 240 }, (_, index) => ({
         _id: `${c}-${index}`, contest: tdoc.id, pid: tdoc.pids[index % tdoc.pids.length], status: statusCycle[index % statusCycle.length],
@@ -51,6 +53,27 @@ export function createManagePreview(env: Environment, version: string) {
     const menu = [['manage_dashboard', '控制面板', '#'], ['manage_script', '脚本管理', '#'], ['manage_user_import', '导入用户', '#'],
         ['manage_xcpcio_users', '用户配置', '/manage/xcpcio-users'], ['manage_user_priv', '用户权限', '#'], ['manage_setting', '系统设置', '#'],
         ['manage_config', '配置管理', '#'], ['manage_xcpcio_judges', '评测机控制', '/manage/xcpcio-judges'], ['manage_xcpcio_rejudge', '批量重测', '/manage/xcpcio-rejudge']];
+
+    // Judge health: the built-in judge of this server, judge-1 connected, judge-2 known only from its last report.
+    const tracker = new JudgeTracker('hydro-server');
+    tracker.connect('d1', { uname: 'judge-1', ip: '10.0.0.21' });
+    tracker.message('d1', { key: 'config', concurrency: 8 });
+    const task = (rid: string, lang: string) => ({ rid, domainId: 'system', uid: 10, pid: 1001, lang, contest: null });
+    for (let index = 0; index < 6; index++) {
+        tracker.taskStart('d1', task(`r${index}`, 'cc'));
+        tracker.message('d1', { key: 'end', rid: `r${index}`, status: index === 5 ? 2 : 1, time: 120, memory: 2048 });
+    }
+    for (let index = 0; index < 3; index++) tracker.taskStart('d1', task(`a${index}`, 'cc'));
+    for (let index = 0; index < 4; index++) tracker.builtinFinish(task(`b${index}`, 'py3'), { status: 1, time: 300, memory: 9000 });
+    tracker.builtinChange(task('b9', 'java'), 20, 4, null);
+    const machinesNow = (at: number): MonitorMachine[] => tracker.snapshot().map((judge): MonitorMachine => ({
+        key: judge.id, kind: judge.kind, tracked: judge,
+        name: judge.kind === 'builtin' ? `内置评测（${judge.host}）` : 'judge-1',
+        metrics: judge.kind === 'builtin'
+            ? { cpu: 38, memoryRate: 61, memoryTotal: 16 * 1024 ** 3, temperature: null, cores: 8, model: 'Preview CPU', os: 'Linux', compilers: null, reportedAt: null }
+            : { cpu: 72, memoryRate: 44, memoryTotal: 32 * 1024 ** 3, temperature: 63, cores: 16, model: 'Preview CPU', os: 'Linux', compilers: 12, reportedAt: at - 6 * 60_000 },
+    })).concat([{ key: 'report:mid-2', kind: 'remote' as const, tracked: null, name: 'judge-2-host',
+        metrics: { cpu: 3, memoryRate: 20, memoryTotal: 8 * 1024 ** 3, temperature: 45, cores: 4, model: 'Preview CPU', os: 'Linux', compilers: 10, reportedAt: at - 12 * 60_000 } }]);
 
     const verify = (password: unknown) => { if (password !== previewAdminPassword) throw new ManageError('管理员密码错误', 403); };
     const person = (uid: number) => {
@@ -134,21 +157,18 @@ export function createManagePreview(env: Environment, version: string) {
         }
         case 'preview':
         case 'run': {
-            const tdoc = contests.find((candidate) => candidate.id === payload.contest);
-            const problems = (Array.isArray(payload.problems) ? payload.problems : []).map((id: string) => {
-                const pid = Number(String(id).replace(/^P/i, ''));
-                if (!titles[pid]) throw new ManageError(`题目 ${id} 不存在于域 ${payload.domain}`);
-                return pid;
-            });
-            const selection = normalizeRejudgeSelection({ ...payload, pids: [...payload.pids || [], ...problems] });
+            const selection = normalizeRejudgeSelection(payload);
+            const tdoc = contests.find((candidate) => candidate.id === selection.contest);
+            if (selection.scope === 'contest' && !tdoc) throw new ManageError('比赛不存在', 404);
+            if (name === 'run' && selection.scope === 'domain') verify(payload.password);
             const statuses = selection.statuses.filter((code) => !(selection.skipAccepted && code === 1));
             const matched = records.filter((record) => (!tdoc || record.contest === tdoc.id)
                 && (!selection.pids.length || selection.pids.includes(record.pid))
                 && (statuses.length ? statuses.includes(record.status) : !(selection.skipAccepted && record.status === 1)));
             const byStatus: Record<string, number> = {};
             for (const record of matched) byStatus[record.status] = (byStatus[record.status] || 0) + 1;
-            const label = (pid: number) => { const owner = contests.find((candidate) => candidate.pids.includes(pid))!; return tdoc ? String.fromCharCode(65 + owner.pids.indexOf(pid)) : `#${pid}`; };
-            const summary = { total: matched.length, byStatus, byProblem: [...groupByProblem(matched)].map(([pid, group]) => ({ pid, label: label(pid), count: group.length })) };
+            const label = (pid: number) => (tdoc ? String.fromCharCode(65 + tdoc.pids.indexOf(pid)) : `P${pid}`);
+            const summary = { total: matched.length, byStatus, byProblem: [...groupByProblem(matched)].map(([pid, group]) => ({ pid, label: label(pid), title: titles[pid], count: group.length })) };
             return name === 'run' ? { ...summary, queued: matched.length, failed: [] } : summary;
         }
         default: throw new ManageError('未知操作');
@@ -173,15 +193,22 @@ export function createManagePreview(env: Environment, version: string) {
             };
         }
         if (pathname === '/manage/xcpcio-judges/data') {
+            const health = judgeHealth(Date.now(), machinesNow(Date.now()), 7);
             return {
-                queued: 7, rejudges: 3, builtin: [],
+                queued: 7, rejudges: 3, health,
                 judges: users.filter(isJudge).map((user) => ({
                     _id: user._id, uname: user.uname, regat: user.regat, loginat: user.loginat, rule: rules.get(user._id) ?? defaultJudgeRule(),
-                    connections: user._id === 100 ? [{ ip: '10.0.0.21', concurrency: 8, active: 3 }] : [],
+                    connections: health.machines.filter((machine) => machine.kind === 'remote' && machine.online && machine.account === user.uname)
+                        .map((machine) => ({ ip: machine.ip, concurrency: machine.concurrency, active: machine.activeCount, name: machine.name })),
                 })),
             };
         }
         if (pathname === '/manage/xcpcio-rejudge/data') {
+            if (query.has('search')) {
+                const text = (query.get('search') || '').trim().toLowerCase();
+                return { problems: Object.entries(titles).map(([docId, title]) => ({ docId: Number(docId), pid: `P${docId}`, title }))
+                    .filter((problem) => text && (String(problem.docId) === text || problem.pid.toLowerCase().startsWith(text) || problem.title.toLowerCase().includes(text))).slice(0, 20) };
+            }
             const tdoc = contests.find((candidate) => candidate.id === query.get('contest'));
             if (tdoc) return { problems: tdoc.pids.map((pid, index) => ({ pid, label: String.fromCharCode(65 + index), title: titles[pid] })) };
             return { domainId: query.get('domain') || 'system', contests: contests.map((candidate) => ({ ...candidate, problems: candidate.pids.length })) };
@@ -195,7 +222,7 @@ export function createManagePreview(env: Environment, version: string) {
             template: 'xcpcio_manage_judges.html',
             runtime: () => ({ scopes: judgeScopes, langs: [['c', 'C'], ['cc', 'C++'], ['cc.cc17', 'C++17'], ['java', 'Java'], ['py3', 'Python 3'], ['pypy3', 'PyPy3'], ['go', 'Go'], ['rs', 'Rust']] }),
         },
-        '/manage/xcpcio-rejudge': { template: 'xcpcio_manage_rejudge.html', runtime: () => ({ domainId: 'system', statuses: rejudgeStatuses }) },
+        '/manage/xcpcio-rejudge': { template: 'xcpcio_manage_rejudge.html', runtime: () => ({ domainId: 'system', statuses: rejudgeStatuses, max: MAX_REJUDGE }) },
     };
 
     return async (request: IncomingMessage, response: ServerResponse, url: URL) => {

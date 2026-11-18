@@ -7,6 +7,7 @@
  * a higher cap takes a larger share), language pools and separating fresh submissions from rejudges.
  */
 import { randomBytes } from 'node:crypto';
+import { type MonitorMachine, monitorSnapshot } from '../monitor';
 import { ManageError } from './users';
 
 export type JudgeScope = 'all' | 'new' | 'rejudge';
@@ -116,3 +117,23 @@ export function checkJudgeName(value: unknown) {
     }
     return value.trim();
 }
+
+/**
+ * Health of every judge machine for the control page: the built-in judge (hydrojudge running inside
+ * Hydro) and each daemon, live or known only from its reports, with the monitor's machine alerts.
+ */
+export function judgeHealth(now: number, machines: MonitorMachine[], queueLength: number) {
+    const snapshot = monitorSnapshot({ now, contest: { domainId: '', id: '' }, records: [], machines, queueLength, problems: [], teamOf: () => null });
+    return {
+        alerts: snapshot.alerts,
+        machines: snapshot.machines.map((machine) => ({
+            key: machine.key, name: machine.name, kind: machine.kind, state: machine.state, online: machine.online, reportOnly: machine.reportOnly,
+            account: machine.account, ip: machine.ip, connectedSeconds: machine.connectedSeconds, disconnectedSeconds: machine.disconnectedSeconds,
+            concurrency: machine.concurrency, langs: machine.langs, activeCount: machine.activeCount, judged5: machine.judged5, judged15: machine.judged15,
+            systemErrors15: machine.systemErrors15, averageSeconds: machine.averageSeconds, lastFinishedSeconds: machine.lastFinishedSeconds,
+            totalJudged: machine.totalJudged, metrics: machine.metrics,
+        })),
+    };
+}
+
+export type JudgeHealth = ReturnType<typeof judgeHealth>;

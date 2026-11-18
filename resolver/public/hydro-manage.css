@@ -56,3 +56,30 @@
 #hydro-resolver-config.xcpcio-manage label.checkbox input { display: inline-block; margin: 0; flex: none; }
 #hydro-resolver-config.xcpcio-manage textarea.textbox { min-height: 64px; height: auto; resize: vertical; }
 #hydro-resolver-config.xcpcio-manage textarea.manage-config { min-height: 170px; }
+.xcpcio-manage .manage-alerts { list-style: none; margin: 0 0 10px; padding: 0; }
+.xcpcio-manage .manage-alerts:empty { display: none; }
+.xcpcio-manage .manage-alert { padding: 6px 12px; border-radius: 4px; margin-bottom: 6px; border: 1px solid var(--manage-warn); background: rgba(230, 162, 60, .12); }
+.xcpcio-manage .manage-alert--error { border-color: var(--manage-bad); background: rgba(224, 93, 68, .12); }
+#hydro-resolver-config.xcpcio-manage .button.manage-danger:not(:disabled) { color: #d74747; border-color: rgba(215, 71, 71, .5); }
+#hydro-resolver-config.xcpcio-manage .button.manage-danger:not(:disabled):hover { color: #fff; background: #d74747; border-color: #d74747; }
+.xcpcio-manage .manage-tabs button[role="radio"][aria-checked="true"] { opacity: 1; border-bottom-color: #5f9fd6; font-weight: 600; }
+.xcpcio-manage .manage-search-box { position: relative; max-width: 560px; }
+.xcpcio-manage .manage-search-box .textbox { width: 100%; margin: 0; }
+.xcpcio-manage .manage-search { position: absolute; z-index: 20; left: 0; right: 0; top: 100%; margin: 2px 0 0; padding: 4px 0; list-style: none; max-height: 300px; overflow: auto; background: #fff; border: 1px solid var(--manage-line); box-shadow: 0 4px 16px #0002; }
+.theme--dark .xcpcio-manage .manage-search { background: #323334; }
+.xcpcio-manage .manage-search li { display: flex; gap: 10px; align-items: baseline; padding: 6px 12px; cursor: pointer; line-height: 1.5; }
+.xcpcio-manage .manage-search li:hover { background: rgba(95, 159, 214, .12); }
+.xcpcio-manage .manage-search li.is-picked { background: rgba(95, 159, 214, .2); }
+.xcpcio-manage .manage-search li strong { flex: none; font-family: var(--code-font-family, monospace); font-size: 13px; }
+.xcpcio-manage .manage-search li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xcpcio-manage .manage-search li small { flex: none; opacity: .6; }
+.xcpcio-manage .manage-picked { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.xcpcio-manage .manage-chip { display: inline-flex; align-items: center; gap: 4px; margin: 0; padding-right: 2px; font-size: 13px; line-height: 22px; }
+.xcpcio-manage .manage-chip__remove { border: 0; background: none; cursor: pointer; color: inherit; opacity: .6; font-size: 15px; padding: 0 4px; line-height: 1; }
+.xcpcio-manage .manage-chip__remove:hover { opacity: 1; }
+.xcpcio-manage .manage-group > .manage-alert { margin-top: 4px; }
+.xcpcio-manage .manage-group > .manage-alert div { margin-top: 4px; font-size: 13px; line-height: 1.6; }
+/* Hydro's tables are fixed-width with ellipsis; these admin tables size to content and scroll sideways instead. */
+#hydro-resolver-config.xcpcio-manage .data-table { table-layout: auto; }
+#hydro-resolver-config.xcpcio-manage .data-table th { overflow: visible; text-overflow: clip; white-space: nowrap; }
+#hydro-resolver-config.xcpcio-manage .resolver-actions .manage-spacer { flex: 1; }

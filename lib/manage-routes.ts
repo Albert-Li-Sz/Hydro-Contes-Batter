@@ -4,13 +4,16 @@ import {
     ContestModel, Context, DomainModel, Handler, ObjectId, param, PRIV, ProblemModel, RecordModel, SettingModel, SystemModel,
     TaskModel, TokenModel, Types, UserModel,
 } from 'hydrooj';
+import type { MonitorMachine } from './monitor';
 import { resolverCodeBase } from './resolver-data';
 import { toScriptJson } from './settings';
 import {
-    checkJudgeName, type DaemonConfig, defaultJudgeRule, dispatchFor, emptyDaemonConfig, judgeConfig, judgePassword, type JudgeRule,
+    checkJudgeName, type DaemonConfig, defaultJudgeRule, dispatchFor, emptyDaemonConfig, judgeConfig, judgeHealth, judgePassword, type JudgeRule,
     judgeScopes, normalizeJudgeRule, readDaemonConfig,
 } from './manage/judges';
-import { groupByProblem, MAX_REJUDGE, normalizeRejudgeSelection, rejudgeFilter, rejudgeStatuses } from './manage/rejudge';
+import {
+    chunks, groupByProblem, MAX_REJUDGE, normalizeRejudgeSelection, problemSearchFilter, rejudgeFilter, rejudgeStatuses,
+} from './manage/rejudge';
 import {
     type Account, isTeamDoc, MAX_BATCH, ManageError, normalizeTeamEdit, normalizeUserEdit, PRIV_JUDGE, protectedReason,
     searchPattern, uidList,
@@ -24,8 +27,6 @@ interface JudgeRuleDoc extends JudgeRule {
 
 const PAGE_SIZE = 50;
 const TYPE_CONTEST = 30;
-/** Live judges published by the monitor (lib/monitor-routes.ts) within this window are connected. */
-const LIVE_MS = 20_000;
 const RULES_REFRESH_MS = 15_000;
 
 interface JudgeConnection {
@@ -44,7 +45,10 @@ interface JudgeConnection {
  * System administration pages in Hydro's control panel (/manage): accounts and Hydro 5.1 teams,
  * judge machines with their dispatch rules, and batch rejudges. System administrators only.
  */
-export function applyManage(ctx: Context) {
+export function applyManage(ctx: Context, dependencies: {
+    /** Every judge machine as the monitor sees it (lib/monitor-routes.ts), built-in judge included. */
+    machines: (now: number) => Promise<MonitorMachine[]>;
+}) {
     const codeBase = resolverCodeBase(JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf8')).version);
     // Hydro's own collections without typings for these fields; queries mirror Hydro's models.
     const raw = (name: string): any => ctx.db.collection(name as never);
@@ -472,27 +476,23 @@ export function applyManage(ctx: Context) {
 
         async get() {
             const now = Date.now();
-            const [accounts, ruleDocs, processes, queued, rejudges] = await Promise.all([
+            const [accounts, ruleDocs, machines, queued, rejudges] = await Promise.all([
                 judgeAccounts(),
                 rulesColl.find({}).toArray() as Promise<JudgeRuleDoc[]>,
-                raw('xcpcio.monitor.judges').find({ updateAt: { $gt: new Date(now - LIVE_MS) } }).toArray(),
+                dependencies.machines(now),
                 TaskModel.count({ type: 'judge' }),
                 TaskModel.count({ type: 'judge', 'meta.rejudge': true }),
             ]);
             const ruleOf = new Map(ruleDocs.map((doc) => [doc._id, normalizeJudgeRule(doc)]));
-            type Live = { uname: string | null; ip: string | null; concurrency: number | null; active: unknown[]; disconnectedAt: number | null; host: string | null; kind: string };
-            const live = (processes as { judges?: Live[] }[]).flatMap((doc) => doc.judges || []).filter((judge) => judge.disconnectedAt === null);
+            const health = judgeHealth(now, machines, queued);
             this.response.body = {
-                queued, rejudges,
-                builtin: live.filter((judge) => judge.kind === 'builtin').map((judge) => ({ host: judge.host, active: judge.active.length })),
-                judges: accounts.map((udoc) => {
-                    const connections = live.filter((judge) => judge.kind === 'remote' && judge.uname === udoc.uname);
-                    return {
-                        _id: udoc._id, uname: udoc.uname, regat: udoc.regat, loginat: udoc.loginat,
-                        rule: ruleOf.get(udoc._id) ?? defaultJudgeRule(),
-                        connections: connections.map((judge) => ({ ip: judge.ip, concurrency: judge.concurrency, active: judge.active.length })),
-                    };
-                }),
+                queued, rejudges, health,
+                judges: accounts.map((udoc) => ({
+                    _id: udoc._id, uname: udoc.uname, regat: udoc.regat, loginat: udoc.loginat,
+                    rule: ruleOf.get(udoc._id) ?? defaultJudgeRule(),
+                    connections: health.machines.filter((machine) => machine.kind === 'remote' && machine.online && machine.account === udoc.uname)
+                        .map((machine) => ({ ip: machine.ip, concurrency: machine.concurrency, active: machine.activeCount, name: machine.name })),
+                })),
             };
         }
     }
@@ -529,12 +529,19 @@ export function applyManage(ctx: Context) {
         return { selection, tdoc, records };
     }
 
-    function summary(records: { pid: number; status: number }[], tdoc: { pids: number[] } | null) {
+    async function summary(domainId: string, records: { pid: number; status: number }[], tdoc: { pids: number[] } | null) {
         const byStatus: Record<string, number> = {};
         for (const record of records) byStatus[record.status] = (byStatus[record.status] || 0) + 1;
-        const byProblem = [...groupByProblem(records)].map(([pid, group]) => ({
-            pid, label: tdoc && tdoc.pids.includes(pid) ? String.fromCharCode(65 + tdoc.pids.indexOf(pid)) : `#${pid}`, count: group.length,
-        }));
+        const groups = [...groupByProblem(records)].sort((a, b) => b[1].length - a[1].length);
+        // Outside a contest, problems show by their id and title (the 200 largest groups).
+        const pdocs = tdoc ? {} : await ProblemModel.getList(domainId, groups.slice(0, 200).map(([pid]) => pid), true, false, ['docId', 'pid', 'title']);
+        const byProblem = groups.map(([pid, group]) => {
+            const pdoc = (pdocs as Record<number, { pid?: string; title?: string }>)[pid];
+            return {
+                pid, count: group.length, title: pdoc?.title || '',
+                label: tdoc && tdoc.pids.includes(pid) ? String.fromCharCode(65 + tdoc.pids.indexOf(pid)) : pdoc?.pid || `#${pid}`,
+            };
+        });
         return { total: records.length, byStatus, byProblem };
     }
 
@@ -543,7 +550,7 @@ export function applyManage(ctx: Context) {
             this.response.template = 'xcpcio_manage_rejudge.html';
             this.response.body = {
                 codeBase,
-                runtimeJson: toScriptJson({ base: this.request.path, dataUrl: `${this.request.path}/data`, domainId: this.domain._id, statuses: rejudgeStatuses }),
+                runtimeJson: toScriptJson({ base: this.request.path, dataUrl: `${this.request.path}/data`, domainId: this.domain._id, statuses: rejudgeStatuses, max: MAX_REJUDGE }),
             };
         }
 
@@ -552,33 +559,37 @@ export function applyManage(ctx: Context) {
             const input = this.payload(rawPayload);
             const target = await domainOf(input.domain, domainId);
             const { records, tdoc } = await selectRecords(target, input);
-            this.response.body = summary(records, tdoc);
+            this.response.body = await summary(target, records, tdoc);
         }
 
         @param('payload', Types.String)
         async postRun(domainId: string, rawPayload: string) {
             const input = this.payload(rawPayload);
             const target = await domainOf(input.domain, domainId);
+            const { selection, records, tdoc } = await selectRecords(target, input);
+            // A whole domain is the largest rejudge there is: the operator confirms with their password.
+            if (selection.scope === 'domain') await this.verifyAdmin(input.password);
             await this.limitRate('xcpcio_manage_rejudge', 60, 10);
-            const { records, tdoc } = await selectRecords(target, input);
             const failed: string[] = [];
             let queued = 0;
             for (const [pid, group] of groupByProblem(records)) {
                 const pdoc = await ProblemModel.get(target, pid);
-                if (!pdoc?.config || typeof pdoc.config === 'string') { failed.push(`#${pid} 题目配置无效，已跳过`); continue; }
-                const ids = group.map((record) => record._id);
-                // As Hydro's problem rejudge: below fresh submissions, contest records without details.
-                const priority = await RecordModel.submissionPriority(this.user._id, -10000 - ids.length * 5 - 50);
-                await RecordModel.reset(target, ids, true);
-                const inContest = group.filter((record) => record.contest).map((record) => record._id);
-                const outside = group.filter((record) => !record.contest).map((record) => record._id);
-                await Promise.all([
-                    RecordModel.judge(target, inContest, priority, { detail: false }, { rejudge: true }),
-                    RecordModel.judge(target, outside, priority, {}, { rejudge: true }),
-                ]);
-                queued += ids.length;
+                if (!pdoc?.config || typeof pdoc.config === 'string') { failed.push(`${pdoc?.pid || `#${pid}`} 题目配置无效，已跳过`); continue; }
+                for (const part of chunks(group)) {
+                    const ids = part.map((record) => record._id);
+                    // As Hydro's problem rejudge: below fresh submissions, contest records without details.
+                    const priority = await RecordModel.submissionPriority(this.user._id, -10000 - ids.length * 5 - 50);
+                    await RecordModel.reset(target, ids, true);
+                    const inContest = part.filter((record) => record.contest).map((record) => record._id);
+                    const outside = part.filter((record) => !record.contest).map((record) => record._id);
+                    await Promise.all([
+                        RecordModel.judge(target, inContest, priority, { detail: false }, { rejudge: true }),
+                        RecordModel.judge(target, outside, priority, {}, { rejudge: true }),
+                    ]);
+                    queued += ids.length;
+                }
             }
-            this.response.body = { ...summary(records, tdoc), queued, failed };
+            this.response.body = { ...await summary(target, records, tdoc), queued, failed };
         }
     }
 
@@ -587,8 +598,15 @@ export function applyManage(ctx: Context) {
 
         @param('domain', Types.String, true)
         @param('contest', Types.String, true)
-        async get(domainId: string, domainInput?: string, contest?: string) {
+        @param('search', Types.String, true)
+        async get(domainId: string, domainInput?: string, contest?: string, search?: string) {
             const target = await domainOf(domainInput, domainId);
+            if (search !== undefined) {
+                const filter = problemSearchFilter(search);
+                const pdocs = filter ? await ProblemModel.getMulti(target, filter, ['docId', 'pid', 'title']).limit(20).toArray() : [];
+                this.response.body = { problems: pdocs.map((pdoc) => ({ docId: pdoc.docId, pid: pdoc.pid || '', title: pdoc.title })) };
+                return;
+            }
             if (contest) {
                 if (!/^[a-f\d]{24}$/i.test(contest)) throw new ManageError('比赛编号无效');
                 const tdoc = await ContestModel.get(target, new ObjectId(contest));

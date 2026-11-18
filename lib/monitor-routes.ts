@@ -49,8 +49,10 @@ export function applyMonitor(ctx: Context) {
         deleteOne: (filter: object) => Promise<unknown>;
     };
     const contestBase = (tdoc: Tdoc) => `/d/${encodeURIComponent(tdoc.domainId)}/contest/${tdoc.docId}`;
-    // Hydro lists its loaded addons by name in global.Hydro.version (loader.ts); hydrojudge is the built-in judge.
-    const localJudge = () => !!(globalThis as { Hydro?: { version?: Record<string, unknown> } }).Hydro?.version?.hydrojudge;
+    // Hydro lists its loaded addons by name in global.Hydro.version (loader.ts): `@hydrooj/hydrojudge` is
+    // listed as `hydrojudge`; an addon added by path or under another scope keeps its package name.
+    const localJudge = () => Object.keys((globalThis as { Hydro?: { version?: Record<string, unknown> } }).Hydro?.version || {})
+        .some((name) => name === 'hydrojudge' || name.endsWith('/hydrojudge'));
     const host = os.hostname();
     const processKey = `${host}:${process.pid}`;
     const tracker = new JudgeTracker(host);
@@ -255,5 +257,5 @@ export function applyMonitor(ctx: Context) {
     ctx.Route('contest_xcpcio_monitor', '/contest/:tid/monitor', MonitorHandler);
     ctx.Route('contest_xcpcio_monitor_data', '/contest/:tid/monitor/data', MonitorDataHandler);
     ctx.i18n.load('zh', { contest_xcpcio_monitor: '评测监控' });
-    return { tracker };
+    return { tracker, machines };
 }

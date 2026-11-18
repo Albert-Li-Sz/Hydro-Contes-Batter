@@ -152,7 +152,8 @@ function editUser(row) {
     const school = input({ value: row.school, maxlength: 128 });
     const studentId = input({ value: row.studentId, maxlength: 64 });
     const password = passwordInput('留空则不修改');
-    openDialog({
+    const dialog = openDialog({
+        extra: [deleteAction(row, false, () => dialog.close())],
         title: `编辑用户 ${row.uname}`,
         confirm: '保存',
         body: [el('div', { class: 'resolver-fields resolver-two' },
@@ -184,7 +185,8 @@ function editTeam(row) {
     invite.value = row.invite.filter((member) => member.uname).map(accountName).join(', ');
     const password = passwordInput('留空则不修改');
     const sync = el('input', { type: 'checkbox', checked: true });
-    openDialog({
+    const dialog = openDialog({
+        extra: [deleteAction(row, true, () => dialog.close())],
         title: `编辑队伍 ${row.displayName || row.uname}`,
         confirm: '保存',
         body: [el('div', { class: 'resolver-fields resolver-two' },
@@ -210,15 +212,14 @@ function editTeam(row) {
     });
 }
 
-deleteButton.addEventListener('click', () => {
-    const rows = [...state.selected.values()];
-    const teams = state.tab === 'teams';
+/** Deletes the given rows after the administrator's password: the batch button and each edit dialog. */
+function confirmDelete(rows, teams) {
     const password = adminPassword();
     const extra = el('input', { type: 'checkbox' });
     const names = rows.slice(0, 20).map((row) => el('li', { text: teams ? `${row.displayName || row.uname}（${row._id}）` : `${row.uname}${row.displayName ? `（${row.displayName}）` : ''}` }));
     if (rows.length > 20) names.push(el('li', { text: `……共 ${rows.length} 项` }));
     openDialog({
-        title: `删除 ${rows.length} ${teams ? '支队伍' : '个用户'}`,
+        title: rows.length === 1 ? `删除${teams ? '队伍' : '用户'} ${teams ? rows[0].displayName || rows[0].uname : rows[0].uname}` : `删除 ${rows.length} ${teams ? '支队伍' : '个用户'}`,
         confirm: '确认删除',
         body: [
             el('p', { text: teams ? '队伍删除后队员账号保留，无法恢复。' : '账号删除后无法恢复，其登录会话、域成员身份、用户组和队伍成员身份会一并移除。' }),
@@ -230,13 +231,24 @@ deleteButton.addEventListener('click', () => {
             const payload = { uids: rows.map((row) => row._id), password: password.value };
             if (teams) payload.withStatus = extra.checked; else payload.purge = extra.checked;
             const result = await post(teams ? 'delete_teams' : 'delete_users', payload);
-            state.selected.clear();
+            for (const row of rows) state.selected.delete(row._id);
             const skipped = result.skipped?.length ? `；跳过 ${result.skipped.length} 项：${result.skipped.join('；')}` : '';
             notify(status, `已删除 ${result.deleted.length} ${teams ? '支队伍' : '个用户'}${skipped}`, !!result.skipped?.length);
             await load();
         },
     });
     password.focus();
-});
+}
+
+/** The edit dialog's own delete button: closes the edit, then asks for the password. */
+function deleteAction(row, teams, close) {
+    const reason = teams ? null : row.undeletable;
+    return el('button', {
+        class: 'button manage-danger', type: 'button', text: teams ? '删除队伍' : '删除用户', disabled: !!reason, title: reason || undefined,
+        onclick: () => { close(); confirmDelete([row], teams); },
+    });
+}
+
+deleteButton.addEventListener('click', () => confirmDelete([...state.selected.values()], state.tab === 'teams'));
 
 load();
