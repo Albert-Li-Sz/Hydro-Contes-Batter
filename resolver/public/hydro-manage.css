@@ -94,3 +94,10 @@
 .xcpcio-manage .manage-server .manage-toolbar { margin-bottom: 4px; }
 .xcpcio-manage .manage-server h3 .manage-tag { font-weight: normal; vertical-align: middle; }
 #hydro-resolver-config.xcpcio-manage .manage-server .data-table td:first-child { white-space: normal; word-break: break-all; min-width: 160px; max-width: 320px; }
+.xcpcio-manage .manage-binding { font-size: 13px; line-height: 1.9; margin: 2px 0 4px; }
+.xcpcio-manage .manage-binding b { font-weight: 600; margin-right: 4px; }
+#hydro-resolver-config.xcpcio-manage .manage-contests { grid-template-columns: 1fr; max-height: 240px; border: 1px solid var(--manage-line); padding: 6px 10px; margin-top: 6px; }
+.xcpcio-manage .manage-contests label .manage-tag { margin-left: 6px; }
+#hydro-resolver-config.xcpcio-manage .manage-langs label { display: flex; gap: 8px; align-items: center; }
+#hydro-resolver-config.xcpcio-manage .manage-langs label input { display: inline-block; margin: 0; flex: none; }
+#hydro-resolver-config.xcpcio-manage dialog .manage-toolbar .textbox { margin: 0; }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     connectionCode, defaultPrintSettings, hashToken, languageOf, languageOfFile, lineCount, newPrintToken, normalizePrinterPreference, normalizePrintSettings,
-    normalizeServerInput, parseConnectionCode, parseSeats, seatOf, serverTakes, tokenMatches,
+    normalizeServerInput, parseConnectionCode, seatOf, serverTakes, tokenMatches,
 } from '../lib/print';
 import { tokenize } from '../lib/print-highlight';
 import { printJob } from '../lib/print-render';
@@ -14,13 +14,13 @@ describe('打印设置与座位表', () => {
         expect(normalizePrintSettings(null)).toEqual(defaultPrintSettings());
     });
 
-    it('座位表支持制表符、逗号、空格，按 uid、账号、队名查找，大小写不敏感', () => {
-        const seats = parseSeats('# 注释\nTeam001,A-01\n星火队\tB-12\n1001 C3\n破晓 队 D-4\n\nbad\n');
-        expect(seatOf(seats, { uid: 7, uname: 'team001' })).toBe('A-01');
-        expect(seatOf(seats, { uid: 8, uname: 'x', name: '星火队' })).toBe('B-12');
-        expect(seatOf(seats, { uid: 1001 })).toBe('C3');
-        expect(seatOf(seats, { uid: 9, name: '破晓 队' })).toBe('D-4');
-        expect(seatOf(seats, { uid: 10, uname: 'nobody' })).toBe('');
+    it('座位号取自 onsite-toolkit 导入到账号上的 seat；Hydro 5.1 队伍没有时取第一位有座位的队员', () => {
+        const seats = new Map<number, string>([[7, ' A-01 '], [8, ''], [9, 'B-12'], [-1001, 'C-3']]);
+        expect(seatOf(seats, 7)).toBe('A-01');
+        expect(seatOf(seats, -1001, [9])).toBe('C-3');
+        expect(seatOf(seats, -1002, [8, 9, 7])).toBe('B-12');
+        expect(seatOf(seats, -1003, [10])).toBe('');
+        expect(seatOf(seats, 10)).toBe('');
     });
 
     it('按 Hydro 语言与文件名识别高亮语言', () => {

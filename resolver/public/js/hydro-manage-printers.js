@@ -17,23 +17,20 @@ const downloads = el('div', { class: 'manage-group' });
 const serverList = el('div');
 const recentTable = el('table', { class: 'data-table' });
 const settingsBox = el('div');
-const name = input({ placeholder: '例如 打印室 1 号机', maxlength: 40, required: true, 'aria-label': '打印服务器名称' });
-const note = input({ placeholder: '备注（可选），如位置、负责人', maxlength: 200, 'aria-label': '备注' });
 
 $('manage-root').replaceChildren(
     el('p', { class: 'resolver-muted', text: '打印服务器是运行打印客户端的电脑。添加后复制连接信息，在打印电脑上运行客户端并粘贴，电脑上的打印机会自动同步到这里；选手在比赛“打印”页提交的代码由打印服务器领取并自动打印，一台电脑的多台打印机按权重轮流打印。' }),
     stats,
     downloads,
-    el('div', { class: 'manage-group' }, el('h3', { text: '添加打印服务器' }),
-        el('form', { class: 'manage-toolbar', onsubmit: (event) => { event.preventDefault(); create(); } },
-            name, note, el('button', { class: 'button primary', type: 'submit', text: '添加并生成连接信息' }))),
+    el('div', { class: 'manage-toolbar' }, el('h3', { text: '打印服务器', style: 'margin:0' }), el('span', { class: 'manage-spacer' }),
+        el('button', { class: 'button primary', type: 'button', text: '添加打印服务器', onclick: () => create() })),
     status,
     serverList,
     el('div', { class: 'manage-group' },
         el('div', { class: 'manage-toolbar' }, el('h3', { text: '最近的打印请求', style: 'margin:0' }), el('span', { class: 'manage-spacer' }),
             el('button', { class: 'button', type: 'button', text: '重新排队所选', onclick: () => requeue() })),
         el('div', { class: 'manage-scroll' }, recentTable)),
-    el('div', { class: 'manage-group' }, el('h3', { text: '打印排版与座位表' }), settingsBox),
+    el('div', { class: 'manage-group' }, el('h3', { text: '打印排版' }), settingsBox),
 );
 
 const tag = ([label, tone]) => el('span', { class: `manage-tag ${tone}`, text: label });
@@ -60,11 +57,22 @@ function renderDownloads() {
     );
 }
 
-const contestTitle = (key) => state.contests.find((contest) => contest.key === key)?.title || key;
-const bindingText = (server) => [
-    server.contests.length ? `比赛：${server.contests.map(contestTitle).join('、')}` : '比赛：全部',
-    server.seatPrefixes.length ? `座位：${server.seatPrefixes.map((prefix) => `${prefix}*`).join('、')}` : '座位：其他打印服务器未认领的',
-].join(' · ');
+const contestOf = (key) => state.contests.find((contest) => contest.key === key);
+function binding(server) {
+    const contests = server.contests.length
+        ? server.contests.map((key) => {
+            const contest = contestOf(key);
+            return el('span', { class: `manage-tag${contest && !contest.allowPrint ? ' manage-tag--warn' : ''}`, title: contest && !contest.allowPrint ? '这场比赛没有开启“允许打印”，选手无法提交打印请求' : key,
+                text: contest ? contest.title : `已删除的比赛 ${key}` });
+        })
+        : [el('span', { class: 'manage-tag', text: '全部比赛' })];
+    const seats = server.seatPrefixes.length
+        ? server.seatPrefixes.map((prefix) => el('span', { class: 'manage-tag', text: `${prefix}*` }))
+        : [el('span', { class: 'manage-dim', text: '其他打印服务器未认领的座位' })];
+    return el('div', { class: 'manage-binding' },
+        el('div', {}, el('b', { text: '服务比赛 ' }), ...contests),
+        el('div', {}, el('b', { text: '座位范围 ' }), ...seats));
+}
 
 function serverCard(server) {
     const state_ = !server.enabled ? ['已停用', 'manage-tag--warn'] : server.online ? ['在线', 'manage-tag--ok'] : server.lastSeen ? ['离线', 'manage-tag--bad'] : ['尚未连接', 'manage-tag--warn'];
@@ -96,9 +104,10 @@ function serverCard(server) {
             el('button', { class: 'button', type: 'button', text: '连接信息', onclick: () => regenerate(server) }),
             el('button', { class: 'button', type: 'button', text: '打印测试页', disabled: !server.online, onclick: () => testPage(server, '') }),
             el('button', { class: 'button manage-danger', type: 'button', text: '删除', onclick: () => remove(server) })),
+        binding(server),
         el('p', { class: 'resolver-muted manage-small' },
-            server.note ? `${server.note} · ` : '', bindingText(server),
-            el('br'), client ? `${client} · 最近联系 ${formatTime(server.lastSeen)}` : '尚未连接',
+            server.note ? `${server.note} · ` : '',
+            client ? `${client} · 最近联系 ${formatTime(server.lastSeen)}` : '尚未连接',
             ` · 已打印 ${server.stats.printed}，失败 ${server.stats.failed}`,
             server.testsWaiting ? ` · ${server.testsWaiting} 张测试页等待打印` : '',
             server.lastTest ? ` · 最近测试页：${server.lastTest.status === 'printed' ? '成功' : '失败'}（${server.lastTest.printer || '自动选择'}，${formatTime(server.lastTest.at)}）${server.lastTest.message ? ` ${server.lastTest.message}` : ''}` : ''),
@@ -147,9 +156,6 @@ function renderSettings() {
         });
         return el('label', {}, node, el('span', { text: label }));
     }));
-    const seats = el('textarea', { class: 'textbox', rows: 6, spellcheck: 'false', placeholder: '每行一条：账号、队名或 UID，然后是座位号，用制表符、逗号或空格分隔\nteam001,A-01\n星火队\tB-12\n1001 C3' });
-    seats.value = settings.seats;
-    seats.addEventListener('input', () => { settings.seats = seats.value; });
     const saved = el('span', { class: 'resolver-muted', role: 'status' });
     const save = el('button', { class: 'button primary', type: 'button', text: '保存设置' });
     save.addEventListener('click', async () => {
@@ -164,9 +170,7 @@ function renderSettings() {
         el('div', { class: 'resolver-checks' }, box('highlight', '黑白代码高亮（关键字加粗、注释斜体灰色）'), box('lineNumbers', '显示行号')),
         el('div', { class: 'resolver-fields resolver-two', style: 'margin-top:12px' }, field('代码字号（磅）', fontSize)),
         el('h3', { text: '页眉（每页顶部重复，方便分发）' }), header,
-        el('h3', { style: 'margin-top:16px', text: '座位表' }),
-        el('p', { class: 'resolver-muted manage-small', text: '可选。座位号打印在页眉右上角，打印服务器也可按座位前缀分工（例如 A 区的请求只由 A 区的打印电脑打印）。可从表格直接粘贴。' }),
-        seats,
+        el('p', { class: 'resolver-muted manage-small', style: 'margin-top:12px', text: '座位号来自 Hydro 的 onsite-toolkit 插件导入的队伍信息（账号的 seat 字段），打印在页眉右上角，打印服务器的“座位范围”也按它分工；没有导入座位的队伍打印时不显示座位号。' }),
         el('div', { class: 'resolver-actions' }, save, saved),
     );
 }
@@ -207,17 +211,8 @@ function showCode(server, code, created) {
     copyText(code);
 }
 
-async function create() {
-    if (!name.reportValidity()) return;
-    try {
-        const result = await post('create', { name: name.value.trim(), note: note.value, origin: location.origin });
-        const server = { name: name.value.trim() };
-        name.value = '';
-        note.value = '';
-        notify(status, `已添加打印服务器 ${server.name}`);
-        showCode(server, result.code, true);
-        await load();
-    } catch (error) { notify(status, error.message, true); }
+function create() {
+    serverDialog(null);
 }
 
 function regenerate(server) {
@@ -234,34 +229,72 @@ function regenerate(server) {
 }
 
 function editServer(server) {
-    const serverName = input({ value: server.name, maxlength: 40, required: true });
-    const serverNote = input({ value: server.note, maxlength: 200 });
-    const enabled = el('input', { type: 'checkbox', checked: server.enabled });
-    const prefixes = input({ value: server.seatPrefixes.join(', '), placeholder: '例如 A, B；留空表示其他打印服务器未认领的座位' });
-    const contests = el('div', { class: 'manage-langs', style: 'grid-template-columns:1fr' }, ...state.contests.length ? state.contests.map((contest) => el('label', { title: contest.key },
-        el('input', { type: 'checkbox', value: contest.key, checked: server.contests.includes(contest.key) }),
-        el('span', { text: `${contest.title}（${contest.domainId} · ${formatTime(contest.beginAt)}）` }))) : [el('span', { class: 'resolver-muted', text: '没有开启“允许打印”的比赛' })]);
+    serverDialog(server);
+}
+
+/** Name, note, enabled, the contests it serves and its seat range: for adding and for 设置. */
+function serverDialog(server) {
+    const serverName = input({ value: server?.name || '', maxlength: 40, required: true, placeholder: '例如 打印室 A 区' });
+    const serverNote = input({ value: server?.note || '', maxlength: 200, placeholder: '可选，如位置、负责人' });
+    const enabled = el('input', { type: 'checkbox', checked: server ? server.enabled : true });
+    const prefixes = input({ value: server?.seatPrefixes.join(', ') || '', placeholder: '例如 A, B；留空表示其他打印服务器未认领的座位' });
+    const chosen = new Set(server?.contests || []);
+    const scope = el('select', { class: 'select' }, new Option('服务全部比赛', 'all', false, !chosen.size), new Option('仅服务所选比赛', 'some', false, chosen.size > 0));
+    const filter = input({ type: 'search', placeholder: '按比赛名称或域查找', 'aria-label': '查找比赛' });
+    const onlyPrint = el('input', { type: 'checkbox', checked: true });
+    const list = el('div', { class: 'manage-langs manage-contests' });
+    const summary = el('p', { class: 'resolver-muted manage-small' });
+    const picker = el('div', {}, el('div', { class: 'manage-toolbar' }, filter, el('label', { class: 'checkbox' }, onlyPrint, '只看开启“允许打印”的比赛')), list, summary);
+    const renderList = () => {
+        const text = filter.value.trim().toLowerCase();
+        const rows = state.contests.filter((contest) => chosen.has(contest.key)
+            || ((!onlyPrint.checked || contest.allowPrint) && (!text || `${contest.title} ${contest.domainId}`.toLowerCase().includes(text))));
+        list.replaceChildren(...rows.length ? rows.map((contest) => {
+            const box = el('input', { type: 'checkbox', value: contest.key, checked: chosen.has(contest.key) });
+            box.addEventListener('change', () => { if (box.checked) chosen.add(contest.key); else chosen.delete(contest.key); updateSummary(); });
+            return el('label', { title: contest.key }, box,
+                el('span', { text: `${contest.title}（${contest.domainId} · ${formatTime(contest.beginAt)}）` }),
+                contest.allowPrint ? null : el('span', { class: 'manage-tag manage-tag--warn', text: '未开启允许打印' }));
+        }) : [el('span', { class: 'resolver-muted', text: onlyPrint.checked ? '没有符合条件的比赛；取消“只看开启允许打印的比赛”可查看全部' : '没有符合条件的比赛' })]);
+    };
+    const updateSummary = () => {
+        summary.textContent = chosen.size ? `已选 ${chosen.size} 场：${[...chosen].map((key) => contestOf(key)?.title || key).join('、')}` : '尚未选择比赛';
+    };
+    const updateScope = () => { picker.hidden = scope.value !== 'some'; };
+    filter.addEventListener('input', renderList);
+    onlyPrint.addEventListener('change', renderList);
+    scope.addEventListener('change', updateScope);
+    renderList();
+    updateSummary();
+    updateScope();
     openDialog({
-        title: `打印服务器 ${server.name} 的设置`,
-        confirm: '保存',
+        title: server ? `打印服务器 ${server.name} 的设置` : '添加打印服务器',
+        confirm: server ? '保存' : '添加并生成连接信息',
         body: [el('div', { class: 'resolver-fields' },
             field('名称', serverName), field('备注', serverNote),
-            el('label', { class: 'checkbox' }, enabled, '启用（停用后不再领取打印请求）'),
-            el('div', {}, '只打印这些比赛', el('span', { class: 'resolver-muted manage-small', text: '（不勾选表示全部开启了“允许打印”的比赛）' }), contests),
-            field('只打印这些座位前缀', prefixes, '按座位表中的座位号匹配开头，用逗号分隔；可让各区域的打印电脑只打本区域的请求'))],
+            server ? el('label', { class: 'checkbox' }, enabled, '启用（停用后不再领取打印请求）') : null,
+            field('服务比赛', scope, '仅服务所选比赛时，这台电脑只打印这些比赛的打印请求；其他比赛交给别的打印服务器'),
+            picker,
+            field('座位范围', prefixes, '按 onsite-toolkit 导入的座位号开头匹配，用逗号分隔；可让各区域的打印电脑只打本区域的请求'))],
         submit: async () => {
             if (!serverName.reportValidity()) throw new Error('请填写名称');
-            await post('update', {
-                id: server.id,
-                server: {
-                    name: serverName.value, note: serverNote.value, enabled: enabled.checked, seatPrefixes: prefixes.value,
-                    contests: [...contests.querySelectorAll('input:checked')].map((box) => box.value),
-                },
-            });
-            notify(status, `已保存 ${serverName.value} 的设置`);
+            if (scope.value === 'some' && !chosen.size) throw new Error('请至少选择一场比赛，或改为“服务全部比赛”');
+            const input = {
+                name: serverName.value, note: serverNote.value, enabled: enabled.checked, seatPrefixes: prefixes.value,
+                contests: scope.value === 'some' ? [...chosen] : [],
+            };
+            if (server) {
+                await post('update', { id: server.id, server: input });
+                notify(status, `已保存 ${input.name} 的设置`);
+            } else {
+                const result = await post('create', { ...input, origin: location.origin });
+                notify(status, `已添加打印服务器 ${input.name}`);
+                setTimeout(() => showCode({ name: input.name }, result.code, true), 0);
+            }
             await load();
         },
     });
+    serverName.focus();
 }
 
 function remove(server) {

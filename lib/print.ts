@@ -1,6 +1,6 @@
 /**
  * Print servers: PCs running the print client, which take Hydro's print requests (participants send
- * them from the contest's 打印 page) and print them on their printers. Settings, the seat table,
+ * them from the contest's 打印 page) and print them on their printers. Settings, seats,
  * connection codes and which PC takes which request. Pure; lib/print-routes.ts applies them.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -26,13 +26,11 @@ export interface PrintSettings {
     /** Code size in points. */
     fontSize: number;
     header: HeaderField[];
-    /** One line per participant: account, team name or uid, then the seat. */
-    seats: string;
 }
 
 export const defaultPrintSettings = (): PrintSettings => ({
     highlight: true, lineNumbers: true, fontSize: 10,
-    header: ['team', 'seat', 'school', 'members', 'problem', 'language', 'time', 'id'], seats: '',
+    header: ['team', 'seat', 'school', 'members', 'problem', 'language', 'time', 'id'],
 });
 
 export function normalizePrintSettings(input: unknown, base = defaultPrintSettings()): PrintSettings {
@@ -46,35 +44,19 @@ export function normalizePrintSettings(input: unknown, base = defaultPrintSettin
         settings.fontSize = Math.round(size * 2) / 2;
     }
     if (Array.isArray(raw.header)) settings.header = [...new Set(raw.header.map(String).filter((key) => known.has(key)))] as HeaderField[];
-    if (typeof raw.seats === 'string') {
-        if (raw.seats.length > 200000) throw new PrintError('座位表过长');
-        settings.seats = raw.seats;
-    }
     return settings;
 }
 
 /**
- * The seat table: one entry per line, the key then the seat, separated by a tab, comma or spaces
- * (`team1,A-01`, `星火队	B12`, `1001 C3`). Keys match case-insensitively; later lines win.
+ * Seats come from Hydro's onsite-toolkit, which stores each team account's seat in the `seat`
+ * field of the account (its quick import's `seat` column). A Hydro 5.1 team without a seat of
+ * its own sits where its first seated member does.
  */
-export function parseSeats(text: string) {
-    const seats = new Map<string, string>();
-    for (const line of text.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-        const parts = trimmed.includes('\t') ? trimmed.split('\t') : trimmed.includes(',') ? trimmed.split(',') : trimmed.includes('，') ? trimmed.split('，') : trimmed.split(/\s+/);
-        if (parts.length < 2) continue;
-        const seat = parts.pop()!.trim();
-        const key = parts.join(' ').trim().toLowerCase();
-        if (key && seat) seats.set(key, seat);
-    }
-    return seats;
-}
-
-/** A participant's seat, looked up by uid, account name, then team or display name. */
-export function seatOf(seats: Map<string, string>, who: { uid: number; uname?: string; name?: string }) {
-    for (const key of [String(who.uid), who.uname, who.name]) {
-        const seat = key ? seats.get(key.trim().toLowerCase()) : undefined;
+export function seatOf(seats: Map<number, string>, uid: number, members: number[] = []) {
+    const own = seats.get(uid)?.trim();
+    if (own) return own;
+    for (const member of members) {
+        const seat = seats.get(member)?.trim();
         if (seat) return seat;
     }
     return '';

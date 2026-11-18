@@ -3,7 +3,7 @@ import type { Environment } from 'nunjucks';
 import type { BoardData } from '../lib/board';
 import {
     CLAIM_TIMEOUT_MS, connectionCode, hashToken, headerFields, languageOfFile, lineCount, MAX_ATTEMPTS, newPrintToken, normalizePrinterPreference,
-    normalizePrintSettings, normalizeServerInput, ONLINE_MS, parseSeats, PrintError, type PrinterPreference, type PrintServerInput, seatOf, serverTakes,
+    normalizePrintSettings, normalizeServerInput, ONLINE_MS, PrintError, type PrinterPreference, type PrintServerInput, seatOf, serverTakes,
     tokenMatches,
 } from '../lib/print';
 import { printJob } from '../lib/print-render';
@@ -32,15 +32,25 @@ const samples = [
 export function createPrintersPreview(env: Environment, version: string, demo: () => BoardData) {
     const codeBase = resolverCodeBase(version);
     const data = demo();
-    const contestKey = 'system/6740a0000000000000000001';
-    let settings = normalizePrintSettings({ seats: 'user1,A-01\nuser2,A-02\nuser3,B-01\nuser4,B-02\nuser5,A-03\nuser6,B-03\nuser7,A-04\nuser8,B-04\n' });
+    // Three contests: the demo final and warm-up accept print requests, the trial does not.
+    const contests = [
+        { key: 'system/6740a0000000000000000001', domainId: 'system', title: data.contest.contest_name, allowPrint: true, beginAt: new Date(data.contest.start_time * 1000) },
+        { key: 'system/6740a0000000000000000002', domainId: 'system', title: '2026 校赛热身赛', allowPrint: true, beginAt: new Date(data.contest.start_time * 1000 - 86400_000) },
+        { key: 'training/6740a0000000000000000003', domainId: 'training', title: '新生选拔赛', allowPrint: false, beginAt: new Date(data.contest.start_time * 1000 - 7 * 86400_000) },
+    ];
+    const contestKey = contests[0].key;
+    let settings = normalizePrintSettings({});
+    // Seats as onsite-toolkit imports them: the `seat` field of each team account.
+    const onsiteSeats = new Map<number, string>([[1, 'A-01'], [2, 'A-02'], [3, 'B-01'], [4, 'B-02'], [5, 'A-03'], [6, 'B-03'], [7, 'A-04']]);
     const servers: Server[] = [];
     const tasks: Task[] = [];
     let counter = 0;
     const addTask = () => {
         const team = data.teams[counter % data.teams.length];
         const [title, content] = samples[counter % samples.length];
-        tasks.push({ id: `6742a${String(++counter).padStart(19, '0')}`, contest: contestKey, owner: Number(team.team_id), title, content, status: 'pending', attempts: 0, time: new Date() });
+        // Every third request comes from the warm-up contest.
+        const contest = counter % 3 === 2 ? contests[1].key : contestKey;
+        tasks.push({ id: `6742a${String(++counter).padStart(19, '0')}`, contest, owner: Number(team.team_id), title, content, status: 'pending', attempts: 0, time: new Date() });
     };
     for (let index = 0; index < 4; index++) addTask();
     const timer = setInterval(addTask, 20_000);
@@ -50,13 +60,13 @@ export function createPrintersPreview(env: Environment, version: string, demo: (
         const team = data.teams.find((candidate) => Number(candidate.team_id) === uid);
         const uname = `user${uid}`;
         return { name: team?.name || uname, school: team?.organization || '', members: [], uname, unofficial: !!team?.group.includes('unofficial'),
-            seat: seatOf(parseSeats(settings.seats), { uid, uname, name: team?.name }) };
+            seat: seatOf(onsiteSeats, uid) };
     };
     const sheet = (task: Task) => {
         const person = who(task.owner);
         return printJob({ id: task.id, team: person.name, school: person.school, members: person.members, account: person.uname, seat: person.seat,
             unofficial: person.unofficial, problem: task.title, language: languageOfFile(task.title), time: task.time, lines: lineCount(task.content), code: task.content },
-        settings, data.contest.contest_name);
+        settings, contests.find((contest) => contest.key === task.contest)?.title || data.contest.contest_name);
     };
     const release = (now: number) => {
         for (const task of tasks) if (task.status === 'printing' && task.claimedAt && now - task.claimedAt > CLAIM_TIMEOUT_MS) Object.assign(task, { status: 'pending', server: undefined });
@@ -142,7 +152,7 @@ export function createPrintersPreview(env: Environment, version: string, demo: (
         for (const task of tasks) queue[task.status] = (queue[task.status] || 0) + 1;
         return {
             settings, clients: [], queue,
-            contests: [{ key: contestKey, domainId: 'system', title: data.contest.contest_name, beginAt: new Date(data.contest.start_time * 1000), endAt: new Date(data.contest.end_time * 1000) }],
+            contests: contests.map((contest) => ({ ...contest, endAt: contest.beginAt, rule: 'acm' })),
             servers: servers.map((server) => {
                 const online = !!server.lastSeen && now - server.lastSeen < ONLINE_MS;
                 return {
@@ -155,7 +165,7 @@ export function createPrintersPreview(env: Environment, version: string, demo: (
                 };
             }),
             recent: [...tasks].reverse().slice(0, 50).map((task) => ({
-                id: task.id, contest: data.contest.contest_name, title: task.title, status: task.status, team: who(task.owner).name, seat: who(task.owner).seat, time: task.time,
+                id: task.id, contest: contests.find((contest) => contest.key === task.contest)?.title || task.contest, title: task.title, status: task.status, team: who(task.owner).name, seat: who(task.owner).seat, time: task.time,
                 server: servers.find((server) => server.id === task.server)?.name || '', printer: task.printer || '', attempts: task.attempts, error: task.error || '',
             })),
         };

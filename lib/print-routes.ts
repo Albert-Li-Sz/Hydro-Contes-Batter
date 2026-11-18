@@ -5,7 +5,7 @@ import {
 } from 'hydrooj';
 import {
     CLAIM_TIMEOUT_MS, connectionCode, headerFields, languageOfFile, lineCount, MAX_ATTEMPTS, MAX_PRINT_BYTES, newPrintToken, hashToken,
-    normalizePrinterPreference, normalizePrintSettings, normalizeServerInput, ONLINE_MS, parseSeats, PrintError, type PrinterPreference,
+    normalizePrinterPreference, normalizePrintSettings, normalizeServerInput, ONLINE_MS, PrintError, type PrinterPreference,
     type PrintServerInput, type PrintSettings, seatOf, serverTakes, tokenMatches,
 } from './print';
 import { printJob, type PrintSheet } from './print-render';
@@ -104,26 +104,38 @@ export function applyPrintServers(ctx: Context) {
         return typeof configured === 'string' ? configured : '';
     };
 
+    /** The `seat` onsite-toolkit stored on each account (team accounts, and Hydro 5.1 teams' members). */
+    async function seatsOf(uids: number[]) {
+        const ids = [...new Set(uids)];
+        const [users, vusers] = await Promise.all([
+            ids.some((uid) => uid > 0) ? raw('user').find({ _id: { $in: ids.filter((uid) => uid > 0) }, seat: { $exists: true } }).project({ _id: 1, seat: 1 }).toArray() : [],
+            ids.some((uid) => uid < 0) ? raw('vuser').find({ _id: { $in: ids.filter((uid) => uid < 0) }, seat: { $exists: true } }).project({ _id: 1, seat: 1 }).toArray() : [],
+        ]);
+        return new Map<number, string>([...users, ...vusers].filter((doc: { seat?: unknown }) => typeof doc.seat === 'string' || typeof doc.seat === 'number')
+            .map((doc: { _id: number; seat: string | number }) => [doc._id, String(doc.seat)]));
+    }
+
     /** Team names, schools, members and seats of a contest's participants (staff see identity). */
-    async function contestInfo(domainId: string, tid: ObjectId, settings: PrintSettings, seats = parseSeats(settings.seats)) {
+    async function contestInfo(domainId: string, tid: ObjectId) {
         const tdoc = await ContestModel.get(domainId, tid);
         if (!tdoc) return null;
         const entries = await ContestModel.getMultiStatus(domainId, { docId: tid }).toArray() as unknown as (TeamEntry & { unrank?: boolean })[];
-        const users = await UserModel.getList(domainId, [...entries.map((entry) => entry.uid), ...memberIds(tdoc, entries)]);
+        const uids = [...entries.map((entry) => entry.uid), ...memberIds(tdoc, entries)];
+        const [users, seats] = await Promise.all([UserModel.getList(domainId, uids), seatsOf(uids)]);
         const byUid = new Map<number, { name: string; school: string; members: string[]; uname: string; seat: string; unofficial: boolean }>();
         for (const entry of entries) {
             const team = describeTeam(entry, users, true);
             if (!team) continue;
             const uname = users[entry.uid]?.uname || String(entry.uid);
             const info = { name: team.name, school: team.school || '', members: team.members || [], uname, unofficial: !!entry.unrank,
-                seat: seatOf(seats, { uid: entry.uid, uname, name: team.name }) };
+                seat: seatOf(seats, entry.uid, isTeamEntry(entry) ? entry.members : []) };
             byUid.set(entry.uid, info);
             // Members send print requests for their team.
             if (isTeamEntry(entry)) for (const member of entry.members) if (!byUid.has(member)) byUid.set(member, info);
         }
         const who = (uid: number) => byUid.get(uid) ?? {
             name: users[uid]?.displayName || users[uid]?.uname || `UID ${uid}`, school: '', members: [], uname: users[uid]?.uname || String(uid),
-            unofficial: false, seat: seatOf(seats, { uid, uname: users[uid]?.uname }),
+            unofficial: false, seat: seatOf(seats, uid),
         };
         return { tdoc, who };
     }
@@ -281,27 +293,34 @@ export function applyPrintServers(ctx: Context) {
             const now = Date.now();
             await releaseStale(now);
             const settings = await loadSettings();
-            const seats = parseSeats(settings.seats);
             const [list, contests, counts, perPrinter, recent] = await Promise.all([
                 servers.find({}).sort({ createdAt: 1 }).toArray() as Promise<ServerDoc[]>,
-                documents.find({ docType: TYPE_CONTEST, allowPrint: true }).project({ domainId: 1, docId: 1, title: 1, beginAt: 1, endAt: 1 }).sort({ beginAt: -1 }).limit(100).toArray(),
+                documents.find({ docType: TYPE_CONTEST }).project({ domainId: 1, docId: 1, title: 1, beginAt: 1, endAt: 1, allowPrint: 1, rule: 1 }).sort({ beginAt: -1 }).limit(300).toArray(),
                 documents.aggregate([{ $match: { docType: TYPE_CONTEST_PRINT } }, { $group: { _id: '$status', n: { $sum: 1 } } }]).toArray(),
                 documents.aggregate([{ $match: { docType: TYPE_CONTEST_PRINT, status: 'printed', xcpcioServer: { $exists: true } } },
                     { $group: { _id: { server: '$xcpcioServer', printer: '$xcpcioPrinter' }, n: { $sum: 1 } } }]).toArray(),
                 documents.find({ docType: TYPE_CONTEST_PRINT }).project({ content: 0 }).sort({ _id: -1 }).limit(50).toArray() as Promise<PrintTask[]>,
             ]);
+            // Bound contests stay listed even when they are older than the 300 most recent.
+            const listed = new Set(contests.map((tdoc: { domainId: string; docId: ObjectId }) => `${tdoc.domainId}/${tdoc.docId}`));
+            const missing = [...new Set(list.flatMap((doc) => doc.contests || []))].filter((key) => !listed.has(key));
+            if (missing.length) {
+                contests.push(...await documents.find({ docType: TYPE_CONTEST, $or: missing.map((key) => ({ domainId: key.split('/')[0], docId: new ObjectId(key.split('/')[1]) })) })
+                    .project({ domainId: 1, docId: 1, title: 1, beginAt: 1, endAt: 1, allowPrint: 1, rule: 1 }).toArray());
+            }
             const printed = new Map<string, number>(perPrinter.map((row: { _id: { server: string; printer: string }; n: number }) => [`${row._id.server}\n${row._id.printer}`, row.n]));
             const names = new Map(list.map((doc) => [String(doc._id), doc.name]));
             const infos = new Map<string, Awaited<ReturnType<typeof contestInfo>>>();
             for (const task of recent) {
                 const key = `${task.domainId}/${task.parentId}`;
-                if (!infos.has(key)) infos.set(key, await contestInfo(task.domainId, task.parentId, settings, seats));
+                if (!infos.has(key)) infos.set(key, await contestInfo(task.domainId, task.parentId));
             }
             this.response.body = {
                 settings, clients: clientFiles(),
                 queue: Object.fromEntries(counts.map((row: { _id: string; n: number }) => [row._id, row.n])),
-                contests: contests.map((tdoc: { domainId: string; docId: ObjectId; title: string; beginAt: Date; endAt: Date }) => ({
+                contests: contests.map((tdoc: { domainId: string; docId: ObjectId; title: string; beginAt: Date; endAt: Date; allowPrint?: boolean; rule?: string }) => ({
                     key: `${tdoc.domainId}/${tdoc.docId}`, domainId: tdoc.domainId, title: tdoc.title, beginAt: tdoc.beginAt, endAt: tdoc.endAt,
+                    allowPrint: !!tdoc.allowPrint, rule: tdoc.rule || '',
                 })),
                 servers: list.map((doc) => {
                     const online = !!doc.lastSeen && now - new Date(doc.lastSeen).getTime() < ONLINE_MS;
@@ -410,12 +429,11 @@ export function applyPrintServers(ctx: Context) {
                 });
             }
             const candidates = await documents.find(filter).project({ _id: 1, domainId: 1, parentId: 1, owner: 1 }).sort({ _id: 1 }).limit(200).toArray() as PrintTask[];
-            const seats = parseSeats(settings.seats);
             const infos = new Map<string, Awaited<ReturnType<typeof contestInfo>>>();
             for (const candidate of candidates) {
                 if (jobs.length >= slots) break;
                 const key = `${candidate.domainId}/${candidate.parentId}`;
-                if (!infos.has(key)) infos.set(key, await contestInfo(candidate.domainId, candidate.parentId, settings, seats));
+                if (!infos.has(key)) infos.set(key, await contestInfo(candidate.domainId, candidate.parentId));
                 const info = infos.get(key);
                 if (!info) continue;
                 const who = info.who(candidate.owner);
