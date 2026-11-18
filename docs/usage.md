@@ -96,11 +96,11 @@ Schema 测试固定使用官方 2026-01 分支文件；上游 schema 对 runs �
 
 需要 Node.js 22 或以上版本及 Hydro 5.x。使用运行 Hydro 的系统用户操作；命令中的 `$HOME` 对应这个用户。自 0.8.1 起，安装包包含供 Hydro 直接加载的源码和完整预构建资源。
 
-下载 `hydro-scoreboard-xcpcio-plus-1.3.0.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
+下载 `hydro-scoreboard-xcpcio-plus-1.4.0.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
 
 ```bash
 mkdir -p "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
-tar -xzf hydro-scoreboard-xcpcio-plus-1.3.0.tgz \
+tar -xzf hydro-scoreboard-xcpcio-plus-1.4.0.tgz \
   -C "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus" --strip-components=1
 hydrooj addon add "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
 pm2 restart hydrooj
@@ -112,7 +112,7 @@ pm2 restart hydrooj
 
 ```bash
 mkdir -p xcpcio-update
-tar -xzf hydro-scoreboard-xcpcio-plus-1.3.0.tgz -C xcpcio-update
+tar -xzf hydro-scoreboard-xcpcio-plus-1.4.0.tgz -C xcpcio-update
 bash xcpcio-update/package/install.sh install
 # 已有安装时
 bash xcpcio-update/package/install.sh upgrade
@@ -394,6 +394,38 @@ Hydro 的系统管理员（`PRIV_EDIT_SYSTEM`）可在控制面板（`/manage`�
   - 只评测指定语言：把较慢的语言集中到指定机器；
   - 任务范围：全部、只评新提交（不接重测）或只评重测任务，避免批量重测拖慢比赛评测。
   设置保存后立即对所有已连接的评测机生效，多进程部署时其他进程在数秒内生效。从未设置过的评测机保持 Hydro 默认行为。内置评测（hydrojudge 插件随 Hydro 运行）不经过评测账号，不受这些设置影响。
+
+### 打印服务器管理
+
+`/manage/xcpcio-printers`，位于“评测机控制”下方，每 5 秒刷新。打印服务器是运行打印客户端的电脑：它领取选手在比赛“打印”页提交的打印请求（比赛设置中需开启“允许打印”），在本机打印机上打印，并把本机的打印机同步到这里。
+
+**连接一台打印电脑**
+
+1. 在本页“添加打印服务器”，填写名称（如“打印室 A 区”），点击“添加并生成连接信息”，复制以 `hydro-print:` 开头的连接信息。连接信息包含访问密钥，只在生成时显示；忘记时点击“连接信息”重新生成，原来的连接随即失效。
+2. 在打印电脑上下载对应系统的打印客户端（本页“打印客户端”中的链接，或插件 GitHub Release 中的 `hydro-print-client-*`）。客户端是单个程序文件，无需安装、没有其他依赖：
+   - Windows：双击 `hydro-print-client-windows-amd64.exe`（ARM 电脑用 `arm64`）。未签名的程序首次运行时若出现 SmartScreen 提示，点击“更多信息 → 仍要运行”；
+   - macOS：在终端执行 `chmod +x hydro-print-client-darwin-arm64 && xattr -d com.apple.quarantine hydro-print-client-darwin-arm64`（Intel 电脑用 `amd64`），然后 `./hydro-print-client-darwin-arm64`；
+   - Linux：`chmod +x hydro-print-client-linux-amd64 && ./hydro-print-client-linux-amd64`，需要系统已安装 CUPS（提供 `lp`、`lpstat`）。
+3. 按提示粘贴连接信息并回车。连接信息保存在程序旁的 `hydro-print-client.json`（该文件夹不可写时保存在用户配置目录），之后直接运行即可。也可用 `--connect <连接信息>` 指定，`--reset` 清除。
+4. 连接成功后，这台电脑的打印机出现在本页对应的打印服务器下；点击“打印测试页”确认打印效果。
+
+打印电脑需要能访问 Hydro 的地址（连接信息中的地址取自系统设置的站点地址，未设置时为生成时浏览器访问的地址）。自签名 HTTPS 证书可加 `--insecure`。
+
+**打印方式**：Windows 直接调用系统打印接口（winspool / GDI），使用打印机自身的纸张，中文使用系统自带的微软雅黑；macOS、Linux 由客户端生成 PDF，交给系统的 CUPS（`lp`）打印，纸张默认 A4（`--paper Letter` 可改）。PDF 中代码使用标准等宽字体，中文使用 PDF 预定义的中文字体，由系统自动替换为已安装的中文字体，不需要额外的字体文件；Linux 需要安装中文字体（如 Noto CJK）。
+
+**排版**：每份打印请求单独成一个打印任务，每页顶部重复一个页眉框，显示比赛名、队伍名（打星队伍注明）、右上角醒目的座位号，以及学校、队员、账号、文件名、语言、请求时间、编号和行数（每项可在“打印排版与座位表”中开关），页脚为队伍、座位和页码，方便分发。代码为黑白打印友好的高亮（关键字和预处理指令加粗，注释斜体灰色，字符串深灰），带行号，长行自动折行；可关闭高亮、行号，调整代码字号。座位表每行一条“账号、队名或 UID + 座位号”，可从表格直接粘贴。
+
+**分工与负载均衡**
+
+- 每台打印服务器可在“设置”中绑定要打印的比赛（不勾选为全部开启了“允许打印”的比赛）和座位前缀（如 `A`、`B`，按座位表中的座位号开头匹配）。设了前缀的打印服务器只打印这些座位的请求；没有前缀的打印服务器打印其他打印服务器未认领的座位和没有座位的请求。各区域只有一台带前缀的电脑时，它离线期间该区域的请求会等待，建议另留一台不设前缀的电脑兜底。
+- 同一份请求只会被一台电脑领取。电脑领取后 5 分钟没有回报（关机、断网），请求自动退回队列。
+- 一台电脑上的多台打印机按权重（1 至 10）轮流打印，例如权重 3 与 1 的两台按 3:1 分配；缺纸、卡纸、脱机或暂停的打印机自动跳过，打印出错的打印机休息 1 分钟。取消“参与打印”可把打印机移出轮换；PDF、XPS、传真等虚拟打印机默认不参与。设置在几秒内同步到打印电脑。
+- 打印失败的请求退回队列，可能由其他电脑重试，失败 3 次后标记为失败；在“最近的打印请求”中可勾选后重新排队。
+- 停用打印服务器后不再领取请求；删除需要输入管理员密码，它手中的请求退回队列。
+
+**试运行**：客户端加 `--to-folder <文件夹>`（可配合 `--folder-printers 2`）会多出“保存到文件夹”打印机，把打印内容存为 PDF，不用纸即可检查流程与负载均衡；`--sample 样张.pdf` 只生成一张样张，`--print-sample <打印机名>` 在指定打印机上打印样张，`--printers` 列出本机打印机。
+
+客户端源码位于 `print-client/`（Go，只用标准库），`pnpm build:print-client` 构建全部平台，安装包随附构建结果。
 
 ### 批量重测
 

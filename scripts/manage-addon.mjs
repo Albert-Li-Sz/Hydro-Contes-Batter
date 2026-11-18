@@ -11,7 +11,7 @@ const hydroDirectory = profile
     ? path.resolve(os.homedir(), '.hydro/profiles', profile)
     : path.join(os.homedir(), '.hydro');
 const addonFile = path.join(hydroDirectory, 'addon.json');
-const staticNames = ['hydro-xcpcio', 'hydro-resolver', 'hydro-live'];
+const staticNames = ['hydro-xcpcio', 'hydro-resolver', 'hydro-live', 'hydro-print-client'];
 
 function help() {
     console.log(`用法

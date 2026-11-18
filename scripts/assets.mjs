@@ -69,3 +69,13 @@ await rm(liveTarget, { recursive: true, force: true });
 await cp(path.join(root, 'live/dist'), liveTarget, { recursive: true });
 await cp(path.join(root, 'live/LICENSE.txt'), path.join(liveTarget, 'LICENSE.txt'));
 console.log('ICPC Live assets ready: v3.5.1 with Hydro adapters');
+// Print client binaries (scripts/build-print-client.mjs), offered for download on 打印服务器管理.
+const clientSource = path.join(root, 'print-client/dist');
+const clientTarget = path.join(root, 'public/hydro-print-client');
+const clients = await readdir(clientSource).catch(() => []);
+// The installed package ships only public/hydro-print-client; keep it when there is no fresh build.
+if (clients.length) {
+    await rm(clientTarget, { recursive: true, force: true });
+    await cp(clientSource, clientTarget, { recursive: true });
+    console.log(`Print client ready: ${clients.length} platforms`);
+}

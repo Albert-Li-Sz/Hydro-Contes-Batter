@@ -90,3 +90,7 @@
 .xcpcio-manage .manage-transition strong { margin-left: 4px; }
 .xcpcio-manage .manage-arrow { opacity: .55; }
 .xcpcio-manage .data-table td.manage-arrow { width: 16px; text-align: center; padding-left: 0; padding-right: 0; }
+.xcpcio-manage .manage-server { border: 1px solid var(--manage-line); border-radius: 6px; padding: 12px 14px; margin-bottom: 14px; }
+.xcpcio-manage .manage-server .manage-toolbar { margin-bottom: 4px; }
+.xcpcio-manage .manage-server h3 .manage-tag { font-weight: normal; vertical-align: middle; }
+#hydro-resolver-config.xcpcio-manage .manage-server .data-table td:first-child { white-space: normal; word-break: break-all; min-width: 160px; max-width: 320px; }

@@ -187,11 +187,13 @@ describe('Hydro 数据与权限', () => {
     it('系统管理：用户配置排在“导入用户”下方，评测机控制与批量重测追加到控制面板', async () => {
         const app = setup(); await app.init();
         expect(app.routeNames()).toEqual(expect.arrayContaining([
-            'manage_xcpcio_users', 'manage_xcpcio_users_data', 'manage_xcpcio_judges', 'manage_xcpcio_judges_data', 'manage_xcpcio_rejudge', 'manage_xcpcio_rejudge_data', 'manage_xcpcio_rejudge_history',
+            'manage_xcpcio_users', 'manage_xcpcio_users_data', 'manage_xcpcio_judges', 'manage_xcpcio_judges_data', 'manage_xcpcio_rejudge', 'manage_xcpcio_rejudge_data', 'manage_xcpcio_rejudge_history', 'manage_xcpcio_printers', 'manage_xcpcio_printers_data', 'xcpcio_print_heartbeat', 'xcpcio_print_next', 'xcpcio_print_report',
         ]));
         const calls = app.injectUI.mock.calls;
         expect(calls).toContainEqual(['ControlPanel', 'manage_xcpcio_users', { before: 'manage_user_priv' }, undefined]);
         expect(calls.map((call: unknown[]) => call[1])).toEqual(expect.arrayContaining(['manage_xcpcio_judges', 'manage_xcpcio_rejudge']));
+        // 打印服务器管理 right below 评测机控制.
+        expect(calls).toContainEqual(['ControlPanel', 'manage_xcpcio_printers', { before: 'manage_xcpcio_rejudge' }, undefined]);
         // Judge daemons are watched on connect so dispatch rules apply before they start taking tasks.
         expect(app.hooks.mock.calls.filter(([name]: [string]) => name === 'connection/active').length).toBeGreaterThanOrEqual(2);
         // Rejudged records' new results are captured for the rejudge history.

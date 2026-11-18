@@ -81,7 +81,8 @@ export function createManagePreview(env: Environment, version: string) {
 
     const menu = [['manage_dashboard', '控制面板', '#'], ['manage_script', '脚本管理', '#'], ['manage_user_import', '导入用户', '#'],
         ['manage_xcpcio_users', '用户配置', '/manage/xcpcio-users'], ['manage_user_priv', '用户权限', '#'], ['manage_setting', '系统设置', '#'],
-        ['manage_config', '配置管理', '#'], ['manage_xcpcio_judges', '评测机控制', '/manage/xcpcio-judges'], ['manage_xcpcio_rejudge', '批量重测', '/manage/xcpcio-rejudge']];
+        ['manage_config', '配置管理', '#'], ['manage_xcpcio_judges', '评测机控制', '/manage/xcpcio-judges'], ['manage_xcpcio_printers', '打印服务器管理', '/manage/xcpcio-printers'],
+        ['manage_xcpcio_rejudge', '批量重测', '/manage/xcpcio-rejudge']];
 
     // Judge health: the built-in judge of this server, judge-1 connected, judge-2 known only from its last report.
     const tracker = new JudgeTracker('hydro-server');
