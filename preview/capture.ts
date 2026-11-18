@@ -1,11 +1,13 @@
+import fs from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import path from 'node:path';
 import type { Duplex } from 'node:stream';
 import type { Environment } from 'nunjucks';
 import type { WebSocket, WebSocketServer } from 'ws';
 import type { BoardData } from '../lib/board';
 import {
     CaptureError, type CaptureDevice, captureMedias, captureProfile, CaptureRelay, captureSecretMatches, type CaptureSettings, type CaptureStream,
-    captureStreams, defaultCaptureSettings, isCaptureOnline, newCaptureSecret, normalizeCaptureSettings, normalizeDeviceInput, streamAllowed,
+    captureStreams, defaultCaptureSettings, isCaptureOnline, newCaptureSecret, normalizeCaptureSettings, normalizeDeviceInput, participantDeviceId, streamAllowed,
 } from '../lib/live/capture';
 import { toScriptJson } from '../lib/settings';
 
@@ -35,6 +37,21 @@ export function createCapturePreview(env: Environment, options: {
         const id = (0x6800000000 + counter++).toString(16).padStart(24, '0');
         devices.set(id, { _id: id, contestKey, ...input, secret: newCaptureSecret(), createdAt: new Date(), lastSeen: null, connection: null, streams: [], client: null });
     }
+
+    /** The preview's contestant: team `as` (default the first team), as if signed in and joined. */
+    function participantDevice(teamUid: number) {
+        const team = options.teams().find((item) => item.uid === teamUid);
+        if (!team) throw new CaptureError('只有本场比赛的参赛选手可以开启画面采集', 403);
+        const existing = [...devices.values()].find((device) => device.teamUid === teamUid)
+            ?? [...devices.values()].find((device) => device.teamUid === null && team.seat && device.seat.toLowerCase() === team.seat.toLowerCase());
+        if (existing) return existing;
+        const _id = participantDeviceId(contestKey, teamUid);
+        const device: CaptureDevice = { _id, contestKey, seat: team.seat, name: team.seat || team.name, teamUid: team.seat ? null : teamUid,
+            secret: newCaptureSecret(), createdAt: new Date(), lastSeen: null, connection: null, streams: [], client: null };
+        devices.set(_id, device);
+        return device;
+    }
+    const asTeam = (url: URL) => Number(url.searchParams.get('as') || options.teams()[0]?.uid);
 
     function medias(data: BoardData) {
         if (!settings.enabled || !devices.size) return {};
@@ -133,6 +150,28 @@ export function createCapturePreview(env: Environment, options: {
             json(response, 200, data());
             return true;
         }
+        if (url.pathname === `${base}/live-capture/me`) {
+            const device = participantDevice(asTeam(url));
+            response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }).end(env.render('xcpcio_live_capture_device.html', {
+                codeBase, title: `画面采集 · ${contest.title}`,
+                runtimeJson: toScriptJson({ ws: `${base}/live-capture/me/ws${url.search}`, name: device.name, seat: device.seat, contest: contest.title, channel: 'xcpcio-capture-demo', window: true }),
+            }));
+            return true;
+        }
+        // A stand-in for a Hydro contest page of a contestant: the prompt that opens the capture window.
+        if (url.pathname === `${base}/problems`) {
+            const info = settings.enabled && settings.prompt
+                ? { url: `${base}/live-capture/me${url.search}`, channel: 'xcpcio-capture-demo', contest: contest.title, screenPublic: settings.screenDuringContest } : null;
+            response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }).end(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>比赛题目 · ${contest.title}</title></head>
+<body style="font-family:sans-serif;padding:24px"><h1>${contest.title}</h1><p>（预览：参赛选手看到的比赛页面${info ? '' : '。本场比赛未启用画面采集或未开启弹窗提示，所以没有提示'}）</p><p><a href="${base}/problems${url.search}">换一页</a></p>
+<script type="module">import { installCapturePrompt } from '/preview-frontend/capture-prompt.js'; const info = ${JSON.stringify(info)}; if (info) installCapturePrompt(info);</script></body></html>`);
+            return true;
+        }
+        if (url.pathname === '/preview-frontend/capture-prompt.js') {
+            response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' })
+                .end(await fs.readFile(path.join(__dirname, '../frontend/capture-prompt.js'), 'utf8'));
+            return true;
+        }
         const page = /^\/contest\/demo\/live-capture\/([a-f\d]{24})\/([\w-]+)$/.exec(url.pathname);
         if (page) {
             const device = devices.get(page[1]);
@@ -160,13 +199,15 @@ export function createCapturePreview(env: Environment, options: {
     function upgrade(request: IncomingMessage, socket: Duplex, head: Buffer, server: WebSocketServer) {
         const url = new URL(request.url || '/', 'http://localhost');
         const deviceMatch = /^\/contest\/demo\/live-capture\/([a-f\d]{24})\/([\w-]+)\/ws$/.exec(url.pathname);
+        const own = url.pathname === `${base}/live-capture/me/ws`;
         const overlayMatch = /^\/contest\/demo\/live-overlay\/([^/]+)\/ws\/capture$/.exec(url.pathname);
         const staff = url.pathname === `${base}/live/ws/capture`;
-        if (!deviceMatch && !overlayMatch && !staff) return false;
+        if (!deviceMatch && !overlayMatch && !staff && !own) return false;
         server.handleUpgrade(request, socket, head, (ws) => {
-            if (deviceMatch) {
-                const device = devices.get(deviceMatch[1]);
-                if (!device || !captureSecretMatches(deviceMatch[2], device.secret) || !settings.enabled) {
+            if (deviceMatch || own) {
+                let device: CaptureDevice | undefined;
+                try { device = own ? participantDevice(asTeam(url)) : devices.get(deviceMatch![1]); } catch { device = undefined; }
+                if (!device || (deviceMatch && !captureSecretMatches(deviceMatch[2], device.secret)) || !settings.enabled) {
                     ws.close(4000, `CaptureError: ${!settings.enabled ? '本场比赛尚未启用画面采集，启用后会自动连接' : '采集链接无效或已重新生成，请向管理员获取新的链接'}`);
                     return;
                 }

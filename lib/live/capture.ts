@@ -5,7 +5,7 @@
  * management page); the video itself goes directly between the two browsers. Pure, so it is
  * tested without Hydro; lib/live/capture-routes.ts connects it to Hydro.
  */
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { MediaType } from './types';
 
 export class CaptureError extends Error {
@@ -29,6 +29,8 @@ export interface CaptureSettings {
     enabled: boolean;
     /** Screens show code; by default the overlay gets them only after the contest. */
     screenDuringContest: boolean;
+    /** Contestants are asked to start capturing when they open the contest (a capture window opens). */
+    prompt: boolean;
     /** Capture the webcam's microphone too. */
     webcamAudio: boolean;
     screenHeight: 720 | 1080;
@@ -39,7 +41,7 @@ export interface CaptureSettings {
 }
 
 export const defaultCaptureSettings = (): CaptureSettings => ({
-    enabled: false, screenDuringContest: false, webcamAudio: false, screenHeight: 720, screenFps: 15, webcamHeight: 480, iceServers: [],
+    enabled: false, screenDuringContest: false, prompt: true, webcamAudio: false, screenHeight: 720, screenFps: 15, webcamHeight: 480, iceServers: [],
 });
 
 function pick<T>(value: unknown, allowed: readonly T[], label: string, fallback: T): T {
@@ -83,7 +85,7 @@ function checkServer(server: IceServer): IceServer {
 export function normalizeCaptureSettings(input: unknown, base = defaultCaptureSettings()): CaptureSettings {
     const raw = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
     const settings: CaptureSettings = { ...base };
-    for (const key of ['enabled', 'screenDuringContest', 'webcamAudio'] as const) if (typeof raw[key] === 'boolean') settings[key] = raw[key] as boolean;
+    for (const key of ['enabled', 'screenDuringContest', 'prompt', 'webcamAudio'] as const) if (typeof raw[key] === 'boolean') settings[key] = raw[key] as boolean;
     settings.screenHeight = pick(raw.screenHeight, [720, 1080] as const, '屏幕分辨率', settings.screenHeight);
     settings.screenFps = pick(raw.screenFps, [5, 10, 15, 30] as const, '屏幕帧率', settings.screenFps);
     settings.webcamHeight = pick(raw.webcamHeight, [360, 480, 720] as const, '摄像头分辨率', settings.webcamHeight);
@@ -123,6 +125,12 @@ export interface CaptureDevice {
 }
 
 export const newCaptureSecret = () => randomBytes(24).toString('base64url');
+
+/**
+ * The device a contestant's own capture window uses when no device covers their seat yet: one per
+ * team, with a fixed id so that two Hydro processes creating it at once end up with the same one.
+ */
+export const participantDeviceId = (contestKey: string, teamUid: number) => createHash('sha256').update(`capture\n${contestKey}\n${teamUid}`).digest('hex').slice(0, 24);
 export function captureSecretMatches(given: string, stored: string) {
     const a = Buffer.from(String(given));
     const b = Buffer.from(String(stored));

@@ -43,7 +43,7 @@ $('manage-root').replaceChildren(
             el('button', { class: 'button', type: 'button', text: '关闭全部预览', onclick: () => closeAll() })),
         el('p', { class: 'resolver-muted manage-small', text: '管理员预览不受“比赛结束前不提供屏幕画面”的限制，仅限比赛管理员使用。同时预览的画面越多，选手机上传的带宽越大，检查完请关闭。' }),
         grid),
-    el('div', { class: 'manage-group' }, el('h3', { text: '在选手机上启动' }), help),
+    el('div', { class: 'manage-group' }, el('h3', { text: '选手机如何开启' }), help),
 );
 
 const absolute = (path) => new URL(path, location.href).href;
@@ -120,6 +120,7 @@ function renderSettings() {
     });
     settingsBox.replaceChildren(
         el('div', { class: 'resolver-checks' },
+            box('prompt', '选手进入比赛时弹窗提示开启画面采集', '选手登录后打开比赛页面即弹出提示，点击后打开采集窗口；不需要分发链接或启动参数'),
             box('screenDuringContest', '比赛结束前也在直播画面提供屏幕', '屏幕会显示正在写的代码，选手能看到直播时请勿开启'),
             box('webcamAudio', '摄像头同时采集声音')),
         el('div', { class: 'resolver-fields resolver-two', style: 'margin-top:12px' },
@@ -174,15 +175,20 @@ function renderHelp() {
     const flags = '--auto-select-desktop-capture-source="整个屏幕" --use-fake-ui-for-media-stream --disable-features=WebRtcHideLocalIpsWithMdns';
     const command = (text) => { const node = el('textarea', { class: 'textbox capture-command', readonly: true, spellcheck: 'false' }); node.value = text; return node; };
     help.replaceChildren(
+        el('h4', { text: '方式一：选手进入比赛后弹窗开启（推荐）' }),
         el('ol', { class: 'resolver-muted', style: 'padding-left:20px;line-height:1.8' },
-            el('li', { text: '在选手机上用 Chrome 或 Edge 打开这台机器的采集链接（“复制链接”或“导出采集链接”）。' }),
-            el('li', { text: '页面会请求共享屏幕和使用摄像头。正常启动的浏览器需要点击“开始采集”并选择“整个屏幕”；用下面的参数启动可以免去操作，适合在比赛镜像中设为开机自启动。' }),
-            el('li', { text: '回到本页，设备显示“在线”并列出正在采集的画面后，点击“预览”确认。' })),
-        el('p', { class: 'resolver-muted manage-small', text: 'Windows（快捷方式或开机脚本）：' }),
+            el('li', { text: '启用本场画面采集，并勾选上方“选手进入比赛时弹窗提示开启画面采集”。' }),
+            el('li', { text: '选手用 Chrome 或 Edge 登录参赛账号、打开比赛，页面会弹出提示；点击“开启画面采集”打开采集窗口，在窗口中点击“开始采集”，选择“整个屏幕”并点击“分享”，摄像头权限选择“允许”。' }),
+            el('li', { text: '采集窗口需保持打开（可以最小化）。选手关闭窗口或退出浏览器时，浏览器会先确认；采集中断后，比赛页面立即提示重新开启，本页显示该设备离线。' }),
+            el('li', { text: '每支队伍自动对应一台设备：有座位号时使用该座位的设备，没有时自动创建。比赛页面右下角显示采集状态。' })),
+        el('p', { class: 'resolver-muted manage-small', text: '选手机授予摄像头权限后，浏览器会直接使用本机地址建立连接；没有摄像头、只采集屏幕的电脑，以及选手机和 OBS 电脑不在同一网段时，请在上方配置 STUN 服务器。' }),
+        el('h4', { text: '方式二：用采集链接无人值守（可选）' }),
+        el('p', { class: 'resolver-muted manage-small', text: '比赛镜像中开机自动打开某个座位的采集链接，免去选手操作。用下面的参数启动浏览器可自动选择整个屏幕、自动允许摄像头：' }),
+        el('p', { class: 'resolver-muted manage-small', text: 'Windows：' }),
         command(`"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" ${flags} --app="${example}"`),
         el('p', { class: 'resolver-muted manage-small', text: 'Linux：' }),
         command(`google-chrome ${flags} --app="${example}"`),
-        el('p', { class: 'resolver-muted manage-small', text: '“整个屏幕”是中文版 Chrome 中屏幕选项的名称，英文版 Chrome 请改为 "Entire screen"。最后一个参数让 Chrome 公开本机地址，便于不同网段之间直连。Linux 请使用 X11 桌面会话，Wayland 下无法自动选择屏幕。各系统的效果请在赛前实测。' }),
+        el('p', { class: 'resolver-muted manage-small', text: '“整个屏幕”是中文版 Chrome 中屏幕选项的名称，英文版请改为 "Entire screen"。Linux 请使用 X11 桌面会话。各系统的效果请在赛前实测。' }),
     );
 }
 

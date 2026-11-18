@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     MAX_VIEWER_SESSIONS, type CaptureEnvelope, captureMedias, captureProfile, CaptureRelay, captureSecretMatches, defaultCaptureSettings, isCaptureOnline,
-    newCaptureSecret, normalizeCaptureSettings, normalizeDeviceInput, parseIceServers, streamAllowed,
+    newCaptureSecret, normalizeCaptureSettings, normalizeDeviceInput, parseIceServers, participantDeviceId, streamAllowed,
 } from '../lib/live/capture';
 
 describe('画面采集设置与设备', () => {
@@ -24,6 +24,12 @@ describe('画面采集设置与设备', () => {
         expect(isCaptureOnline({ connection: 'p/1', lastSeen: new Date(1000) }, 20_000)).toBe(true);
         expect(isCaptureOnline({ connection: 'p/1', lastSeen: new Date(1000) }, 100_000)).toBe(false);
         expect(isCaptureOnline({ connection: null, lastSeen: new Date(1000) }, 2000)).toBe(false);
+        // A contestant's own device: the same id in every process, a valid device id, one per team.
+        expect(participantDeviceId('system/1', -5)).toBe(participantDeviceId('system/1', -5));
+        expect(participantDeviceId('system/1', -5)).toMatch(/^[a-f\d]{24}$/);
+        expect(participantDeviceId('system/1', -6)).not.toBe(participantDeviceId('system/1', -5));
+        expect(normalizeCaptureSettings({}).prompt).toBe(true);
+        expect(normalizeCaptureSettings({ prompt: false }).prompt).toBe(false);
     });
 
     it('屏幕在比赛结束前只给管理员，开启后直播画面也可用；摄像头随时可用', () => {

@@ -5,7 +5,10 @@ const runtime = JSON.parse(document.getElementById('capture-runtime').textConten
 const $ = (id) => document.getElementById(id);
 const socketUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${runtime.ws}`;
 
-const state = { socket: null, profile: null, screen: null, webcam: null, sessions: new Map(), stopped: false, retry: 0 };
+const state = { socket: null, profile: null, screen: null, webcam: null, sessions: new Map(), stopped: false, retry: 0, connected: false };
+// The contestant's own capture window (opened from the contest's prompt) tells the contest pages it is capturing.
+const channel = runtime.channel && 'BroadcastChannel' in window ? new BroadcastChannel(runtime.channel) : null;
+const pageTitle = document.title;
 
 $('device-name').textContent = runtime.name;
 $('device-seat').textContent = runtime.seat ? `座位 ${runtime.seat}` : '';
@@ -16,7 +19,19 @@ function setStatus(text, tone = '') {
     $('status').dataset.tone = tone;
 }
 
+function announce() {
+    channel?.postMessage({ type: 'alive', streams: [...state.screen ? ['screen'] : [], ...state.webcam ? ['webcam'] : []], connected: state.connected });
+}
+channel?.addEventListener('message', (event) => { if (event.data?.type === 'ping') announce(); });
+setInterval(announce, 2000);
+
 function render() {
+    const recording = !!state.screen || !!state.webcam;
+    // The tab and the window title say it too, so it is not closed by mistake.
+    document.title = recording ? `● 正在录制 · 请勿关闭 · ${pageTitle}` : pageTitle;
+    $('recording').hidden = !recording;
+    document.body.dataset.recording = String(recording);
+    announce();
     $('screen-video').srcObject = state.screen;
     $('webcam-video').srcObject = state.webcam;
     $('screen-state').textContent = state.screen ? '正在采集' : '未采集';
@@ -51,10 +66,17 @@ async function capture(fromClick = false) {
     const problems = [];
     if (!state.screen) {
         try {
-            state.screen = await navigator.mediaDevices.getDisplayMedia({
-                video: { width: { ideal: screen.width }, height: { ideal: screen.height }, frameRate: { ideal: screen.frameRate, max: screen.frameRate } },
-                audio: false,
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                // Chrome opens its picker on 整个屏幕 and leaves out this window and tab switching.
+                video: { width: { ideal: screen.width }, height: { ideal: screen.height }, frameRate: { ideal: screen.frameRate, max: screen.frameRate }, displaySurface: 'monitor' },
+                audio: false, monitorTypeSurfaces: 'include', selfBrowserSurface: 'exclude', surfaceSwitching: 'exclude', systemAudio: 'exclude',
             });
+            const surface = stream.getVideoTracks()[0]?.getSettings().displaySurface;
+            if (surface && surface !== 'monitor') {
+                for (const track of stream.getTracks()) track.stop();
+                throw Object.assign(new Error('请选择“整个屏幕”，不要只共享窗口或标签页'), { name: 'WrongSurface' });
+            }
+            state.screen = stream;
             state.screen.getVideoTracks()[0].addEventListener('ended', () => {
                 state.screen = null;
                 for (const session of [...state.sessions.values()]) if (session.stream === 'screen') session.end('选手机停止了屏幕共享');
@@ -63,7 +85,9 @@ async function capture(fromClick = false) {
                 setStatus('屏幕共享已停止，请点击“补全采集”重新开始', 'warn');
             });
         } catch (error) {
-            problems.push(fromClick ? `屏幕：${error.message || error.name}` : '屏幕需要点击下方按钮开始共享');
+            problems.push(error.name === 'WrongSurface' ? error.message
+                : error.name === 'NotAllowedError' && fromClick ? '没有共享屏幕。请再次点击按钮，在弹出的窗口中选择“整个屏幕”并点击“分享”'
+                    : fromClick ? `屏幕：${error.message || error.name}` : '请点击下方按钮，在弹出的窗口中选择“整个屏幕”并点击“分享”');
         }
     }
     if (!state.webcam) {
@@ -151,7 +175,7 @@ function connect() {
     const socket = new WebSocket(socketUrl);
     state.socket = socket;
     setStatus('正在连接 Hydro…');
-    socket.onopen = () => { state.retry = 0; };
+    socket.onopen = () => { state.retry = 0; state.connected = true; announce(); };
     socket.onmessage = async (event) => {
         if (event.data === 'ping') { socket.send('pong'); return; }
         if (event.data === 'pong') return;
@@ -175,6 +199,7 @@ function connect() {
         }
     };
     socket.onclose = (event) => {
+        state.connected = false;
         for (const session of state.sessions.values()) session.pc.close();
         state.sessions.clear();
         render();
@@ -198,8 +223,12 @@ $('start').addEventListener('click', () => capture(true));
 setInterval(() => {
     if (state.socket?.readyState === WebSocket.OPEN) { state.socket.send('ping'); reportStatus(); }
 }, 15000);
+// Closing this window (or the whole browser) while recording: the browser asks first. Its wording is
+// the browser's own; the page above says what closing means.
 window.addEventListener('beforeunload', (event) => {
-    if (state.screen || state.webcam) { event.preventDefault(); event.returnValue = ''; }
+    if (state.screen || state.webcam) { event.preventDefault(); event.returnValue = '正在录制屏幕和摄像头，关闭后录制会中断'; }
 });
+window.addEventListener('pagehide', () => channel?.postMessage({ type: 'closed' }));
+if (runtime.window) document.body.classList.add('capture-window');
 render();
 connect();

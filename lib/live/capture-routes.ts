@@ -13,7 +13,7 @@ import { isTeamEntry, loadSeats, memberIds, type TeamEntry } from '../teams';
 import {
     CaptureError, type CaptureDevice, type CaptureEnvelope, captureMedias, captureProfile, CaptureRelay, captureSecretMatches, type CaptureSettings,
     type CaptureStream, captureStreams, defaultCaptureSettings, isCaptureOnline, newCaptureSecret, normalizeCaptureSettings, normalizeDeviceInput,
-    streamAllowed,
+    participantDeviceId, streamAllowed,
 } from './capture';
 import type { MediaType } from './types';
 
@@ -289,22 +289,19 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
         }
     }
 
-    class CaptureDeviceConnectionHandler extends ConnectionHandler {
-        noCheckPermView = true;
+    /** A capture page's socket: by its link (secret) or by the signed-in contestant. */
+    abstract class DeviceConnectionHandler extends ConnectionHandler {
         deviceId = '';
         endpoint?: Parameters<CaptureRelay['attachDevice']>[1];
         recheck?: NodeJS.Timeout;
 
-        @param('tid', Types.ObjectId)
-        @param('device', Types.String)
-        @param('secret', Types.String)
-        async prepare(_domainId: string, tid: ObjectId, id: string, secret: string) {
-            const tdoc = await ContestModel.get(this.domain._id, tid);
-            const contestKey = tdoc ? helpers.key(tdoc) : '';
-            const doc = tdoc && /^[a-f\d]{24}$/i.test(id) ? await devices.findOne({ _id: id, contestKey }) as CaptureDevice | null : null;
-            // The capture page shows the reason (the socket closes with it).
-            if (!tdoc || !doc || !captureSecretMatches(secret, doc.secret)) throw new CaptureError('采集链接无效或已重新生成，请向管理员获取新的链接', 404);
+        /** Still allowed to capture (checked every minute; the bus usually ends it sooner). */
+        abstract stillValid(doc: CaptureDevice | null): Promise<boolean>;
+
+        async start(tdoc: Tdoc, doc: CaptureDevice) {
+            const contestKey = helpers.key(tdoc);
             const settings = await loadSettings(contestKey);
+            // The capture page shows the reason (the socket closes with it) and tries again later.
             if (!settings.enabled) throw new CaptureError('本场比赛尚未启用画面采集，启用后会自动连接', 403);
             this.deviceId = doc._id;
             const connection = `${relay.instance}/${randomUUID()}`;
@@ -321,7 +318,8 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
             this.recheck = setInterval(async () => {
                 const current = await devices.findOne({ _id: doc._id }).catch(() => null) as CaptureDevice | null;
                 const enabled = (await loadSettings(contestKey).catch(() => settings)).enabled;
-                if (!current || current.secret !== secret || !enabled) this.close(4004, '采集链接已失效');
+                if (!enabled) this.close(4005, '本场比赛已停用画面采集，重新启用后会自动连接');
+                else if (!await this.stillValid(current).catch(() => true)) this.close(4004, '采集链接已失效');
             }, 60_000);
             this.recheck.unref?.();
         }
@@ -344,6 +342,140 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
             await devices.updateOne({ _id: this.deviceId, connection: this.endpoint.connection }, { $set: { connection: null, streams: [] } }).catch(() => null);
         }
     }
+
+    /** By the device's capture link (unattended computers, started with the browser flags). */
+    class CaptureDeviceConnectionHandler extends DeviceConnectionHandler {
+        noCheckPermView = true;
+        secret = '';
+
+        @param('tid', Types.ObjectId)
+        @param('device', Types.String)
+        @param('secret', Types.String)
+        async prepare(_domainId: string, tid: ObjectId, id: string, secret: string) {
+            const tdoc = await ContestModel.get(this.domain._id, tid);
+            const doc = tdoc && /^[a-f\d]{24}$/i.test(id) ? await devices.findOne({ _id: id, contestKey: helpers.key(tdoc) }) as CaptureDevice | null : null;
+            if (!tdoc || !doc || !captureSecretMatches(secret, doc.secret)) throw new CaptureError('采集链接无效或已重新生成，请向管理员获取新的链接', 404);
+            this.secret = secret;
+            await this.start(tdoc, doc);
+        }
+
+        async stillValid(doc: CaptureDevice | null) {
+            return !!doc && doc.secret === this.secret;
+        }
+    }
+
+    // ---------------------------------------------------------------- Contestants' own capture window
+
+    /** The team a signed-in user takes part as (the team's uid in team contests), if they joined the contest. */
+    async function participation(tdoc: Tdoc, uid: number) {
+        if (!uid || uid <= 1) return null;
+        const entries = await ContestModel.getMultiStatus(tdoc.domainId, { docId: tdoc.docId, $or: [{ uid }, { members: uid }] })
+            .project<TeamEntry & { attend?: number }>({ uid: 1, members: 1, attend: 1 }).toArray();
+        return entries.find((entry) => !!entry.attend)?.uid ?? null;
+    }
+
+    /** The device for a contestant's team: one covering its seat or bound to it, else one made for it. */
+    async function participantDevice(tdoc: Tdoc, teamUid: number): Promise<CaptureDevice> {
+        const contestKey = helpers.key(tdoc);
+        const seat = (await teamSeats(tdoc)).get(teamUid) || '';
+        const bound = await devices.findOne({ contestKey, teamUid }) as CaptureDevice | null;
+        if (bound) return bound;
+        if (seat) {
+            const bySeat = await devices.findOne({ contestKey, teamUid: null, seat: new RegExp(`^${seat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }) as CaptureDevice | null;
+            if (bySeat) return bySeat;
+        }
+        const _id = participantDeviceId(contestKey, teamUid);
+        const users = await UserModel.getList(tdoc.domainId, [teamUid]);
+        const doc: CaptureDevice = {
+            _id, contestKey, seat, name: seat || users[teamUid]?.uname || `UID ${teamUid}`, teamUid: seat ? null : teamUid,
+            secret: newCaptureSecret(), createdAt: new Date(), lastSeen: null, connection: null, streams: [], client: null,
+        };
+        await devices.updateOne({ _id }, { $setOnInsert: doc }, { upsert: true });
+        mediaCache.delete(contestKey);
+        return (await devices.findOne({ _id }))!;
+    }
+
+    async function contestantContext(handler: Handler | ConnectionHandler, tid: ObjectId) {
+        const tdoc = await ContestModel.get(handler.domain._id, tid);
+        if (!tdoc || tdoc.rule !== 'acm') throw new CaptureError('比赛不存在', 404);
+        const teamUid = await participation(tdoc, handler.user._id);
+        if (teamUid === null) throw new CaptureError('只有本场比赛的参赛选手可以开启画面采集，请先登录并报名比赛', 403);
+        return { tdoc, teamUid };
+    }
+
+    /** The capture window a contestant opens from the contest's prompt (signed in, no link needed). */
+    class CaptureOwnPageHandler extends Handler {
+        noCheckPermView = true;
+
+        @param('tid', Types.ObjectId)
+        async get(_domainId: string, tid: ObjectId) {
+            this.response.addHeader('Cache-Control', 'no-store');
+            if (!this.user._id || this.user._id <= 1) throw new CaptureError('请先登录参赛账号', 403);
+            const { tdoc, teamUid } = await contestantContext(this, tid);
+            const doc = await participantDevice(tdoc, teamUid);
+            const base = helpers.contestBase(tdoc);
+            this.response.template = 'xcpcio_live_capture_device.html';
+            this.response.body = {
+                codeBase: helpers.codeBase, title: `画面采集 · ${tdoc.title}`,
+                runtimeJson: toScriptJson({
+                    ws: `${base}/live-capture/me/ws`, name: doc.name, seat: doc.seat, contest: tdoc.title,
+                    // Tells the contest pages (BroadcastChannel) that this window is capturing.
+                    channel: `xcpcio-capture-${tdoc.docId}`, window: true,
+                }),
+            };
+        }
+
+        async onerror(error: Parameters<Handler['onerror']>[0] | CaptureError) {
+            if (error instanceof CaptureError) {
+                this.response.status = error.status;
+                this.response.type = 'text/plain';
+                this.response.body = error.message;
+                return;
+            }
+            return super.onerror(error);
+        }
+    }
+
+    class CaptureOwnConnectionHandler extends DeviceConnectionHandler {
+        noCheckPermView = true;
+        teamUid = 0;
+        tdoc!: Tdoc;
+
+        @param('tid', Types.ObjectId)
+        async prepare(_domainId: string, tid: ObjectId) {
+            const { tdoc, teamUid } = await contestantContext(this, tid);
+            this.tdoc = tdoc;
+            this.teamUid = teamUid;
+            await this.start(tdoc, await participantDevice(tdoc, teamUid));
+        }
+
+        async stillValid(doc: CaptureDevice | null) {
+            return !!doc && await participation(this.tdoc, this.user._id) === this.teamUid;
+        }
+    }
+
+    /** Contest pages of a contestant whose contest captures: the prompt that opens the capture window. */
+    const promptCache = new Map<string, { expires: number; value: Promise<CaptureSettings> }>();
+    on('handler/after', async (handler: Handler) => {
+        const tdoc = (handler.response?.body as { tdoc?: Tdoc } | undefined)?.tdoc;
+        if (!tdoc || tdoc.rule !== 'acm' || !tdoc.docId || !handler.user?._id || handler.user._id <= 1 || !handler.UiContext) return;
+        if (handler.response.template === 'xcpcio_live_capture_device.html' || Date.now() >= new Date(tdoc.endAt).getTime()) return;
+        // Contest staff manage capture; they are not asked to capture themselves.
+        if (handler.user.own(tdoc) || handler.user.hasPerm(PERM.PERM_EDIT_CONTEST)) return;
+        try {
+            const contestKey = helpers.key(tdoc);
+            const now = Date.now();
+            let cached = promptCache.get(contestKey);
+            if (!cached || cached.expires <= now) promptCache.set(contestKey, cached = { expires: now + 5000, value: loadSettings(contestKey) });
+            const settings = await cached.value;
+            if (!settings.enabled || !settings.prompt) return;
+            if (await participation(tdoc, handler.user._id) === null) return;
+            handler.UiContext.xcpcioCapture = {
+                url: `${helpers.contestBase(tdoc)}/live-capture/me`, channel: `xcpcio-capture-${tdoc.docId}`, contest: tdoc.title,
+                screenPublic: settings.screenDuringContest,
+            };
+        } catch { /* the contest page works without the prompt */ }
+    });
 
     // ---------------------------------------------------------------- Viewers
 
@@ -409,6 +541,8 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
     ctx.Route('contest_xcpcio_live_capture_data', '/contest/:tid/live/capture/data', CaptureDataHandler);
     ctx.Route('contest_xcpcio_live_capture_page', '/contest/:tid/live-capture/:device/:secret', CapturePageHandler);
     ctx.Connection('contest_xcpcio_live_capture_device_ws', '/contest/:tid/live-capture/:device/:secret/ws', CaptureDeviceConnectionHandler);
+    ctx.Route('contest_xcpcio_live_capture_own', '/contest/:tid/live-capture/me', CaptureOwnPageHandler);
+    ctx.Connection('contest_xcpcio_live_capture_own_ws', '/contest/:tid/live-capture/me/ws', CaptureOwnConnectionHandler);
     ctx.Connection('contest_xcpcio_live_capture_overlay_ws', '/contest/:tid/live-overlay/:token/ws/capture', CaptureOverlayViewerHandler);
     ctx.Connection('contest_xcpcio_live_capture_staff_ws', '/contest/:tid/live/ws/capture', CaptureStaffViewerHandler);
     ctx.i18n.load('zh', { contest_xcpcio_live_capture: '画面采集' });

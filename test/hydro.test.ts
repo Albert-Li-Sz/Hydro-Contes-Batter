@@ -41,7 +41,7 @@ vi.mock('hydrooj', () => {
         NotFoundError: class extends Error {}, ValidationError: class extends Error {}, ForbiddenError: class extends Error {},
         ContestModel: {
             get: vi.fn(async (domainId: string, tid: any) => ({ ...state.contest, domainId, docId: tid })),
-            getMultiStatus: vi.fn(() => ({ toArray: async () => state.entries })),
+            getMultiStatus: vi.fn(() => { const cursor: any = { project: () => cursor, toArray: async () => state.entries }; return cursor; }),
             isDone: () => state.ended, isLocked: () => state.locked,
             canShowScoreboard(this: any, tdoc: any) { return state.started || this.user.own(tdoc) || this.user.hasPerm(2n); },
         },
@@ -864,7 +864,7 @@ describe('Hydro Resolver routes', () => {
 
     it('offers 画面采集 with the live module, and leaves it out when its own setting is off', async () => {
         const on = setup(); await on.init();
-        expect(on.routeNames()).toEqual(expect.arrayContaining(['contest_xcpcio_live_capture', 'contest_xcpcio_live_capture_page', 'contest_xcpcio_live_capture_device_ws', 'contest_xcpcio_live_capture_overlay_ws']));
+        expect(on.routeNames()).toEqual(expect.arrayContaining(['contest_xcpcio_live_capture', 'contest_xcpcio_live_capture_page', 'contest_xcpcio_live_capture_device_ws', 'contest_xcpcio_live_capture_overlay_ws', 'contest_xcpcio_live_capture_own', 'contest_xcpcio_live_capture_own_ws']));
         const off = setup(new Map(), { liveCapture: false }); await off.init();
         expect(off.routeNames().some((name) => name.startsWith('contest_xcpcio_live_capture'))).toBe(false);
         expect(off.routeNames()).toContain('contest_xcpcio_live');
@@ -905,6 +905,30 @@ describe('Hydro Resolver routes', () => {
         const poll = app.screens('_data'); await poll.prepare('system', tid(), token, 'resolver'); await poll.get('system', playback.revision, sid);
         expect(poll.response.body.game).toBeUndefined();
         expect(poll.response.body.playback).toEqual(playback);
+    });
+    it('asks a contestant (not contest staff) to open the capture window while 画面采集 is on and the contest has not ended', async () => {
+        const db = previewDatabase();
+        const app = setup(new Map(), {}, db); await app.init();
+        const hooks = app.hooks.mock.calls.filter(([name]: string[]) => name === 'handler/after').map(([, hook]: any[]) => hook);
+        const run = async (tdoc: any, user: any) => {
+            const handler = app.resolver(); handler.UiContext = {}; handler.response.body = { tdoc }; handler.user = user;
+            for (const hook of hooks) await hook(handler);
+            return handler.UiContext.xcpcioCapture;
+        };
+        const tdoc = { ...state.contest, endAt: new Date(Date.now() + 3600_000) };
+        const contestant = { _id: 12, own: () => false, hasPerm: () => false };
+        state.entries = [{ uid: 12, attend: 1, journal: [] }];
+        expect(await run(tdoc, contestant)).toBeUndefined();
+        await db.db.collection('xcpcio.live.capture.config' as never).updateOne({ _id: `system/${tdoc.docId}` } as never, { $set: { settings: { enabled: true } } } as never, { upsert: true });
+        vi.useFakeTimers({ now: Date.now() + 10_000, toFake: ['Date'] });
+        try {
+            expect(await run(tdoc, contestant)).toEqual({ url: `/d/system/contest/${tdoc.docId}/live-capture/me`, channel: `xcpcio-capture-${tdoc.docId}`, contest: '测试比赛', screenPublic: false });
+            // Contest staff, people who did not join, and a contest that is over get no prompt.
+            expect(await run(tdoc, { ...contestant, own: () => true })).toBeUndefined();
+            expect(await run({ ...tdoc, endAt: new Date(Date.now() - 1000) }, contestant)).toBeUndefined();
+            state.entries = [{ uid: 12, journal: [] }];
+            expect(await run(tdoc, contestant)).toBeUndefined();
+        } finally { vi.useRealTimers(); }
     });
     it('only supplies the sidebar URL to managers of ACM contests', async () => {
         const app = setup(); await app.init();
