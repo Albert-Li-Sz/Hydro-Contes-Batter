@@ -2,6 +2,8 @@
 
 Hydro OJ 的 ACM 比赛榜单、滚榜、大屏与直播插件，集成 XCPCIO 增强榜、Resolver-Web v1.4.0（含移植自 ICPC Tools 的滚榜与展示画面）和 ICPC Live v3.5.1，使用 Hydro 原生页面与明暗主题。
 
+[在线操作手册](https://albert-li-sz.github.io/Hydro-Contest-Batter/)
+
 - 默认仅主榜，学校榜、参赛类型榜及手动榜由管理员配置。
 - 各榜独立设置全部奖项，榜单与滚榜共用规则，打星选手可单独允许获一血奖。
 - 支持封榜展示、实时榜和可配置的公开访问。
