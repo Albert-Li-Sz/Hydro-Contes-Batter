@@ -23,7 +23,6 @@ const recentTable = el('table', { class: 'data-table' });
 const settingsBox = el('div');
 
 $('manage-root').replaceChildren(
-    el('p', { class: 'resolver-muted', text: '打印服务器是运行打印客户端的电脑。添加后复制连接信息，在打印电脑上运行客户端并粘贴，电脑上的打印机会自动同步到这里；选手在比赛“打印”页提交的代码由打印服务器领取并自动打印，一台电脑的多台打印机按权重轮流打印。' }),
     stats,
     downloads,
     el('div', { class: 'manage-toolbar' }, el('h3', { text: '打印服务器', style: 'margin:0' }), el('span', { class: 'manage-spacer' }),
@@ -33,7 +32,7 @@ $('manage-root').replaceChildren(
     el('div', { class: 'manage-group' },
         el('div', { class: 'manage-toolbar' }, el('h3', { text: '最近的打印请求', style: 'margin:0' }), el('span', { class: 'manage-spacer' }),
             el('button', { class: 'button', type: 'button', text: '重新排队所选', onclick: () => requeue() })),
-        el('p', { class: 'resolver-muted manage-small', text: '只能重新排队已打印或失败的请求；正在打印的请求等它打完或超时自动退回队列。' }),
+        el('p', { class: 'resolver-muted manage-small', text: '仅可重新排队已打印或失败的请求。' }),
         recentStatus,
         el('div', { class: 'manage-scroll' }, recentTable)),
     el('div', { class: 'manage-group' }, el('h3', { text: '打印排版' }), settingsBox),
@@ -56,7 +55,7 @@ function renderStats() {
 function renderDownloads() {
     downloads.replaceChildren(
         el('h3', { text: '打印客户端' }),
-        el('p', { class: 'resolver-muted manage-small', text: '单个程序文件，无需安装、没有其他依赖：Windows 直接调用系统打印，macOS、Linux 使用系统自带的 CUPS（lp）。下载后双击或在终端运行，首次运行时粘贴连接信息。' }),
+        el('p', { class: 'resolver-muted manage-small', text: 'macOS 和 Linux 需使用 CUPS。首次运行时粘贴打印服务器的连接信息。' }),
         state.clients.length
             ? el('div', { class: 'manage-toolbar' }, ...state.clients.map((client) => el('a', { class: 'button', href: client.url, download: client.name, text: `${client.label}（${(client.size / 1048576).toFixed(1)} MB）` })))
             : el('p', { class: 'manage-alert', text: '此安装包未包含打印客户端。请从插件的 GitHub Release 下载 hydro-print-client，或用 pnpm build:print-client 构建。' }),

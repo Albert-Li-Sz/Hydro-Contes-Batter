@@ -51,7 +51,6 @@ problemPanel.append(
 );
 
 $('manage-root').replaceChildren(
-    el('p', { class: 'resolver-muted', text: '按比赛、题目或整个域批量重测，与 Hydro 题目页的“重测”相同：重测任务优先级低于新提交，比赛中的提交按比赛设置显示结果。重测提交后榜单会随新结果更新。' }),
     el('div', { class: 'manage-group' }, el('h3', { text: '域' }),
         el('form', { class: 'manage-toolbar', onsubmit: (event) => { event.preventDefault(); loadContests(); } },
             domain, el('button', { class: 'button', type: 'submit', text: '切换域' }))),
@@ -61,7 +60,7 @@ $('manage-root').replaceChildren(
             quick('常见错误', [2, 3, 4, 5, 6]), quick('TLE / MLE', [3, 4]), quick('系统错误', [8, 10]), quick('清空（全部结果）', []))),
         el('p', { class: 'resolver-muted manage-small', text: '不选表示全部结果（已取消的提交始终不重测）。' }),
         statuses,
-        el('label', { class: 'checkbox', style: 'margin-top:12px' }, skipAccepted, 'AC 不参与重测（已通过的提交保持原结果）')),
+        el('label', { class: 'checkbox', style: 'margin-top:12px' }, skipAccepted, 'AC 不参与重测')),
     status,
     el('div', { class: 'resolver-actions' },
         el('button', { class: 'button', type: 'button', text: '预览数量', onclick: () => preview() }),

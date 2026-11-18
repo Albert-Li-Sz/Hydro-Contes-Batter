@@ -6,27 +6,25 @@
 <div class="row resolver-config" id="hydro-resolver-config"><div class="medium-12 columns" id="hydro-screens">
   <section class="section visible">
     <div class="section__header resolver-heading"><div><h1 class="section__title">直播</h1><p class="resolver-muted" id="contest-title"></p></div><a class="button" id="back-link">返回比赛</a></div>
-    <div class="section__body">
-      <p class="resolver-muted">直播画面由 ICPC Live v3 移植而来，后端直接运行在 Hydro 中，无需另装 Java 服务。数据与公开榜一致：封榜后的提交显示为待定，比赛中错误结果只显示为未通过（RJ）。导播在“导播台”中切换画面，OBS 中只需添加下面的“直播画面”链接作为浏览器源。</p>
-      <p id="message" class="resolver-error" role="alert" hidden></p>
-    </div>
+    <div id="message" class="section__body resolver-error" role="alert" hidden></div>
   </section>
   <section class="section visible screen-card">
-    <div class="section__header"><h2 class="section__title">导播台</h2></div>
-    <div class="section__body">
-      <p class="resolver-muted">控制画面上显示的内容：榜单、评测队列、统计、滚动字幕、队伍画面、标题与图片等。需要比赛管理权限，多名导播可同时打开，操作实时同步。</p>
-      <div class="screen-link"><a class="button primary" id="open-admin" target="_blank" rel="noopener">打开导播台</a></div>
-    </div>
+    <div class="section__header resolver-heading"><h2 class="section__title">导播台</h2><a class="button primary" id="open-admin" target="_blank" rel="noopener" aria-label="打开导播台">打开</a></div>
   </section>
   <section class="section visible screen-card">
-    <div class="section__header"><h2 class="section__title">直播画面（OBS 浏览器源）</h2></div>
+    <div class="section__header"><h2 class="section__title">直播画面</h2></div>
     <div class="section__body">
-      <p class="resolver-muted">在 OBS 中添加“浏览器”来源，填入下面的链接，宽 1920、高 1080；在“自定义 CSS”中填入 <code>body { background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden; }</code> 使背景透明。链接自带访问凭证，无需登录，请勿公开。</p>
-      <div class="screen-link"><input class="textbox" id="overlay-link" readonly aria-label="直播画面链接"><button type="button" class="button" id="copy-overlay">复制链接</button><a class="button" id="open-overlay" target="_blank" rel="noopener">打开</a></div>
+      <div class="screen-link"><input class="textbox" id="overlay-link" readonly aria-label="直播画面链接"><button type="button" class="button" id="copy-overlay">复制链接</button><a class="button" id="open-overlay" target="_blank" rel="noopener" aria-label="打开直播画面">打开</a></div>
+      <p class="resolver-muted">链接包含访问凭证，请仅分享给播出人员。</p>
+      <details>
+        <summary>OBS 浏览器源设置</summary>
+        <p>添加「浏览器」来源，填入直播链接，尺寸设为 1920 × 1080。在「自定义 CSS」中填入以下内容，使背景透明。</p>
+        <pre><code>body { background-color: rgba(0, 0, 0, 0); margin: 0 auto; overflow: hidden; }</code></pre>
+      </details>
       <div class="resolver-actions"><button type="button" class="button" id="reset-token">作废并重新生成链接</button><span class="resolver-muted" id="save-status" role="status"></span></div>
     </div>
   </section>
-  <dialog id="reset-confirm" aria-labelledby="reset-title"><form method="dialog"><h2 id="reset-title">作废直播画面链接</h2><p>OBS 中正在使用的直播画面会立即失效，需要在 OBS 中换成新链接。导播台和已上传的媒体不受影响。确定继续？</p><div class="resolver-actions"><button class="button" value="cancel">取消</button><button class="button primary" value="confirm">作废并重新生成</button></div></form></dialog>
+  <dialog id="reset-confirm" aria-labelledby="reset-title"><form method="dialog"><h2 id="reset-title">作废直播画面链接</h2><p>旧链接立即失效。请在 OBS 中换成新链接。</p><div class="resolver-actions"><button class="button" value="cancel">取消</button><button class="button primary" value="confirm">作废并重新生成</button></div></form></dialog>
   <p class="resolver-muted">直播移植自 <a href="https://github.com/icpc/live-v3" target="_blank" rel="noopener">ICPC Live v3.5.1</a> · <a href="/hydro-live/LICENSE.txt">MIT</a></p>
 </div></div>
 <script type="application/json" id="live-runtime">{{ runtimeJson | safe }}</script>

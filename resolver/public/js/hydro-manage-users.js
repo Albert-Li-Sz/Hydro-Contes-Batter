@@ -33,7 +33,6 @@ for (const tab of ['users', 'teams']) {
 
 const root = $('manage-root');
 root.replaceChildren(
-    el('p', { class: 'resolver-muted', text: '修改账号资料与 Hydro 5.1 队伍；账号名与 UID 不可修改。显示名按当前域保存，与“导入用户”一致。删除需要验证当前管理员的密码，超级管理员、系统管理员与当前账号不能在此删除。' }),
     tabs,
     el('form', { class: 'manage-toolbar', onsubmit: (event) => { event.preventDefault(); notify(status, ''); state.q = search.value.trim(); state.page = 1; load(); } },
         search, el('button', { class: 'button', type: 'submit', text: '搜索' }), el('span', { class: 'manage-spacer' }), selectedInfo, deleteButton),

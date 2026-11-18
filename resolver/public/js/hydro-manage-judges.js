@@ -17,25 +17,17 @@ const uname = input({ placeholder: '例如 judge-1', maxlength: 31, required: tr
 const note = input({ placeholder: '备注（可选），如机房位置、配置', maxlength: 200, 'aria-label': '备注' });
 
 $('manage-root').replaceChildren(
-    el('p', { class: 'resolver-muted', text: '每台独立评测机（hydrojudge）使用一个评测账号登录 Hydro。添加后会生成 judge.yaml 配置；每次“复制配置”都会为该账号生成新密码，之前复制的配置随即失效，已连接的评测机不受影响，重启后需使用新配置。' }),
     stats,
-    el('div', { class: 'manage-group' }, el('h3', {}, '评测机健康', el('span', { class: 'resolver-muted manage-small', style: 'font-weight:normal;margin-left:8px', text: '每 5 秒刷新；包括随 Hydro 运行的内置评测机' })),
+    el('div', { class: 'manage-group' }, el('h3', { text: '评测机健康' }),
         alerts, el('div', { class: 'manage-scroll' }, healthTable)),
     el('div', { class: 'manage-group' }, el('h3', { text: '添加评测机' }),
         el('form', { class: 'manage-toolbar', onsubmit: (event) => { event.preventDefault(); create(); } },
             uname, note, el('button', { class: 'button primary', type: 'submit', text: '添加并复制配置' }))),
     el('div', { class: 'manage-group' },
         el('div', { class: 'manage-toolbar' }, el('h3', { text: '评测机账号', style: 'margin:0' }), el('span', { class: 'manage-spacer' }), deleteButton),
+        el('p', { class: 'resolver-muted manage-small', text: '复制配置会重置该评测机的密码。分流设置仅适用于独立评测机。' }),
         status,
         el('div', { class: 'manage-scroll' }, table)),
-    el('div', { class: 'manage-group' }, el('h3', { text: '负载均衡说明' }),
-        el('ul', { class: 'resolver-muted' },
-            el('li', { text: 'Hydro 的评测队列由评测机主动领取：每台评测机按优先级领取与其条件匹配的任务，直到达到并发数。' }),
-            el('li', { text: '并发上限：限制该评测机同时评测的任务数（不超过评测机自身配置）。性能强的机器设置更高的上限，即可分得更多任务。' }),
-            el('li', { text: '语言：只领取所选语言的提交，可把 Java、Python 等较慢语言集中到指定机器。不选表示接受评测机支持的全部语言。' }),
-            el('li', { text: '任务范围：可让部分机器只评新提交，其余机器处理批量重测，避免重测拖慢比赛中的评测。' }),
-            el('li', { text: '暂停：评测机保持连接并完成手头任务，但不再领取新任务。设置保存后立即对所有已连接的评测机生效。' }),
-            el('li', { text: '内置评测（hydrojudge 插件，与 Hydro 同进程运行）不经过评测账号，不受这里的设置影响。' }))),
 );
 
 const scopeText = (rule) => scopes.get(rule.scope) || rule.scope;
@@ -202,7 +194,7 @@ function editRule(judge) {
         title: `评测机 ${judge.uname} 的设置`,
         confirm: '保存并生效',
         body: [el('div', { class: 'resolver-fields' },
-            el('label', { class: 'checkbox' }, enabled, '接收新任务（取消即暂停）'),
+            el('label', { class: 'checkbox' }, enabled, '接收新任务'),
             field('并发上限', concurrency, '同时评测的任务数，不超过评测机自身配置'),
             field('任务范围', scope),
             el('div', {}, '只评测这些语言', el('span', { class: 'resolver-muted manage-small', text: '（不选表示全部语言）' }), langs),

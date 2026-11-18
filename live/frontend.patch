@@ -4850,3 +4850,36 @@ index 0000000..e82a953
 +    const client = new CaptureConnection(url);
 +    return (device: string, stream: string, video: HTMLVideoElement, onPlaying: () => void) => client.watch(device, stream, video, onPlaying);
 +}
+diff --git a/src/frontend/overlay/src/components/molecules/info/SubmissionRow.tsx b/src/frontend/overlay/src/components/molecules/info/SubmissionRow.tsx
+index 6b68bc1..f1da671 100644
+--- a/src/frontend/overlay/src/components/molecules/info/SubmissionRow.tsx
++++ b/src/frontend/overlay/src/components/molecules/info/SubmissionRow.tsx
+@@ -99,7 +99,9 @@ export const SubmissionRow = ({
+     return (
+         <SubmissionRowWrap bg_color={bg_color} color={color}>
+             <TimeCell>
+-                {DateTime.fromMillis(lastSubmitTimeMs).toFormat("H:mm")}
++                {lastSubmitTimeMs == null
++                    ? ""
++                    : DateTime.fromMillis(lastSubmitTimeMs).toFormat("H:mm")}
+             </TimeCell>
+             <QueueProblemLabel
+                 letter={problemLetter}
+@@ -133,7 +135,7 @@ const PVPTimeCell = styled(TimeCell)`
+ export type VerticalSubmissionRowProps = {
+     teamData: TeamInfo;
+     result: ProblemResult;
+-    lastSubmitTimeMs?: number;
++    lastSubmitTimeMs?: number | null;
+     minScore?: number;
+     maxScore?: number;
+     problemLetter?: string;
+@@ -154,7 +156,7 @@ export const VerticalSubmissionRow = ({
+     const dark = isShouldUseDarkColor(
+         teamData?.color ? teamData?.color : c.CONTESTER_BACKGROUND_COLOR,
+     );
+-    if (!result || !problemLetter || !lastSubmitTimeMs) {
++    if (!result || !problemLetter || lastSubmitTimeMs == null) {
+         return (
+             <SubmissionColumnWrap bg_color={teamData?.color} darkText={dark}>
+                 <div style={{ order: isTop ? 1 : 3 }} />

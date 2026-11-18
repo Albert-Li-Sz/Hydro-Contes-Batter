@@ -8,7 +8,7 @@
     <div class="section__body"><p id="rehearsal-note" class="resolver-notice" hidden>仅供彩排</p><p id="message" class="resolver-error" role="alert" hidden></p>
       <div class="resolver-stats">
         <div><strong id="stat-teams">—</strong><span>参赛队伍</span></div><div><strong id="stat-official">—</strong><span>正式参赛</span></div><div><strong id="stat-problems">—</strong><span>题目数量</span></div><div><strong id="stat-pending">—</strong><span>待揭晓提交</span></div>
-      </div><p id="snapshot-time" class="resolver-muted">准备预览</p><p id="unjudged-note" class="resolver-notice" hidden></p>
+      </div><p id="snapshot-time" class="resolver-muted" hidden></p><p id="unjudged-note" class="resolver-notice" hidden></p>
     </div>
   </section>
   <form id="resolver-form">
@@ -47,7 +47,7 @@
       <div class="section__header resolver-heading"><h2 class="section__title">滚榜预览</h2><button type="button" class="button" id="refresh-preview">刷新数据</button></div>
       <div class="section__body"><p id="preview-status" role="status">准备预览</p><div class="resolver-preview"><canvas id="preview-screen" aria-label="滚榜实时预览"></canvas></div>
         <div class="resolver-actions"><button type="button" class="button" id="preview-reset">回到冻结榜单</button><button type="button" class="button" id="preview-prev">上一步</button><button type="button" class="button" id="preview-next">下一步</button><span id="preview-progress" class="resolver-muted"></span></div>
-        <div class="resolver-actions"><button type="submit" class="button primary" id="start-btn">开始滚榜</button><span class="resolver-muted">开始时重新读取比赛数据并保存独立会话。</span></div>
+        <div class="resolver-actions"><button type="submit" class="button primary" id="start-btn">开始滚榜</button></div>
       </div>
     </section>
   </form>

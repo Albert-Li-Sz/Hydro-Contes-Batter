@@ -83,10 +83,9 @@ function updateAwards(rules, unofficialFirstSolve) {
     }
     document.getElementById('resolver-award-policy').textContent = [
         rules.medalSameScore ? '并列同奖' : '按名额授奖',
-        rules.firstSolve ? '一血奖已开启' : '一血奖已关闭',
-        rules.podiumEnabled ? '前三名奖项已开启' : '前三名奖项已关闭',
-        unofficialFirstSolve ? '打星选手可获一血奖' : '一血奖仅限正式选手',
-    ].join(' · ');
+        rules.firstSolve && (unofficialFirstSolve ? '一血奖含打星选手' : '一血奖仅限正式选手'),
+        rules.podiumEnabled && '前三名奖项',
+    ].filter(Boolean).join(' · ');
 }
 
 function updateSelectedAwards() {
@@ -103,7 +102,9 @@ function updateStats(overview) {
 
 function updateOverview(overview) {
     updateStats(overview);
-    document.getElementById('snapshot-time').textContent = `开赛后 ${clock(overview.freezeAtSeconds)} 封榜，封榜时长 ${Math.round((overview.durationSeconds - overview.freezeAtSeconds) / 6) / 10} 分钟 · 数据读取于 ${new Date(overview.capturedAt).toLocaleString('zh-CN')}`;
+    const snapshot = document.getElementById('snapshot-time');
+    snapshot.textContent = `开赛后 ${clock(overview.freezeAtSeconds)} 封榜 · 数据读取于 ${new Date(overview.capturedAt).toLocaleString('zh-CN')}`;
+    snapshot.hidden = false;
     const warning = document.getElementById('unjudged-note');
     warning.hidden = !overview.unjudgedCount;
     warning.textContent = `本次彩排忽略 ${overview.unjudgedCount} 条尚未完成评测的提交`;
@@ -111,7 +112,7 @@ function updateOverview(overview) {
 }
 
 function showPreviewPosition() {
-    document.getElementById('preview-progress').textContent = game ? `${position + 1} / ${actions.length}` : '0 / 0';
+    document.getElementById('preview-progress').textContent = game ? `${position + 1} / ${actions.length}` : '';
     document.getElementById('preview-prev').disabled = !game || position <= 0;
     document.getElementById('preview-next').disabled = !game || position >= actions.length - 1;
     document.getElementById('preview-reset').disabled = !game;
@@ -183,7 +184,6 @@ async function refreshPreview() {
         if (error.name === 'AbortError' || number !== requestNumber) return;
         previewStatus.textContent = error.message;
         previewStatus.dataset.state = 'error';
-        showError(error);
         clearPreview();
     }
 }

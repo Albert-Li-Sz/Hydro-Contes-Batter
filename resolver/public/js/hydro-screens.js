@@ -7,29 +7,17 @@ let linkBase = runtime.linkBase;
 let dirty = false;
 
 const hints = {
-    scoreboard: '完整榜单，按页自动滚动。',
-    leaders: '前 12 名，适合奖牌争夺阶段。',
-    tiles: 'ICPC Tools 方块榜：实时方块榜横向翻列，按通过数分组与按队名排列纵向滚动。',
-    'first-solves': '各题首个通过的选手。',
-    queue: '最近的提交及评测结果，每 3 秒刷新。结果与公开榜一致：比赛中错误结果只显示为未通过，封榜后的提交显示为待定。会公开显示谁在何时提交了哪道题，比赛中如不希望选手看到，请只在裁判室使用。',
-    clock: '比赛已进行时间。',
+    queue: '画面包含队伍、提交时间和题号。封榜后的提交显示为待定。',
     countdown: '距目标时间的倒计时，到点后转为正计时。',
-    message: '全屏文字公告，可换行。',
-    resolver: '跟随一场滚榜会话的进度同步显示，没有控制权，也看不到尚未揭晓的内容。',
-    'problem-stats': '逐题显示提交和通过情况，支持柱状图或题目卡片。',
-    'rank-trend': '用 Hydro 的计分规则绘制领先队伍的名次变化。',
-    outcomes: '按比赛时间或题目汇总评测结果，封榜后隐藏的结果计入待定。',
-    groups: '按已配置的分榜或学校分组，逐组轮播或展示各组领先队伍。',
-    'logo-wall': '展示参赛学校的本地 Logo，读取公开榜的学校显示设置。',
-    'team-intro': '依次展示队伍名称、队员和可公开显示的学校。',
-    'problem-colors': '展示各题对应的气球颜色，颜色在 Hydro 的气球管理中设置。',
-    floor: '读取 onsite-toolkit 的座位号，按前缀分区排列。画面包含座位号，请按场馆需要分享链接。',
-    balloons: '按座位显示 Hydro 气球管理里的待配送气球，配送完成后自动消失。仅显示公开榜可见的通过记录。',
-    announce: '轮播最近通过的队伍和题目，可切换为只播报一血。',
-    judges: '展示评测机是否在线、评测队列及负载。对外只显示机器编号。',
-    poster: '按上传顺序轮播 PNG、JPEG 或 WebP 图片，每张最多 2 MiB，共 20 张。上传和移除立即生效。',
-    clarifications: '轮播裁判发给所有选手的比赛公告。',
-    'problem-list': '展示比赛题目标题、气球颜色和时空限制。',
+    resolver: '观众只看到已揭晓的结果。',
+    outcomes: '封榜后隐藏的结果计入待定。',
+    'logo-wall': '只展示公开榜允许显示的学校。',
+    'problem-colors': '在 Hydro 的气球管理中设置颜色。',
+    floor: '读取 onsite-toolkit 导入的座位号。请按场馆需要分享链接。',
+    balloons: '从 Hydro 气球管理读取待配送记录。仅显示公开榜可见的通过。',
+    judges: '画面以编号标识评测机。',
+    poster: '支持 PNG、JPEG、WebP，每张最多 2 MiB，可上传 20 张。上传和移除立即生效。',
+    clarifications: '只显示发给所有选手的公告。',
 };
 
 function el(tag, attrs = {}, ...children) {
@@ -53,7 +41,6 @@ function select(options, value, onChange) {
 
 function changed() {
     dirty = true;
-    refreshMenu();
     $('save-status').textContent = '有未保存的更改';
 }
 
@@ -87,10 +74,7 @@ function posterControls(item) {
         try {
             item.images = (await request(body)).images;
         } catch (error) { showError(error); }
-        finally {
-            refreshPosters();
-            refreshMenu();
-        }
+        finally { refreshPosters(); }
     };
     upload.addEventListener('click', async () => {
         const selected = file.files[0];
@@ -170,11 +154,12 @@ function card(type) {
     open.dataset.type = type;
     const preview = el('button', { class: 'button', type: 'button', text: '预览' });
     preview.addEventListener('click', () => {
-        $('preview-title').textContent = runtime.labels[type];
+        $('preview-title').textContent = `${runtime.labels[type]}预览（已保存设置）`;
         $('screen-preview-frame').src = linkFor(type);
         $('screen-preview').showModal();
     });
-    const body = el('div', { class: 'section__body' }, el('p', { class: 'resolver-muted', text: hints[type] || '' }));
+    const body = el('div', { class: 'section__body' });
+    if (hints[type]) body.append(el('p', { class: 'resolver-muted', text: hints[type] }));
     if (fields.childElementCount) body.append(fields);
     if (type === 'poster') body.append(posterControls(item));
     body.append(el('div', { class: 'screen-link' }, link, copy, preview, open));
@@ -203,34 +188,20 @@ $('locale').addEventListener('change', () => { config.locale = $('locale').value
 $('screen-panel').append(...runtime.types.map(card));
 
 // Side menu: one entry per screen; the chosen screen's settings show on the left.
-const summary = (type) => {
-    const item = config.items[type];
-    const parts = [];
-    if (runtime.standingsTypes.includes(type)) parts.push(runtime.boards.find((board) => board.id === item.boardId)?.name || item.boardId);
-    if (runtime.variants[type]) parts.push(runtime.variants[type].find(([value]) => value === item.variant)?.[1] || item.variant);
-    if (type === 'countdown') parts.push({ end: '到比赛结束', start: '到比赛开始', custom: '到指定时间' }[item.target]);
-    if (type === 'message') parts.push(item.text.trim() ? item.text.trim().split('\n')[0].slice(0, 16) : '未填写');
-    if (type === 'resolver') parts.push(item.sessionId ? '已选择会话' : '未选择会话');
-    if (type === 'groups') parts.push(runtime.groupSources.find(([value]) => value === item.source)?.[1]);
-    if (type === 'poster') parts.push(`${item.images.length} 张图片`);
-    return parts.filter(Boolean).join(' · ');
-};
 const menuLinks = new Map();
 for (const [label, types] of runtime.categories) {
     $('screen-menu').append(el('li', { class: 'screens-menu-category', text: label }));
     for (const type of types) {
-        const note = el('small', { class: 'screens-menu-note' });
-        const link = el('a', { class: 'menu__link', href: `#screen-${type}` }, el('span', { text: runtime.labels[type] }), note);
+        const link = el('a', { class: 'menu__link', href: `#screen-${type}`, text: runtime.labels[type] });
         link.addEventListener('click', (event) => { event.preventDefault(); choose(type, true); });
         $('screen-menu').append(el('li', { class: 'menu__item' }, link));
-        menuLinks.set(type, { link, note });
+        menuLinks.set(type, link);
     }
 }
-const refreshMenu = () => { for (const [type, { note }] of menuLinks) note.textContent = summary(type); };
 function choose(type, focus = false) {
     if (!runtime.types.includes(type)) type = runtime.types[0];
     for (const section of $('screen-panel').children) section.hidden = section.dataset.type !== type;
-    for (const [key, { link }] of menuLinks) {
+    for (const [key, link] of menuLinks) {
         link.classList.toggle('active', key === type);
         if (key === type) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
     }
@@ -238,7 +209,6 @@ function choose(type, focus = false) {
     if (focus && matchMedia('(max-width: 1024px)').matches) $('screen-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 choose(location.hash.replace(/^#screen-/, ''));
-refreshMenu();
 addEventListener('hashchange', () => choose(location.hash.replace(/^#screen-/, '')));
 $('save').addEventListener('click', async () => {
     message.hidden = true;
@@ -254,7 +224,6 @@ $('save').addEventListener('click', async () => {
         config.locale = saved.locale;
         for (const type of runtime.types) Object.assign(config.items[type], saved.items[type]);
         refreshPosters();
-        refreshMenu();
         dirty = false;
         $('save-status').textContent = `已保存 ${new Date().toLocaleTimeString('zh-CN')}`;
     } catch (error) { showError(error); } finally { $('save').disabled = false; }

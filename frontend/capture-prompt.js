@@ -98,7 +98,6 @@ export function installCapturePrompt(info) {
                 ? `画面采集窗口已关闭或断开，${info.webcam === false ? '屏幕' : '屏幕和摄像头'}的录制已中断，比赛工作人员会看到中断。请立即重新开启，并保持窗口打开。`
                 : `「${info.contest}」要求录制${info.webcam === false ? '屏幕' : '屏幕和摄像头'}，用于直播和赛事记录。${info.screenPublic ? '' : '比赛结束前，屏幕画面只提供给比赛工作人员。'}` }),
             element('ol', {},
-                element('li', { text: '点击下方按钮，打开画面采集窗口。' }),
                 element('li', { text: `在窗口中点击“开始采集”，在浏览器弹出的选择框中选择“整个屏幕”，点击“分享”${info.webcam === false ? '' : '；如询问摄像头权限，请选择“允许”'}。` }),
                 element('li', { text: '采集期间请保持该窗口打开（可以最小化），不要关闭窗口或退出浏览器。' })),
             hint,

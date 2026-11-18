@@ -4,12 +4,8 @@
 #hydro-screens .screen-link .button { margin: 0; }
 #hydro-screens .screen-card textarea.textbox { width: 100%; min-height: 72px; resize: vertical; }
 #hydro-screens .screens-spacer { flex: 1; }
-/* Side menu: Hydro's own menu, with the chosen settings under each screen name. */
 #hydro-screens #screen-menu { margin: 0; padding: 0; list-style: none; }
 #hydro-screens #screen-menu .menu__link { display: block; cursor: pointer; }
-#hydro-screens #screen-menu .menu__link span { display: block; }
-#hydro-screens .screens-menu-note { display: block; margin-top: 2px; font-size: 12px; line-height: 1.4; opacity: .65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#hydro-screens #screen-menu .menu__link.active .screens-menu-note { opacity: 1; }
 #hydro-screens .screens-menu-category { padding: .7em 1em .25em; font-size: .85em; font-weight: 700; opacity: .72; }
 #hydro-screens .screen-poster-controls label { display: block; }
 #hydro-screens .screen-posters { display: flex; flex-wrap: wrap; gap: 12px; list-style: none; margin: .5em 0 0; }

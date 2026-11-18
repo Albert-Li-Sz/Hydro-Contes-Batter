@@ -8,7 +8,7 @@
     <section class="section visible">
       <div class="section__header resolver-heading"><div><h1 class="section__title">大屏</h1><p class="resolver-muted" id="contest-title"></p></div><a class="button" id="back-link">返回比赛</a></div>
       <div class="section__body">
-        <p class="resolver-muted">在右侧选择一种画面进行设置。每种画面有一个固定链接，在大屏电脑的浏览器中打开即可显示，无需登录 Hydro；点击画面、右上角“全屏”按钮或按 F 进入全屏，Esc 退出。榜单类画面与公开榜一致，封榜后冻结。保存后，已打开的大屏会在几秒内更新。</p>
+        <p class="resolver-muted">持有链接即可查看画面。保存设置后，已打开的大屏会自动更新。</p>
         <p id="message" class="resolver-error" role="alert" hidden></p>
         <div class="resolver-fields resolver-two">
           <label>画面语言（全部画面）<select class="select" id="locale"><option value="zh-CN">中文</option><option value="en">English</option></select></label>
@@ -26,10 +26,10 @@
   <div class="medium-3 columns"><div data-sticky="large">
     <section class="section side visible">
       <div class="section__header"><h2 class="section__title">画面</h2></div>
-      <ol class="menu" id="screen-menu" aria-label="大屏画面"></ol>
+      <ul class="menu" id="screen-menu" aria-label="大屏画面"></ul>
     </section>
   </div></div>
-  <dialog id="screen-preview" aria-labelledby="preview-title"><form method="dialog" class="screen-preview-header"><h2 id="preview-title"></h2><button class="button">关闭</button></form><p class="resolver-muted">预览当前已保存的设置。</p><iframe id="screen-preview-frame" title="大屏预览" allowfullscreen></iframe></dialog>
+  <dialog id="screen-preview" aria-labelledby="preview-title"><form method="dialog" class="screen-preview-header"><h2 id="preview-title"></h2><button class="button">关闭</button></form><iframe id="screen-preview-frame" title="大屏预览" allowfullscreen></iframe></dialog>
   <dialog id="reset-confirm" aria-labelledby="reset-title"><form method="dialog"><h2 id="reset-title">作废全部大屏链接</h2><p>所有已打开的大屏会立即失效，需要在每台大屏电脑上打开新链接。确定继续？</p><div class="resolver-actions"><button class="button" value="cancel">取消</button><button class="button primary" value="confirm">作废并重新生成</button></div></form></dialog>
 </div></div>
 <script type="application/json" id="screens-runtime">{{ runtimeJson | safe }}</script>
