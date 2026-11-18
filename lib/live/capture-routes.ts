@@ -151,7 +151,7 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
             this.response.body = {
                 tdoc: this.tdoc, codeBase: helpers.codeBase,
                 runtimeJson: toScriptJson({
-                    base: `${base}/live/capture`, dataUrl: `${base}/live/capture/data`, liveUrl: `${base}/live`, contestUrl: base,
+                    base: `${base}/live/capture`, dataUrl: `${base}/live/capture/data`, contestUrl: base,
                     viewerWs: `${base}/live/ws/capture`, title: this.tdoc.title,
                 }),
             };

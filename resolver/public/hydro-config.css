@@ -1,7 +1,8 @@
 /* HydroXCPCIO configuration uses Hydro's own sections, forms and buttons. */
 #hydro-resolver-config [hidden] { display: none !important; }
 #hydro-resolver-config .resolver-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; }
-#hydro-resolver-config .resolver-heading .button { margin:0; }
+#hydro-resolver-config .resolver-heading > div { min-width:0; }
+#hydro-resolver-config .resolver-heading .button { margin:0; flex:none; white-space:nowrap; }
 #hydro-resolver-config .resolver-muted { color:inherit; opacity:.65; font-size:13px; line-height:1.6; }
 #hydro-resolver-config .resolver-fields { display:grid; gap:16px; margin-bottom:16px; }
 #hydro-resolver-config .resolver-two { grid-template-columns:repeat(2,minmax(0,1fr)); }

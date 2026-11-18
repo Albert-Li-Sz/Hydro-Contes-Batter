@@ -96,11 +96,11 @@ Schema 测试固定使用官方 2026-01 分支文件；上游 schema 对 runs �
 
 需要 Node.js 22 或以上版本及 Hydro 5.x。使用运行 Hydro 的系统用户操作；命令中的 `$HOME` 对应这个用户。自 0.8.1 起，安装包包含供 Hydro 直接加载的源码和完整预构建资源。
 
-下载 `hydro-scoreboard-xcpcio-plus-1.10.0.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
+下载 `hydro-scoreboard-xcpcio-plus-1.10.1.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
 
 ```bash
 mkdir -p "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
-tar -xzf hydro-scoreboard-xcpcio-plus-1.10.0.tgz \
+tar -xzf hydro-scoreboard-xcpcio-plus-1.10.1.tgz \
   -C "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus" --strip-components=1
 hydrooj addon add "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
 pm2 restart hydrooj
@@ -112,7 +112,7 @@ pm2 restart hydrooj
 
 ```bash
 mkdir -p xcpcio-update
-tar -xzf hydro-scoreboard-xcpcio-plus-1.10.0.tgz -C xcpcio-update
+tar -xzf hydro-scoreboard-xcpcio-plus-1.10.1.tgz -C xcpcio-update
 bash xcpcio-update/package/install.sh install
 # 已有安装时
 bash xcpcio-update/package/install.sh upgrade
@@ -492,16 +492,15 @@ Hydro 的系统管理员（`PRIV_EDIT_SYSTEM`）可在控制面板（`/manage`�
 
 ### 画面采集（选手屏幕与摄像头）
 
-比赛侧边栏的“画面采集”（与“大屏”“直播”并列，也可从直播设置页进入，`/contest/<比赛ID>/live/capture`）由 Hydro 统一管理选手机的屏幕和摄像头，需要比赛管理权限。不需要另外部署中继服务器：Hydro 只转交建立 WebRTC 连接所需的少量消息，视频在选手机和观看端（OBS 直播画面、导播台预览、管理页预览）之间点对点传输，不经过 Hydro 服务器。
+比赛侧边栏的“画面采集”（与“大屏”“直播”并列，`/contest/<比赛ID>/live/capture`）由 Hydro 统一管理选手机的屏幕和摄像头，需要比赛管理权限。不需要另外部署中继服务器：Hydro 只转交建立 WebRTC 连接所需的少量消息，视频在选手机和观看端（OBS 直播画面、导播台预览、管理页预览）之间点对点传输，不经过 Hydro 服务器。
 
 **访问地址**：选手须使用浏览器信任的 HTTPS 地址访问比赛和采集页。反向代理需要转发 WebSocket，证书须匹配访问的域名或 IP，并受选手机信任。用明文 HTTP 内网 IP 打开页面时，浏览器禁用屏幕共享和摄像头接口。配置好 HTTPS 后，从 HTTPS 管理页重新复制采集链接。
 
 画面采集有两级开关：插件配置中的“启用直播的画面采集”（默认开启，关闭后画面采集的页面、接口和设置页入口都不再提供），以及每场比赛管理页顶部的“启用画面采集”（**默认不启用**）。比赛未启用时可以先添加设备、分发链接，选手机打开采集链接后会等待，启用后半分钟内自动连接；停用后所有采集页立即断开，导播台和直播画面中不再有队伍画面，设备和链接保留。
 
-选手机有两种开启方式：
+选手机的开启方式：选手进入比赛后弹窗开启，无需启动参数。启用本场画面采集并勾选“选手进入比赛时弹窗提示开启画面采集”（默认勾选）后，参赛选手用 Chrome 或 Edge 登录并打开比赛的任意页面，会弹出提示。点击“开启画面采集”打开一个采集窗口，在窗口中点击“开始采集”，在浏览器的选择框中选择“整个屏幕”并点击“分享”，摄像头权限选择“允许”。选择窗口或标签页会被拒绝并提示重新选择整个屏幕。比赛页面右下角显示采集状态，换页不影响采集。每支队伍自动对应一台设备：已有覆盖该队座位或手动绑定的设备时使用它，否则自动创建。比赛管理员（所有者和有编辑比赛权限的用户）不会收到提示，比赛结束后也不再提示。浏览器规定屏幕共享必须由用户点击并选择，因此这一步不能完全省去。
 
-- **选手进入比赛后弹窗开启（推荐，无需启动参数）**：启用本场画面采集并勾选“选手进入比赛时弹窗提示开启画面采集”（默认勾选）后，参赛选手用 Chrome 或 Edge 登录并打开比赛的任意页面，会弹出提示。点击“开启画面采集”打开一个采集窗口，在窗口中点击“开始采集”，在浏览器的选择框中选择“整个屏幕”并点击“分享”，摄像头权限选择“允许”。选择窗口或标签页会被拒绝并提示重新选择整个屏幕。比赛页面右下角显示采集状态，换页不影响采集。每支队伍自动对应一台设备：已有覆盖该队座位或手动绑定的设备时使用它，否则自动创建。比赛管理员（所有者和有编辑比赛权限的用户）不会收到提示，比赛结束后也不再提示。浏览器规定屏幕共享必须由用户点击并选择，因此这一步不能完全省去。
-- **采集链接无人值守（可选）**：在管理页点击“按座位批量添加”生成每个座位的采集链接（“复制链接”或“导出采集链接”导出 CSV），在比赛镜像中开机自动打开。管理页给出了免操作的启动命令（Chrome 参数 `--auto-select-desktop-capture-source`、`--use-fake-ui-for-media-stream` 和 `--disable-features=WebRtcHideLocalIpsWithMdns`）。Linux 请使用 X11 桌面会话。
+管理页也可以“按座位批量添加”设备，用“复制链接”或“导出采集链接”（CSV）拿到每个座位的采集链接，选手机直接打开链接的效果与弹窗相同，同样需要选手点击“开始采集”并选择整个屏幕。
 
 设备显示“在线”后，在管理页点“预览”确认画面。
 

@@ -117,10 +117,12 @@ function frame(now) {
         resolver.view.update(dt);
         resolver.view.render(now);
     } else if (state) {
+        // A frame's timestamp can precede a poll that has just restarted the item's clock.
+        const elapsed = Math.max(0, now - itemStartedAt);
         if (paintedState !== state || now >= nextContentFrame) {
             paintedState = state;
             nextContentFrame = now + 250;
-            const custom = extras.show(state, now - itemStartedAt);
+            const custom = extras.show(state, elapsed);
             content.hidden = !custom;
             canvas.hidden = custom;
             if (custom && !failures) status('');
@@ -131,7 +133,7 @@ function frame(now) {
         // render() returns false until the fonts (including the large Chinese font) have loaded.
         const drawn = presentation.render(ctx, state.data, state.item, {
             width: canvas.width, height: canvas.height, now: Date.now() + offset,
-            elapsed: now - itemStartedAt, locale: state.locale,
+            elapsed, locale: state.locale,
         });
         if (drawn !== loaded) { loaded = drawn; if (!failures) status(drawn ? '' : '正在加载字体…'); }
     }

@@ -144,7 +144,7 @@ export function createCapturePreview(env: Environment, options: {
             response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }).end(env.render('xcpcio_live_capture.html', {
                 codeBase, tdoc: { title: contest.title },
                 runtimeJson: toScriptJson({
-                    base: `${base}/live/capture`, dataUrl: `${base}/live/capture/data`, liveUrl: `${base}/live`, contestUrl: base,
+                    base: `${base}/live/capture`, dataUrl: `${base}/live/capture/data`, contestUrl: `${base}/scoreboard/xcpcio-plus`,
                     viewerWs: `${base}/live/ws/capture`, title: contest.title,
                 }),
             }));

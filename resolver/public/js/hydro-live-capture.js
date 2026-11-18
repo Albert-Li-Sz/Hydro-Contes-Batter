@@ -10,7 +10,7 @@ const previews = new Map();
 let viewer = null;
 
 $('contest-title').textContent = runtime.title;
-$('back-link').href = runtime.liveUrl;
+$('back-link').href = runtime.contestUrl;
 
 const status = el('p', { class: 'resolver-muted', role: 'status', hidden: true });
 const switchBox = el('div', { class: 'manage-alert capture-switch', role: 'status' });
@@ -174,24 +174,13 @@ function renderTable() {
 }
 
 function renderHelp() {
-    const example = state.devices[0] ? absolute(state.devices[0].url) : `${location.origin}/…/live-capture/<设备>/<密钥>`;
-    const flags = '--auto-select-desktop-capture-source="整个屏幕" --use-fake-ui-for-media-stream --disable-features=WebRtcHideLocalIpsWithMdns';
-    const command = (text) => { const node = el('textarea', { class: 'textbox capture-command', readonly: true, spellcheck: 'false' }); node.value = text; return node; };
     help.replaceChildren(
-        el('h4', { text: '方式一：选手进入比赛后弹窗开启（推荐）' }),
         el('ol', { class: 'resolver-muted', style: 'padding-left:20px;line-height:1.8' },
             el('li', { text: '启用本场画面采集，并勾选上方“选手进入比赛时弹窗提示开启画面采集”。' }),
             el('li', { text: '选手用 Chrome 或 Edge 登录参赛账号、打开比赛，页面会弹出提示；点击“开启画面采集”打开采集窗口，在窗口中点击“开始采集”，选择“整个屏幕”并点击“分享”，摄像头权限选择“允许”。' }),
             el('li', { text: '采集窗口需保持打开（可以最小化）。选手关闭窗口或退出浏览器时，浏览器会先确认；采集中断后，比赛页面立即提示重新开启，本页显示该设备离线。' }),
             el('li', { text: '每支队伍自动对应一台设备：有座位号时使用该座位的设备，没有时自动创建。比赛页面右下角显示采集状态。' })),
         el('p', { class: 'resolver-muted manage-small', text: '采集要求比赛使用 HTTPS 地址（浏览器只允许 HTTPS 页面共享屏幕和摄像头）。Hydro 内置 STUN 服务（插件配置中的 UDP 端口，默认 3478），帮助选手机与 OBS 电脑找到彼此的地址，只采集屏幕时也能直接连接；请在防火墙中放行该端口。选手网与直播网完全隔离时，需要在上方配置 TURN 服务器。' }),
-        el('h4', { text: '方式二：用采集链接无人值守（可选）' }),
-        el('p', { class: 'resolver-muted manage-small', text: '比赛镜像中开机自动打开某个座位的采集链接，免去选手操作。用下面的参数启动浏览器可自动选择整个屏幕、自动允许摄像头：' }),
-        el('p', { class: 'resolver-muted manage-small', text: 'Windows：' }),
-        command(`"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" ${flags} --app="${example}"`),
-        el('p', { class: 'resolver-muted manage-small', text: 'Linux：' }),
-        command(`google-chrome ${flags} --app="${example}"`),
-        el('p', { class: 'resolver-muted manage-small', text: '“整个屏幕”是中文版 Chrome 中屏幕选项的名称，英文版请改为 "Entire screen"。Linux 请使用 X11 桌面会话。各系统的效果请在赛前实测。' }),
     );
 }
 

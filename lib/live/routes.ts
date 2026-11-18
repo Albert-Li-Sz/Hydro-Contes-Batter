@@ -254,7 +254,7 @@ export function applyLive(ctx: Context, dependencies: {
             this.response.template = 'xcpcio_live.html';
             this.response.body = {
                 tdoc: this.tdoc, codeBase,
-                runtimeJson: toScriptJson({ base: links.root, contestUrl: contestBase(this.tdoc), title: this.tdoc.title, overlay: links.overlay, admin: links.adminBase, capture: !!capture }),
+                runtimeJson: toScriptJson({ base: links.root, contestUrl: contestBase(this.tdoc), title: this.tdoc.title, overlay: links.overlay, admin: links.adminBase }),
             };
         }
 

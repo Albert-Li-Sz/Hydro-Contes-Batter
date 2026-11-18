@@ -25,11 +25,12 @@
 .xcpcio-manage .capture-preview video { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; }
 .xcpcio-manage .capture-preview .capture-caption { display: flex; justify-content: space-between; gap: 8px; padding: 4px 8px; font-size: 12px; color: #fff; background: rgba(0, 0, 0, .7); }
 .xcpcio-manage .capture-preview .capture-state { position: absolute; inset: 0 0 auto; padding: 4px 8px; font-size: 12px; color: #fff; background: rgba(0, 0, 0, .45); }
-.xcpcio-manage .capture-command { width: 100%; font-family: var(--code-font-family, monospace); font-size: 12px; min-height: 64px; }
 .xcpcio-manage .capture-links { width: 100%; font-family: var(--code-font-family, monospace); font-size: 12px; min-height: 160px; white-space: pre; }
 .xcpcio-manage .capture-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 14px; border-color: var(--manage-ok); background: rgba(60, 186, 84, .1); }
 .xcpcio-manage .capture-switch.manage-alert--error { border-color: var(--manage-warn); background: rgba(230, 162, 60, .12); }
 .xcpcio-manage .capture-switch .button { margin: 0; }
+.xcpcio-manage .capture-switch strong { display: block; margin-bottom: 4px; }
+.xcpcio-manage .capture-switch .manage-small { line-height: 1.6; }
 .capture-device .capture-recording { margin: 16px 0 0; padding: 12px 16px; border-radius: 8px; background: rgba(224, 93, 68, .22); border: 1px solid rgba(224, 93, 68, .6); }
 .capture-device .capture-recording strong { display: block; margin-bottom: 4px; color: #ff8a73; font-size: 17px; }
 .capture-device.capture-window main { padding-top: 16px; }

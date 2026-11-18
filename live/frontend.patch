@@ -840,7 +840,7 @@ index 03b9977..753f257 100644
  
  export function getAdminConfigurationMenuItems(
 diff --git a/src/frontend/admin-home-page/src/AdminHomePage.tsx b/src/frontend/admin-home-page/src/AdminHomePage.tsx
-index fbc4cba..a629f49 100644
+index fbc4cba..4d7354a 100644
 --- a/src/frontend/admin-home-page/src/AdminHomePage.tsx
 +++ b/src/frontend/admin-home-page/src/AdminHomePage.tsx
 @@ -1,5 +1,8 @@
@@ -873,7 +873,8 @@ index fbc4cba..a629f49 100644
              <Typography variant="h4">ICPC Live 3</Typography>
 +            <LanguageSwitch />
  
-             <Paper sx={{ p: 2, minWidth: 300 }}>
+-            <Paper sx={{ p: 2, minWidth: 300 }}>
++            <Paper sx={{ p: 2, width: "100%", maxWidth: 480, boxSizing: "border-box", overflowWrap: "anywhere" }}>
                  <Typography variant="body1">
 -                    <strong>Commit:</strong> {gitInfo?.commit || "loading..."}
 +                    <strong>{t("Commit:")}</strong> {gitInfo?.commit || t("loading...")}
@@ -890,7 +891,8 @@ index fbc4cba..a629f49 100644
                  </Typography>
              </Paper>
  
-             <Box sx={{ textAlign: "center" }}>
+-            <Box sx={{ textAlign: "center" }}>
++            <Box sx={{ textAlign: "center", maxWidth: "100%", overflowWrap: "anywhere" }}>
                  <Typography variant="h6" sx={{ mb: 1 }}>
 -                    Useful Links
 +                    {t("Useful Links")}
@@ -907,10 +909,16 @@ index fbc4cba..a629f49 100644
                          </ListItem>
                      ))}
 diff --git a/src/frontend/admin-home-page/src/AdminLayout.tsx b/src/frontend/admin-home-page/src/AdminLayout.tsx
-index 99cfe6a..cf4a0f4 100644
+index 99cfe6a..595b572 100644
 --- a/src/frontend/admin-home-page/src/AdminLayout.tsx
 +++ b/src/frontend/admin-home-page/src/AdminLayout.tsx
-@@ -12,6 +12,7 @@ import MenuIcon from "@mui/icons-material/Menu";
+@@ -7,11 +7,13 @@ import {
+     ListItem,
+     ListItemButton,
+     ListItemText,
++    useMediaQuery,
+ } from "@mui/material";
+ import MenuIcon from "@mui/icons-material/Menu";
  import { useLocation, useNavigate } from "react-router-dom";
  
  import { MenuItem } from "./menuConfig";
@@ -918,7 +926,41 @@ index 99cfe6a..cf4a0f4 100644
  
  export const AdminLayout = ({
      children,
-@@ -57,7 +58,7 @@ export const AdminLayout = ({
+@@ -31,6 +33,10 @@ export const AdminLayout = ({
+     const location = useLocation();
+     const navigate = useNavigate();
+     const isRoot = location.pathname === "/" || location.pathname === "";
++    // Hydro: the home page keeps its menu beside the content only where there is room for both;
++    // on a phone the menu is listed above the content instead of covering it.
++    const wide = useMediaQuery("(min-width:900px)");
++    const pinned = isRoot && wide;
+     const [localDrawerOpen, setLocalDrawerOpen] = useState(isRoot);
+ 
+     const actualDrawerOpen =
+@@ -51,13 +57,30 @@ export const AdminLayout = ({
+     };
+ 
+     const drawerWidth = 250;
++    const menuList = (
++        <List>
++            {(menuItems || []).map((item) => (
++                <ListItem key={item.name} disablePadding>
++                    <ListItemButton
++                        onClick={() => handleMenuItemClick(item.path)}
++                        selected={
++                            location.pathname === item.path ||
++                            (item.path !== "/" && location.pathname.startsWith(item.path))
++                        }
++                    >
++                        <ListItemText primary={t(item.name)} />
++                    </ListItemButton>
++                </ListItem>
++            ))}
++        </List>
++    );
+ 
+     return (
+         <Box sx={{ display: "flex", width: "100%", minHeight: "100vh" }}>
              {!hideToggleButton && !isRoot && (
                  <IconButton
                      color="inherit"
@@ -927,15 +969,70 @@ index 99cfe6a..cf4a0f4 100644
                      onClick={handleDrawerToggle}
                      sx={{
                          position: "fixed",
-@@ -107,7 +108,7 @@ export const AdminLayout = ({
-                                             ))
-                                     }
-                                 >
+@@ -74,16 +97,16 @@ export const AdminLayout = ({
+                 </IconButton>
+             )}
+             <Drawer
+-                variant={isRoot ? "permanent" : "temporary"}
++                variant={pinned ? "permanent" : "temporary"}
+                 anchor="left"
+-                open={actualDrawerOpen}
++                open={pinned || (!isRoot && actualDrawerOpen)}
+                 onClose={() =>
+                     onDrawerToggle
+                         ? onDrawerToggle()
+                         : setLocalDrawerOpen(false)
+                 }
+                 sx={{
+-                    width: isRoot ? drawerWidth : 0,
++                    width: pinned ? drawerWidth : 0,
+                     flexShrink: 0,
+                     "& .MuiDrawer-paper": {
+                         width: drawerWidth,
+@@ -92,35 +115,22 @@ export const AdminLayout = ({
+                 }}
+             >
+                 <Box sx={{ width: drawerWidth }} role="presentation">
+-                    <List>
+-                        {menuItems.map((item) => (
+-                            <ListItem key={item.name} disablePadding>
+-                                <ListItemButton
+-                                    onClick={() =>
+-                                        handleMenuItemClick(item.path)
+-                                    }
+-                                    selected={
+-                                        location.pathname === item.path ||
+-                                        (item.path !== "/" &&
+-                                            location.pathname.startsWith(
+-                                                item.path,
+-                                            ))
+-                                    }
+-                                >
 -                                    <ListItemText primary={item.name} />
-+                                    <ListItemText primary={t(item.name)} />
-                                 </ListItemButton>
-                             </ListItem>
-                         ))}
+-                                </ListItemButton>
+-                            </ListItem>
+-                        ))}
+-                    </List>
++                    {menuList}
+                 </Box>
+             </Drawer>
+             <Box
+                 component="main"
+                 sx={{
+                     flexGrow: 1,
+-                    width: isRoot ? `calc(100% - ${drawerWidth}px)` : "100%",
++                    width: pinned ? `calc(100% - ${drawerWidth}px)` : "100%",
++                    minWidth: 0,
+                 }}
+             >
++                {isRoot && !wide && (
++                    <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
++                        {menuList}
++                    </Box>
++                )}
+                 {children}
+             </Box>
+         </Box>
 diff --git a/src/frontend/admin-home-page/src/LanguageSwitch.tsx b/src/frontend/admin-home-page/src/LanguageSwitch.tsx
 new file mode 100644
 index 0000000..4fff010
@@ -1011,11 +1108,14 @@ index f265976..c3777b6 100644
          </BrowserRouter>
      );
 diff --git a/src/frontend/admin-overlay/src/AppNav.tsx b/src/frontend/admin-overlay/src/AppNav.tsx
-index cf11d90..195013b 100644
+index cf11d90..18cac82 100644
 --- a/src/frontend/admin-overlay/src/AppNav.tsx
 +++ b/src/frontend/admin-overlay/src/AppNav.tsx
-@@ -14,8 +14,9 @@ import {
+@@ -12,10 +12,12 @@ import {
+     MenuItem,
+ } from "@mui/material";
  import MenuIcon from "@mui/icons-material/Menu";
++import AppsIcon from "@mui/icons-material/Apps";
  import PreviewIcon from "@mui/icons-material/Preview";
  import NotesIcon from "@mui/icons-material/Notes";
 -import { MenuItem as AdminMenuItem } from "admin-home-page";
@@ -1025,7 +1125,7 @@ index cf11d90..195013b 100644
  
  interface ResponsiveAppBarProps {
      showOrHideOverlayPreview: () => void;
-@@ -67,16 +68,16 @@ function ResponsiveAppBar({
+@@ -67,16 +69,16 @@ function ResponsiveAppBar({
          <Button
              key={page.path}
              onClick={() => handleNavigate(page.path)}
@@ -1045,7 +1145,7 @@ index cf11d90..195013b 100644
              </Typography>
          </MenuItem>
      );
-@@ -87,7 +88,7 @@ function ResponsiveAppBar({
+@@ -87,7 +89,7 @@ function ResponsiveAppBar({
                  <Toolbar disableGutters>
                      <IconButton
                          size="large"
@@ -1054,7 +1154,7 @@ index cf11d90..195013b 100644
                          onClick={onDrawerToggle}
                          color="inherit"
                          sx={{ mr: 1 }}
-@@ -102,7 +103,7 @@ function ResponsiveAppBar({
+@@ -102,13 +104,14 @@ function ResponsiveAppBar({
                      >
                          <IconButton
                              size="large"
@@ -1063,7 +1163,15 @@ index cf11d90..195013b 100644
                              aria-controls="menu-appbar"
                              aria-haspopup="true"
                              onClick={handleOpenNavMenu}
-@@ -175,11 +176,12 @@ function ResponsiveAppBar({
+                             color="inherit"
+                         >
+-                            <MenuIcon />
++                            {/* Hydro: the page list, not a second copy of the side menu's icon. */}
++                            <AppsIcon />
+                         </IconButton>
+                         <Menu
+                             id="menu-appbar"
+@@ -175,11 +178,12 @@ function ResponsiveAppBar({
                                  color: "text.primary",
                                  display: "block",
                              }}
@@ -1098,6 +1206,31 @@ index 55e3eb6..c18ac65 100644
          </Container>
      );
  }
+diff --git a/src/frontend/admin-overlay/src/components/Dashboard.tsx b/src/frontend/admin-overlay/src/components/Dashboard.tsx
+index f19acd0..44ab867 100644
+--- a/src/frontend/admin-overlay/src/components/Dashboard.tsx
++++ b/src/frontend/admin-overlay/src/components/Dashboard.tsx
+@@ -18,8 +18,9 @@ function Dashboard({
+     maxWidth,
+ }: DashboardProps): React.ReactElement {
+     const gridLayouts: Record<Layout, { md: string; sm: string }> = {
+-        oneColumn: { md: "repeat(1, 4fr)", sm: "repeat(1, 4fr)" },
+-        twoColumns: { md: "repeat(2, 4fr)", sm: "repeat(1, 4fr)" },
++        // Hydro: minmax(0, 1fr) keeps wide tables from pushing the page past a phone's width.
++        oneColumn: { md: "minmax(0, 1fr)", sm: "minmax(0, 1fr)" },
++        twoColumns: { md: "repeat(2, minmax(0, 1fr))", sm: "minmax(0, 1fr)" },
+     };
+ 
+     const selected = gridLayouts[layout] ?? gridLayouts.twoColumns;
+@@ -40,7 +41,7 @@ function Dashboard({
+                     key={name}
+                     sx={{
+                         display: "flex",
+-                        width: "96%",
++                        minWidth: 0,
+                         flexDirection: "column",
+                         alignItems: "center",
+                         m: 1,
 diff --git a/src/frontend/admin-overlay/src/components/MediaFiles.tsx b/src/frontend/admin-overlay/src/components/MediaFiles.tsx
 index fbfe7b5..18b47fd 100644
 --- a/src/frontend/admin-overlay/src/components/MediaFiles.tsx
@@ -1332,7 +1465,7 @@ index a53d511..738e9d5 100644
                      <DeleteIcon />
                  </IconButton>
 diff --git a/src/frontend/admin-overlay/src/components/TeamSpotlight.tsx b/src/frontend/admin-overlay/src/components/TeamSpotlight.tsx
-index a77057d..2f95fa8 100644
+index a77057d..9dbd57a 100644
 --- a/src/frontend/admin-overlay/src/components/TeamSpotlight.tsx
 +++ b/src/frontend/admin-overlay/src/components/TeamSpotlight.tsx
 @@ -15,6 +15,7 @@ import {
@@ -1343,6 +1476,15 @@ index a77057d..2f95fa8 100644
  
  interface ButtonGroupTextFieldProps {
      value: number;
+@@ -105,7 +106,7 @@ function TeamScoreTable({
+ 
+     return (
+         <ThemeProvider theme={tableTheme}>
+-            <Table sx={{ m: 2 }} size="small">
++            <Table sx={{ my: 2 }} size="small">
+                 <TableBody>
+                     {teams.map((team, rowId) => {
+                         const calculatedScore = scoreCalculator(team.teamId);
 @@ -218,12 +219,12 @@ function TeamSpotlight(): React.ReactElement {
                      <ButtonGroup disabled={isActionDisabled} sx={{ px: 2 }}>
                          <ButtonGroupTextField
@@ -1944,7 +2086,7 @@ index 57f81a7..40b103d 100644
                  </ButtonGroup>
              </div>
 diff --git a/src/frontend/admin-overlay/src/components/managers/ScoreboardManager.tsx b/src/frontend/admin-overlay/src/components/managers/ScoreboardManager.tsx
-index a20babe..7c1fb4c 100644
+index a20babe..8985ade 100644
 --- a/src/frontend/admin-overlay/src/components/managers/ScoreboardManager.tsx
 +++ b/src/frontend/admin-overlay/src/components/managers/ScoreboardManager.tsx
 @@ -30,6 +30,7 @@ import {
@@ -1955,7 +2097,15 @@ index a20babe..7c1fb4c 100644
  
  type ScoreboardSettingsTabProps = {
      isShown: boolean;
-@@ -70,7 +71,7 @@ const ScoreboardSettingsTab = ({
+@@ -63,14 +64,14 @@ const ScoreboardSettingsTab = ({
+     );
+ 
+     return (
+-        <Stack spacing={4} direction="row" flexWrap="wrap" sx={{ mx: 2 }}>
++        <Stack spacing={4} direction="row" flexWrap="wrap" useFlexGap sx={{ mx: 2, rowGap: 2 }}>
+             <ButtonGroup>
+                 <Button
+                     color={isShown ? "success" : "primary"}
                      onClick={() => showWithSettings(settings)}
                      variant="contained"
                  >
@@ -2159,10 +2309,10 @@ index e423af0..d80e028 100644
                      &nbsp;
 diff --git a/src/frontend/admin-overlay/src/components/pages/CapturePage.tsx b/src/frontend/admin-overlay/src/components/pages/CapturePage.tsx
 new file mode 100644
-index 0000000..2e5044f
+index 0000000..b962823
 --- /dev/null
 +++ b/src/frontend/admin-overlay/src/components/pages/CapturePage.tsx
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,212 @@
 +// Hydro: 画面采集 in the director console. Every capture device (a contestant computer), a preview
 +// of its screen or webcam, and one click to put it on air: full screen or a quarter of the split
 +// screen, as the team view of the team it belongs to. The screen is the default.
@@ -2210,7 +2360,7 @@ index 0000000..2e5044f
 +    devices: CaptureDevice[];
 +}
 +
-+const HYDRO_LIVE = (window as unknown as { __HYDRO_LIVE__: { previewCaptureWs?: string; root: string } }).__HYDRO_LIVE__;
++const HYDRO_LIVE = (window as unknown as { __HYDRO_LIVE__: { previewCaptureWs?: string } }).__HYDRO_LIVE__;
 +const SPLIT = ["TOP_LEFT", "TOP_RIGHT", "BOTTOM_LEFT", "BOTTOM_RIGHT"] as const;
 +const MAX_PREVIEWS = 12;
 +
@@ -2324,9 +2474,8 @@ index 0000000..2e5044f
 +                <Button variant="outlined" onClick={() => setPreviews(new Set())}>{t("Close previews")}</Button>
 +                <Box sx={{ flex: 1 }} />
 +                <Button variant="contained" color="error" onClick={offAir}>{t("Take team views off air")}</Button>
-+                <Button href={`${HYDRO_LIVE.root}/capture`} target="_blank" rel="noopener">{t("Manage capture")}</Button>
 +            </Stack>
-+            {status?.enabled === false && <Alert severity="warning" sx={{ mb: 2 }}>{t("Capture is not enabled for this contest. Enable it on the capture management page.")}</Alert>}
++            {status?.enabled === false && <Alert severity="warning" sx={{ mb: 2 }}>{t("Capture is not enabled for this contest. Enable it under 画面采集 in the contest's sidebar.")}</Alert>}
 +            {screenBlocked && <Alert severity="warning" sx={{ mb: 2 }}>{t("Screens cannot go on air before the contest ends (capture settings).")}</Alert>}
 +            {status && !status.devices.length && <Alert severity="info">{t("No capture devices yet.")}</Alert>}
 +            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 2 }}>
@@ -3299,10 +3448,10 @@ index 799a87c..79851ad 100644
      };
 diff --git a/src/frontend/common/src/i18n.ts b/src/frontend/common/src/i18n.ts
 new file mode 100644
-index 0000000..1f14b89
+index 0000000..e2bf047
 --- /dev/null
 +++ b/src/frontend/common/src/i18n.ts
-@@ -0,0 +1,349 @@
+@@ -0,0 +1,348 @@
 +// Hydro: the director's console in Chinese (default) or English. Texts are written in English in
 +// the source and looked up here; text that arrives in Chinese (from Hydro) is looked up the other
 +// way for English. The choice is kept in this browser, and switching reloads the page.
@@ -3394,9 +3543,8 @@ index 0000000..1f14b89
 +    "Preview all": "全部预览",
 +    "Close previews": "关闭预览",
 +    "Take team views off air": "撤下队伍画面",
-+    "Manage capture": "管理画面采集",
 +    "Capture is turned off in the plugin settings.": "插件配置中关闭了画面采集。",
-+    "Capture is not enabled for this contest. Enable it on the capture management page.": "本场比赛尚未启用画面采集，请在画面采集管理页中启用。",
++    "Capture is not enabled for this contest. Enable it under 画面采集 in the contest's sidebar.": "本场比赛尚未启用画面采集，请在比赛侧边栏的“画面采集”中启用。",
 +    "Screens cannot go on air before the contest ends (capture settings).": "按画面采集设置，比赛结束前直播画面不能使用屏幕。",
 +    "No capture devices yet.": "还没有采集设备。选手进入比赛开启画面采集后会出现在这里。",
 +    "{name} is on air": "已上屏：{name}",

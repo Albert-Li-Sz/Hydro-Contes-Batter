@@ -265,10 +265,24 @@ function render() {
     if (lockShown) {
         const share = (data.endAt - data.lockAt) / (data.endAt - data.beginAt);
         freeze.style.width = `${share * 100}%`;
-        $('lock-at').style.left = `${(1 - share) * 100}%`;
+        placeLockMark(1 - share);
     }
     $('updated').textContent = `数据实时更新（含封榜后结果，请勿在选手可见处展示）· 更新于 ${new Date(data.serverTime).toLocaleTimeString('zh-CN', { hour12: false })}`;
     firstRender = false;
+}
+
+/** Puts the freeze time under its point on the bar, kept clear of the start and end times. */
+function placeLockMark(at) {
+    const mark = $('lock-at');
+    const marks = mark.parentElement;
+    const width = marks.clientWidth;
+    const half = mark.offsetWidth / 2;
+    const min = $('begin-at').offsetWidth + 8 + half;
+    const max = width - $('end-at').offsetWidth - 8 - half;
+    const fits = width > 0 && min <= max;
+    marks.classList.toggle('ov-progress__marks--stacked', !fits);
+    const center = fits ? Math.min(max, Math.max(min, at * width)) : Math.min(width - half, Math.max(half, at * width));
+    mark.style.left = width > 0 ? `${center}px` : `${at * 100}%`;
 }
 
 function tick() {

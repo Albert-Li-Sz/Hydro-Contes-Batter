@@ -52,6 +52,8 @@ function render() {
     $('webcam-tile').hidden = !wantWebcam;
     const canStart = (screenSupported && !state.screen) || (wantWebcam && webcamSupported && !state.webcam);
     $('start').hidden = !blocked && !canStart;
+    // Nothing to start with until Hydro has sent this device's settings.
+    $('start').disabled = !!blocked || !state.profile;
     $('start').textContent = state.screen || state.webcam ? '补全采集' : '开始采集';
     const watching = [...state.sessions.values()];
     $('watching').textContent = watching.length

@@ -43,6 +43,8 @@ body { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Source Ha
 .ov-progress__marks span:first-child { left: 0; }
 .ov-progress__marks span:last-child { right: 0; }
 .ov-progress__marks #lock-at { transform: translateX(-50%); color: var(--ov-freeze); }
+.ov-progress__marks--stacked { height: 2.8em; }
+.ov-progress__marks--stacked #lock-at { top: 1.4em; }
 
 /* KPI strip */
 .ov-kpis { grid-area: kpi; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 1vw; }

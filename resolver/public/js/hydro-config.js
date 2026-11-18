@@ -125,11 +125,39 @@ function resetPreview() {
     showPreviewPosition();
 }
 
+function clearPreview() {
+    game = null;
+    view?.dispose();
+    view = null;
+    const canvas = document.getElementById('preview-screen');
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    showPreviewPosition();
+}
+
+/** Why no freeze point can be worked out from the form yet, or null when there is one. */
+function missingFreeze() {
+    const total = Math.floor(runtime.durationSeconds / 60);
+    if (form.elements.freezeMode.value !== 'custom') {
+        return runtime.contestFreezeAtSeconds === null ? '比赛尚未设置封榜时间，请在“封榜时间来源”中选择“本场滚榜自定义”并填写封榜时长' : null;
+    }
+    const minutes = form.elements.freezeMinutes.value;
+    return minutes !== '' && Number(minutes) > 0 && Number(minutes) <= total ? null : `请填写封榜时长（1 至 ${total} 分钟）后生成预览`;
+}
+
 async function refreshPreview() {
     const number = ++requestNumber;
     previewController?.abort();
     previewController = new AbortController();
     startButton.disabled = true;
+    const missing = missingFreeze();
+    if (missing) {
+        // Nothing to preview yet: say what is needed instead of asking the server for an error.
+        message.hidden = true;
+        previewStatus.textContent = missing;
+        previewStatus.dataset.state = 'idle';
+        clearPreview();
+        return;
+    }
     previewStatus.textContent = '正在读取比赛数据…';
     previewStatus.dataset.state = 'loading';
     message.hidden = true;
@@ -156,12 +184,7 @@ async function refreshPreview() {
         previewStatus.textContent = error.message;
         previewStatus.dataset.state = 'error';
         showError(error);
-        game = null;
-        view?.dispose();
-        view = null;
-        const canvas = document.getElementById('preview-screen');
-        canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-        showPreviewPosition();
+        clearPreview();
     }
 }
 
@@ -226,6 +249,8 @@ for (const [key, value] of Object.entries(runtime.config)) {
     if (field.type === 'checkbox') field.checked = value;
     else field.value = value ?? '';
 }
+// Without a contest freeze time the only workable source is a freeze point for this resolve.
+if (runtime.contestFreezeAtSeconds === null) form.elements.freezeMode.value = 'custom';
 if (!runtime.ended) {
     form.elements.rehearsal.disabled = true;
     document.getElementById('rehearsal-hint').textContent = '比赛尚未结束，当前只能彩排';
