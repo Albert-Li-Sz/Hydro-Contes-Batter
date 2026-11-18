@@ -43,12 +43,18 @@ if (app) {
     // then only grow (rows are virtualised; a shrinking column would jump while scrolling).
     const measure = document.createElement('canvas').getContext('2d');
     let widestText = 0;
+    // Each name and school is measured once: decorate runs on every change while scrolling.
+    const measured = new Set();
     // Team contests (Hydro 5.1): team name -> member names, from the board data.
     let teamMembers = null;
     function noteTexts(entries) {
-        const family = getComputedStyle(app).fontFamily || 'sans-serif';
+        let family = null;
         let widest = widestText;
         for (const { name, school, star } of entries) {
+            const key = `${name}\n${school}\n${star}`;
+            if (measured.has(key)) continue;
+            measured.add(key);
+            family ||= getComputedStyle(app).fontFamily || 'sans-serif';
             measure.font = `700 15px ${family}`;
             widest = Math.max(widest, measure.measureText(name || '').width + (star && !school ? 18 : 0));
             if (school) { measure.font = `400 12px ${family}`; widest = Math.max(widest, measure.measureText(school).width + (star ? 16 : 0)); }

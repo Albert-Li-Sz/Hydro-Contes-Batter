@@ -63,6 +63,9 @@ const clientPlatforms: Record<string, string> = {
     'darwin-amd64': 'macOS（Intel）', 'linux-amd64': 'Linux（x64）', 'linux-arm64': 'Linux（ARM64）',
 };
 const CLIENT_PREFIX = 'hydro-print-client-';
+/** A poll looks at up to SCAN_PAGES × SCAN_PAGE waiting requests for ones this PC may take. */
+const SCAN_PAGE = 200;
+const SCAN_PAGES = 10;
 const defaultPreference = (printer: { virtual?: boolean }): PrinterPreference => ({ enabled: !printer.virtual, weight: 1 });
 
 /**
@@ -269,9 +272,10 @@ export function applyPrintServers(ctx: Context) {
         async postRequeue(_domainId: string, input: string) {
             const ids = (this.payload(input).tasks || []).map(String).filter((id: string) => /^[a-f\d]{24}$/i.test(id)).map((id: string) => new ObjectId(id));
             if (!ids.length) throw new PrintError('请选择打印请求');
-            const result = await documents.updateMany({ docType: TYPE_CONTEST_PRINT, docId: { $in: ids } },
+            // Only finished requests: one a PC is printing now would come out twice.
+            const result = await documents.updateMany({ docType: TYPE_CONTEST_PRINT, docId: { $in: ids }, status: { $in: ['printed', 'failed'] } },
                 { $set: { status: 'pending', xcpcioAttempts: 0 }, $unset: { xcpcioServer: '', xcpcioClaimedAt: '', xcpcioError: '' } });
-            this.response.body = { updated: result.modifiedCount };
+            this.response.body = { updated: result.modifiedCount, skipped: ids.length - result.modifiedCount };
         }
     }
 
@@ -399,11 +403,12 @@ export function applyPrintServers(ctx: Context) {
             const settings = await loadSettings();
             const jobs: ReturnType<typeof printJob>[] = [];
             const slots = Math.max(1, Math.min(10, Number(this.body().slots) || 1));
-            // Test pages first.
-            const tests = (this.doc.tests || []).slice(0, slots);
-            if (tests.length) {
-                await servers.updateOne({ _id: this.doc._id }, { $pull: { tests: { id: { $in: tests.map((test) => test.id) } } } });
-                for (const test of tests) jobs.push({ ...testJob(test.id, this.doc.name, settings), printer: test.printer });
+            // Test pages first, taken atomically so two overlapping polls do not both print them.
+            if (this.doc.tests?.length) {
+                const taken = await servers.findOneAndUpdate({ _id: this.doc._id, 'tests.0': { $exists: true } }, { $set: { tests: [] } }, { returnDocument: 'before' }) as ServerDoc | null;
+                const tests = taken?.tests || [];
+                if (tests.length > slots) await servers.updateOne({ _id: this.doc._id }, { $push: { tests: { $each: tests.slice(slots), $position: 0 } } });
+                for (const test of tests.slice(0, slots)) jobs.push({ ...testJob(test.id, this.doc.name, settings), printer: test.printer });
             }
             await releaseStale(now);
             const active = await servers.find({ enabled: true, lastSeen: { $gt: new Date(now - ONLINE_MS) } })
@@ -417,23 +422,31 @@ export function applyPrintServers(ctx: Context) {
                     return { domainId, parentId: new ObjectId(tid) };
                 });
             }
-            const candidates = await documents.find(filter).project({ _id: 1, domainId: 1, parentId: 1, owner: 1 }).sort({ _id: 1 }).limit(200).toArray() as PrintTask[];
             const infos = new Map<string, Awaited<ReturnType<typeof contestInfo>>>();
-            for (const candidate of candidates) {
-                if (jobs.length >= slots) break;
-                const key = `${candidate.domainId}/${candidate.parentId}`;
-                if (!infos.has(key)) infos.set(key, await contestInfo(candidate.domainId, candidate.parentId));
-                const info = infos.get(key);
-                if (!info) continue;
-                const who = info.who(candidate.owner);
-                if (!serverTakes(me, { contest: key, seat: who.seat }, others)) continue;
-                const task = await documents.findOneAndUpdate(
-                    { _id: candidate._id, status: 'pending' },
-                    { $set: { status: 'printing', xcpcioServer: me.id, xcpcioClaimedAt: new Date() } },
-                    { returnDocument: 'after' },
-                ) as PrintTask | null;
-                if (!task) continue; // another PC took it
-                jobs.push(printJob(sheetOf(task, who), settings, info.tdoc.title));
+            // Page through the queue: the oldest requests may all belong to other PCs' seats.
+            let after: ObjectId | null = null;
+            for (let page = 0; page < SCAN_PAGES && jobs.length < slots; page++) {
+                const candidates = await documents.find(after ? { ...filter, _id: { $gt: after } } : filter)
+                    .project({ _id: 1, domainId: 1, parentId: 1, owner: 1 }).sort({ _id: 1 }).limit(SCAN_PAGE).toArray() as PrintTask[];
+                if (!candidates.length) break;
+                after = candidates[candidates.length - 1]._id;
+                for (const candidate of candidates) {
+                    if (jobs.length >= slots) break;
+                    const key = `${candidate.domainId}/${candidate.parentId}`;
+                    if (!infos.has(key)) infos.set(key, await contestInfo(candidate.domainId, candidate.parentId));
+                    const info = infos.get(key);
+                    if (!info) continue;
+                    const who = info.who(candidate.owner);
+                    if (!serverTakes(me, { contest: key, seat: who.seat }, others)) continue;
+                    const task = await documents.findOneAndUpdate(
+                        { _id: candidate._id, status: 'pending' },
+                        { $set: { status: 'printing', xcpcioServer: me.id, xcpcioClaimedAt: new Date() } },
+                        { returnDocument: 'after' },
+                    ) as PrintTask | null;
+                    if (!task) continue; // another PC took it
+                    jobs.push(printJob(sheetOf(task, who), settings, info.tdoc.title));
+                }
+                if (candidates.length < SCAN_PAGE) break;
             }
             this.response.body = { jobs };
         }
@@ -445,16 +458,19 @@ export function applyPrintServers(ctx: Context) {
             const id = String(body.id || '');
             const printer = text(body.printer, 200);
             const message = text(body.message, 300);
-            const status = body.status === 'printed' ? 'printed' : 'failed';
+            // `released`: the PC had no printer free for it; back to the queue without using up an attempt.
+            const status = body.status === 'printed' ? 'printed' : body.status === 'released' ? 'released' : 'failed';
             if (id.startsWith('test-')) {
                 await servers.updateOne({ _id: this.doc._id }, { $set: { lastTest: { at: new Date(), printer, status, message }, lastSeen: new Date() } });
                 this.response.body = { ok: true };
                 return;
             }
             if (!/^[a-f\d]{24}$/i.test(id)) throw new PrintError('打印请求编号无效');
-            const task = await documents.findOne({ docType: TYPE_CONTEST_PRINT, docId: new ObjectId(id), xcpcioServer: String(this.doc._id) }) as PrintTask | null;
+            const task = await documents.findOne({ docType: TYPE_CONTEST_PRINT, docId: new ObjectId(id), xcpcioServer: String(this.doc._id), status: 'printing' }) as PrintTask | null;
             if (!task) throw new PrintError('打印请求不存在或已交给其他打印服务器', 404);
-            if (status === 'printed') {
+            if (status === 'released') {
+                await documents.updateOne({ _id: task._id, status: 'printing' }, { $set: { status: 'pending' }, $unset: { xcpcioServer: '', xcpcioClaimedAt: '' } });
+            } else if (status === 'printed') {
                 await documents.updateOne({ _id: task._id }, {
                     $set: { status: 'printed', xcpcioPrinter: printer, xcpcioPrintedAt: new Date() }, $unset: { xcpcioClaimedAt: '', xcpcioError: '' },
                 });

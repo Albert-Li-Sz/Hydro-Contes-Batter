@@ -73,6 +73,21 @@ export const clockSettings = (value: unknown) => {
     };
 };
 
+/** 赛况总览: which panels show, how many teams the ranking lists, and the language of its labels. */
+export const overviewSettings = (value: unknown) => {
+    const input = object(value);
+    return {
+        language: choice(input, 'language', ['zh', 'en'] as const, 'zh'),
+        title: text(input, 'title', '', 100),
+        topTeams: int(input, 'topTeams', 10, 3, 10),
+        showRanking: bool(input, 'showRanking', true),
+        showProblems: bool(input, 'showProblems', true),
+        showSchools: bool(input, 'showSchools', true),
+        showRecent: bool(input, 'showRecent', true),
+        showCharts: bool(input, 'showCharts', true),
+    };
+};
+
 export const teamViewSettings = (position: TeamViewPosition) => (value: unknown) => {
     const input = object(value);
     const types = input.mediaTypes ?? [];

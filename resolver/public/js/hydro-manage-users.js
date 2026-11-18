@@ -152,6 +152,8 @@ function editUser(row) {
     const school = input({ value: row.school, maxlength: 128 });
     const studentId = input({ value: row.studentId, maxlength: 64 });
     const password = passwordInput('留空则不修改');
+    const operator = adminPassword();
+    operator.required = false;
     const dialog = openDialog({
         extra: [deleteAction(row, false, () => dialog.close())],
         title: `编辑用户 ${row.uname}`,
@@ -163,11 +165,14 @@ function editUser(row) {
             field('邮箱', mail),
             field('学校', school),
             field('学号', studentId)),
-        el('div', { class: 'resolver-fields' }, field('新密码', password.wrap, '修改后该用户已登录的会话会退出'))],
+        el('div', { class: 'resolver-fields' }, field('新密码', password.wrap, '修改后该用户已登录的会话会退出'),
+            row.admin ? field('管理员密码', operator, `${row.uname} 是系统管理员：修改其密码或邮箱需要输入当前登录管理员的密码`) : null)],
         submit: async () => {
             const edit = { displayName: displayName.value, mail: mail.value, school: school.value, studentId: studentId.value };
             if (password.box.value) edit.password = password.box.value;
-            await post('update_user', { uid: row._id, edit });
+            const signIn = !!edit.password || edit.mail.trim().toLowerCase() !== String(row.mail).toLowerCase();
+            if (row.admin && signIn && !operator.value) { operator.focus(); throw new Error('请输入管理员密码'); }
+            await post('update_user', { uid: row._id, edit, ...row.admin && signIn ? { adminPassword: operator.value } : {} });
             notify(status, `已保存用户 ${row.uname}${edit.password ? '，新密码已生效' : ''}`);
             await load();
         },

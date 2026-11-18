@@ -228,7 +228,7 @@ export async function adminApi(hub: LiveHub, store: LiveStore, request: ApiReque
     };
 
     const [head, ...rest] = parts;
-    if (['queue', 'statistics', 'ticker', 'fullScreenClock', 'teamLocator'].includes(head)) return single(hub.controllers[head], rest);
+    if (['queue', 'statistics', 'ticker', 'fullScreenClock', 'teamLocator', 'overview'].includes(head)) return single(hub.controllers[head], rest);
     if (head === 'scoreboard') {
         if (rest[0] === 'regions' && rest.length === 1 && method === 'GET') return json(hub.regions());
         return single(hub.controllers.scoreboard, rest);
@@ -354,7 +354,7 @@ export async function adminApi(hub: LiveHub, store: LiveStore, request: ApiReque
 /** Websocket and HTTP flow endpoints of /api/overlay. */
 export function overlayChannel(subpath: string) {
     const parts = subpath.split('/').filter(Boolean).map(decodeURIComponent);
-    if (parts.length === 1 && ['mainScreen', 'contestInfo', 'runs', 'queue', 'statistics', 'ticker'].includes(parts[0])) return parts[0];
+    if (parts.length === 1 && ['mainScreen', 'contestInfo', 'runs', 'queue', 'statistics', 'ticker', 'overview'].includes(parts[0])) return parts[0];
     if (parts.length === 2 && parts[0] === 'scoreboard' && ['normal', 'optimistic', 'pessimistic'].includes(parts[1])) return `scoreboard:${parts[1]}`;
     if (parts.length === 2 && parts[0] === 'teamRuns' && /^[\w-]{1,64}$/.test(parts[1])) return `teamRuns:${parts[1]}`;
     return null;

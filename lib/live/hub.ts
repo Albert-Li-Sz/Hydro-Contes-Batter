@@ -3,6 +3,7 @@
  * (backend Application.kt / ServiceRoot.kt / Controllers.kt, MIT) in one Node object.
  */
 import { buildContestInfo, buildRuns, type LiveSource } from './model';
+import { liveOverview, overviewKey, type LiveOverview } from './overview';
 import {
     computeScoreboard, runsByTeam, scoreboardDiff, standingsAtRuns, statistics, timeline, type ScoreboardState,
 } from './scoreboard';
@@ -77,6 +78,8 @@ export class LiveHub {
     private byTeam = new Map<string, RunInfo[]>();
     private scoreboards = new Map<OptimismLevel, ScoreboardState>();
     private statisticsJson = '';
+    private overview: LiveOverview | null = null;
+    private overviewJson = '';
     private timelines = new Map<string, string>();
     private channels = new Map<string, Set<Listener>>();
     private logLines: string[] = [];
@@ -127,6 +130,7 @@ export class LiveHub {
         single('ticker', {}, S.emptySettings, fixed('TickerWidget', 'ticker'));
         single('scoreboard', S.scoreboardSettings({}), S.scoreboardSettings, fixed('ScoreboardWidget', 'scoreboard'));
         single('fullScreenClock', S.clockSettings({}), S.clockSettings, fixed('FullScreenClockWidget', 'fullScreenClock'));
+        single('overview', S.overviewSettings({}), S.overviewSettings, fixed('ContestOverviewWidget', 'overview'));
         single('teamLocator', S.locatorSettings({}), S.locatorSettings, (settings) => {
             const teams = new Set(this.info?.teams.map((team) => team.id) || []);
             return fixed('TeamLocatorWidget', 'teamLocator')({
@@ -407,6 +411,7 @@ export class LiveHub {
         case 'runs': return [...this.runs.values()].sort((a, b) => a.time - b.time);
         case 'teamRuns': return timeline(this.byTeam.get(argument) || []);
         case 'statistics': return this.info && this.scoreboards.get('normal') ? statistics(this.info, this.scoreboards.get('normal')!) : { type: 'ICPC', teamsCount: 0, stats: [] };
+        case 'overview': return this.overview;
         case 'scoreboard': {
             const state = this.scoreboards.get(argument as OptimismLevel);
             return state ? scoreboardDiff(state) : { rows: {}, order: [], ranks: [], awards: [] };
@@ -564,6 +569,14 @@ export class LiveHub {
 
     /** Apply one snapshot of the contest (exposed for tests). */
     apply(source: LiveSource) {
+        // 赛况总览 moves with the clock (elapsed time, recent runs), so it is rebuilt every refresh.
+        const overview = liveOverview(source);
+        const overviewJson = overviewKey(overview);
+        this.overview = overview;
+        if (overviewJson !== this.overviewJson) {
+            this.overviewJson = overviewJson;
+            this.publish('overview', overview);
+        }
         const info = buildContestInfo(source);
         const runs = buildRuns(source, info);
         const infoJson = JSON.stringify(info);

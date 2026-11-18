@@ -8,6 +8,7 @@ import { LiveHub, substituteTemplate } from '../lib/live/hub';
 import { adminApi, defaultVisualConfig, overlayApi, overlayChannel, publicVisualConfig, storeName, type LiveStore } from '../lib/live/api';
 import { stateEntries, stateFromEntries, type LiveStateEntries } from '../lib/live/state';
 import { QueueService } from '../lib/live/services';
+import { liveOverview } from '../lib/live/overview';
 import { demoData } from './fixture';
 
 const minute = 60_000;
@@ -635,6 +636,63 @@ describe('live sub-boards and processes', () => {
         hub.subscribe('admin:contestInfo', (info) => seen.push(info));
         hub.subscribe('contestInfo', (info) => seen.push(info));
         expect(seen.map((info) => info.teams.length)).toEqual([8, 0]);
+        hub.dispose();
+    });
+});
+
+describe('live contest overview (赛况总览)', () => {
+    it('summarises the public board: masked verdicts while running, frozen runs counted, nothing before the board is public', () => {
+        const data = withSubmissions([
+            { submission_id: 'a', team_id: '1', problem_id: 0, timestamp: 10 * minute, status: 'CORRECT' },
+            { submission_id: 'b', team_id: '2', problem_id: 0, timestamp: 20 * minute, status: 'REJECTED' },
+            { submission_id: 'c', team_id: '2', problem_id: 1, timestamp: 30 * minute, status: 'COMPILATION_ERROR' },
+            { submission_id: 'd', team_id: '3', problem_id: 1, timestamp: 250 * minute, status: 'FROZEN' },
+        ]);
+        const running = liveOverview(source({ now: begin.getTime() + 260 * minute }, data));
+        if (running.hidden) throw new Error('expected the overview');
+        expect(running).toMatchObject({ status: 'frozen', submissions: 4, accepted: 1, frozenRuns: 1, solvedTeams: 1 });
+        expect(running.verdicts.map((verdict) => [verdict.key, verdict.count])).toEqual([['ok', 1], ['rejected', 1], ['ce', 1], ['other', 0], ['pending', 1]]);
+        expect(running.topTeams[0]).toMatchObject({ rank: 1, name: '林澈', solved: 1 });
+        // After the end Hydro shows every verdict, so the breakdown is the full one again.
+        const ended = liveOverview(source({ now: end.getTime() + minute }, data));
+        expect(!ended.hidden && ended.verdicts.map((verdict) => verdict.key)).toContain('tle');
+        const hidden = liveOverview(source({ hidden: true }, data));
+        expect(hidden).toEqual({ hidden: true, title: data.contest.contest_name, status: 'before', serverTime: expect.any(Number), beginAt: begin.getTime(), endAt: end.getTime(), lockAt: lock.getTime() });
+        // An unfrozen board is not frozen.
+        const unlocked = liveOverview(source({ now: begin.getTime() + 260 * minute, contest: { title: 'x', beginAt: begin, endAt: end, lockAt: lock, unlocked: true } }, data));
+        expect(unlocked.status).toBe('running');
+    });
+
+    it('is a widget the director shows and hides, streamed to the overlay only when it changes', async () => {
+        const { hub, set } = makeHub();
+        await hub.ready;
+        await hub.refresh();
+        const store = memoryStore();
+        expect(overlayChannel('overview')).toBe('overview');
+        const updates: any[] = [];
+        hub.subscribe('overview', (event) => updates.push(event));
+        expect(updates).toHaveLength(1);
+        expect(updates[0]).toMatchObject({ hidden: false, title: expect.any(String), teams: 8 });
+        await hub.refresh();
+        expect(updates).toHaveLength(1);
+        const data = demoData();
+        data.submissions.push({ submission_id: 'new', team_id: '8', problem_id: 0, timestamp: 100 * minute, status: 'CORRECT' });
+        set(source({}, data));
+        await hub.refresh();
+        expect(updates).toHaveLength(2);
+        expect(JSON.parse((await overlayApi(hub, 'overview', '{}'))!.body)).toMatchObject({ accepted: updates[1].accepted });
+
+        const screen: any[] = [];
+        hub.subscribe('mainScreen', (event) => screen.push(event));
+        expect(JSON.parse((await adminApi(hub, store, request('GET', 'overview')))!.body)).toMatchObject({
+            shown: false, settings: { language: 'zh', topTeams: 10, showRanking: true, showCharts: true },
+        });
+        expect((await adminApi(hub, store, request('POST', 'overview/show_with_settings', { topTeams: 50 })))!.status).toBe(400);
+        await adminApi(hub, store, request('POST', 'overview/show_with_settings', { language: 'en', topTeams: 8, showSchools: false }));
+        expect(screen.at(-1)).toMatchObject({ type: 'ShowWidget', widget: { type: 'ContestOverviewWidget', widgetId: 'overview', widgetLocationId: 'overview',
+            settings: { language: 'en', topTeams: 8, showSchools: false, showRecent: true } } });
+        await adminApi(hub, store, request('POST', 'overview/hide'));
+        expect(screen.at(-1)).toEqual({ type: 'HideWidget', id: 'overview' });
         hub.dispose();
     });
 });

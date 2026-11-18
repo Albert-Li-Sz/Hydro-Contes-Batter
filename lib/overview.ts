@@ -13,6 +13,11 @@ export interface OverviewInput {
     data: BoardData;
     /** The board's first-solve eligibility: starred (打星) teams count only when allowed. */
     unofficialFirstSolve?: boolean;
+    /**
+     * Public data while the contest runs: Hydro shows rejected runs only as REJECTED, so the
+     * verdict breakdown is 通过 / 未通过 / 编译错误 / 评测中 rather than WA, TLE and so on.
+     */
+    masked?: boolean;
 }
 
 const unsetSchool = (name: string) => !name.trim() || name.trim() === '未填写学校';
@@ -26,6 +31,13 @@ const verdictGroups: [string, string, string[]][] = [
     ['tle', '超时', ['TIME_LIMIT_EXCEEDED']],
     ['mle', '内存超限', ['MEMORY_LIMIT_EXCEEDED', 'OUTPUT_LIMIT_EXCEEDED']],
     ['re', '运行错误', ['RUNTIME_ERROR']],
+    ['ce', '编译错误', ['COMPILATION_ERROR']],
+    ['pending', '评测中', ['PENDING', 'FROZEN']],
+];
+// What a masked (public, running) board can still tell apart.
+const maskedVerdictGroups: [string, string, string[]][] = [
+    ['ok', '通过', ['CORRECT']],
+    ['rejected', '未通过', ['REJECTED', 'WRONG_ANSWER', 'TIME_LIMIT_EXCEEDED', 'MEMORY_LIMIT_EXCEEDED', 'OUTPUT_LIMIT_EXCEEDED', 'RUNTIME_ERROR', 'HACKED']],
     ['ce', '编译错误', ['COMPILATION_ERROR']],
     ['pending', '评测中', ['PENDING', 'FROZEN']],
 ];
@@ -129,12 +141,13 @@ export function contestOverview(input: OverviewInput) {
     const histogram = Array.from({ length: problemCount + 1 }, (_, solved) => ({ solved, teams: 0 }));
     for (const score of scores.values()) histogram[score.solved].teams++;
 
-    const verdicts = verdictGroups.map(([key, label, statuses]) => ({
+    const groups = input.masked ? maskedVerdictGroups : verdictGroups;
+    const verdicts = groups.map(([key, label, statuses]) => ({
         key, label, count: submissions.filter((record) => statuses.includes(record.status)).length,
     }));
     verdicts.splice(verdicts.length - 1, 0, {
         key: 'other', label: '其他',
-        count: submissions.filter((record) => !verdictGroups.some(([, , statuses]) => statuses.includes(record.status))).length,
+        count: submissions.filter((record) => !groups.some(([, , statuses]) => statuses.includes(record.status))).length,
     });
 
     const recentAccepts = accepted.filter((record) => record.timestamp <= elapsed).slice(-RECENT).reverse().map((record) => ({

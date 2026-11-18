@@ -100,4 +100,24 @@ describe('打印服务器', () => {
         expect(serverTakes(other, { contest, seat: 'C-01' }, [...others, other])).toBe(false);
         expect(serverTakes(rest, { contest, seat: 'C-01' }, [...others, other])).toBe(true);
     });
+
+    it('所有打印服务器都设了座位范围时，没有座位或不在任何范围内的请求由任意一台打印', () => {
+        const contest = 'system/6740a0000000000000000001';
+        const a = { id: 'a', contests: [], seatPrefixes: ['A'] };
+        const b = { id: 'b', contests: [], seatPrefixes: ['B'] };
+        const active = [a, b];
+        for (const seat of ['', 'C-01']) {
+            expect(serverTakes(a, { contest, seat }, active)).toBe(true);
+            expect(serverTakes(b, { contest, seat }, active)).toBe(true);
+        }
+        // A covered seat still goes only to its own range.
+        expect(serverTakes(b, { contest, seat: 'A-01' }, active)).toBe(false);
+        // With a catch-all server online, the orphans are its alone.
+        const rest = { id: 'r', contests: [], seatPrefixes: [] };
+        expect(serverTakes(a, { contest, seat: 'C-01' }, [...active, rest])).toBe(false);
+        expect(serverTakes(rest, { contest, seat: 'C-01' }, [...active, rest])).toBe(true);
+        // A catch-all bound to another contest does not count.
+        const elsewhere = { id: 'e', contests: ['system/6740a0000000000000000002'], seatPrefixes: [] };
+        expect(serverTakes(a, { contest, seat: '' }, [...active, elsewhere])).toBe(true);
+    });
 });

@@ -12,6 +12,10 @@ const printerStates = {
 const taskStates = { pending: ['待打印', 'manage-tag--warn'], printing: ['打印中', ''], printed: ['已打印', 'manage-tag--ok'], failed: ['失败', 'manage-tag--bad'] };
 
 const status = el('p', { class: 'resolver-muted', role: 'status', hidden: true });
+// Results of 重新排队所选 show beside its table, not at the top of the page.
+const recentStatus = el('p', { class: 'resolver-muted', role: 'status', hidden: true });
+// Whether the status line shows a failed refresh, which the next successful one clears.
+let loadFailed = false;
 const stats = el('div', { class: 'resolver-stats' });
 const downloads = el('div', { class: 'manage-group' });
 const serverList = el('div');
@@ -29,6 +33,8 @@ $('manage-root').replaceChildren(
     el('div', { class: 'manage-group' },
         el('div', { class: 'manage-toolbar' }, el('h3', { text: '最近的打印请求', style: 'margin:0' }), el('span', { class: 'manage-spacer' }),
             el('button', { class: 'button', type: 'button', text: '重新排队所选', onclick: () => requeue() })),
+        el('p', { class: 'resolver-muted manage-small', text: '只能重新排队已打印或失败的请求；正在打印的请求等它打完或超时自动退回队列。' }),
+        recentStatus,
         el('div', { class: 'manage-scroll' }, recentTable)),
     el('div', { class: 'manage-group' }, el('h3', { text: '打印排版' }), settingsBox),
 );
@@ -119,7 +125,8 @@ function renderServers() {
 }
 
 function renderRecent() {
-    const selectable = (task) => task.status !== 'pending';
+    // A request being printed now would come out twice.
+    const selectable = (task) => task.status === 'printed' || task.status === 'failed';
     recentTable.replaceChildren(
         el('thead', {}, el('tr', {}, el('th', { class: 'col-check' }), ...['请求时间', '比赛', '队伍', '座位', '文件', '状态', '打印服务器 / 打印机'].map((text) => el('th', { text })))),
         el('tbody', {}, ...state.recent.length ? state.recent.map((task) => {
@@ -179,13 +186,17 @@ async function load() {
     try {
         const data = await get();
         Object.assign(state, { servers: data.servers, contests: data.contests, clients: data.clients, queue: data.queue, recent: data.recent });
+        // Only what is listed and still finished stays selected, so requeue never takes a hidden row.
+        const finished = new Set(data.recent.filter((task) => task.status === 'printed' || task.status === 'failed').map((task) => task.id));
+        for (const id of [...state.selected]) if (!finished.has(id)) state.selected.delete(id);
+        if (loadFailed) { notify(status, ''); loadFailed = false; }
         const fresh = !state.settings;
         if (fresh) state.settings = data.settings;
         renderStats();
         if (fresh) { renderDownloads(); renderSettings(); }
         renderServers();
         renderRecent();
-    } catch (error) { notify(status, error.message, true); }
+    } catch (error) { notify(status, error.message, true); loadFailed = true; }
 }
 
 function showCode(server, code, created) {
@@ -275,7 +286,7 @@ function serverDialog(server) {
             server ? el('label', { class: 'checkbox' }, enabled, '启用（停用后不再领取打印请求）') : null,
             field('服务比赛', scope, '仅服务所选比赛时，这台电脑只打印这些比赛的打印请求；其他比赛交给别的打印服务器'),
             picker,
-            field('座位范围', prefixes, '按 onsite-toolkit 导入的座位号开头匹配，用逗号分隔；可让各区域的打印电脑只打本区域的请求'))],
+            field('座位范围', prefixes, '按 onsite-toolkit 导入的座位号开头匹配，用逗号分隔；可让各区域的打印电脑只打本区域的请求。没有座位号或不在任何范围内的请求，由不设座位范围的打印服务器打印；没有这样的服务器时，由任意一台打印'))],
         submit: async () => {
             if (!serverName.reportValidity()) throw new Error('请填写名称');
             if (scope.value === 'some' && !chosen.size) throw new Error('请至少选择一场比赛，或改为“服务全部比赛”');
@@ -330,14 +341,22 @@ async function testPage(server, printer) {
 
 async function requeue() {
     const tasks = [...state.selected];
-    if (!tasks.length) { notify(status, '请先勾选打印请求', true); return; }
+    if (!tasks.length) { notify(recentStatus, '请先勾选已打印或失败的打印请求', true); return; }
     try {
         const result = await post('requeue', { tasks });
         state.selected.clear();
-        notify(status, `已将 ${result.updated} 份打印请求重新排队`);
+        notify(recentStatus, `已将 ${result.updated} 份打印请求重新排队${result.skipped ? `；${result.skipped} 份已不是已打印或失败状态，未改动` : ''}`);
         await load();
-    } catch (error) { notify(status, error.message, true); }
+    } catch (error) { notify(recentStatus, error.message, true); }
 }
 
 load();
-setInterval(() => { if (!document.hidden && !document.querySelector('dialog[open]')) load(); }, 5000);
+// The refresh rebuilds the lists: wait while a dialog is open, or for a few seconds after the
+// operator last used a control in them (an open weight menu would close, keyboard focus would be lost).
+let touched = 0;
+for (const list of [serverList, recentTable]) {
+    for (const type of ['pointerdown', 'keydown', 'focusin']) list.addEventListener(type, () => { touched = Date.now(); });
+}
+const busy = () => document.querySelector('dialog[open]')
+    || (Date.now() - touched < 8000 && (serverList.contains(document.activeElement) || recentTable.contains(document.activeElement)));
+setInterval(() => { if (!document.hidden && !busy()) load(); }, 5000);

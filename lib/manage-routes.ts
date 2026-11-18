@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-    ContestModel, Context, DomainModel, Handler, ObjectId, param, PRIV, ProblemModel, RecordModel, SettingModel, SystemModel,
+    ContestModel, Context, DomainModel, getAlphabeticId, Handler, ObjectId, param, PRIV, ProblemModel, RecordModel, SettingModel, SystemModel,
     TaskModel, TokenModel, Types, UserModel,
 } from 'hydrooj';
 import type { MonitorMachine } from './monitor';
@@ -16,7 +16,7 @@ import {
     type RejudgeItem, type RejudgeJob, rejudgeStatuses, summarizeTransitions,
 } from './manage/rejudge';
 import {
-    type Account, isTeamDoc, MAX_BATCH, ManageError, normalizeTeamEdit, normalizeUserEdit, PRIV_JUDGE, protectedReason,
+    type Account, isTeamDoc, MAX_BATCH, ManageError, normalizeTeamEdit, normalizeUserEdit, PRIV_EDIT_SYSTEM, PRIV_JUDGE, protectedReason,
     searchPattern, uidList,
 } from './manage/users';
 
@@ -149,13 +149,17 @@ export function applyManage(ctx: Context, dependencies: {
 
         @param('payload', Types.String)
         async postUpdateUser(domainId: string, rawPayload: string) {
-            const { uid, edit: input } = this.payload(rawPayload);
+            const { uid, edit: input, adminPassword } = this.payload(rawPayload);
             const udoc = await UserModel.coll.findOne({ _id: Number(uid) });
             if (!udoc) throw new ManageError('用户不存在', 404);
             const reason = protectedReason(udoc, this.user._id, 'edit');
             if (reason) throw new ManageError(reason, 403);
             const edit = normalizeUserEdit(input);
-            if (edit.mail && edit.mail.toLowerCase() !== String(udoc.mail).toLowerCase()) {
+            const mailChanged = !!edit.mail && edit.mail.toLowerCase() !== String(udoc.mail).toLowerCase();
+            // A system administrator's sign-in (password, or the mail that resets it) changes only
+            // with the operator's own password, as deleting an account does.
+            if ((edit.password || mailChanged) && (udoc.priv & PRIV_EDIT_SYSTEM)) await this.verifyAdmin(adminPassword);
+            if (edit.mail && mailChanged) {
                 const other = await UserModel.getByEmail('system', edit.mail);
                 if (other && other._id !== udoc._id) throw new ManageError(`邮箱 ${edit.mail} 已被其他账号使用`);
                 await UserModel.setEmail(udoc._id, edit.mail);
@@ -288,6 +292,7 @@ export function applyManage(ctx: Context, dependencies: {
                     _id: udoc._id, uname: udoc.uname, mail: udoc.mail, school: udoc.school || '', studentId: udoc.studentId || '',
                     displayName: names.get(udoc._id) || '', regat: udoc.regat, loginat: udoc.loginat,
                     judge: udoc.priv !== -1 && !!(udoc.priv & PRIV_JUDGE),
+                    admin: udoc.priv !== -1 && !!(udoc.priv & PRIV_EDIT_SYSTEM),
                     locked: protectedReason(udoc as Account, this.user._id, 'edit'),
                     undeletable: protectedReason(udoc as Account, this.user._id, 'delete'),
                 })),
@@ -589,7 +594,7 @@ export function applyManage(ctx: Context, dependencies: {
             const pdoc = (pdocs as Record<number, { pid?: string; title?: string }>)[pid];
             return {
                 pid, count: group.length, title: pdoc?.title || '',
-                label: tdoc && tdoc.pids.includes(pid) ? String.fromCharCode(65 + tdoc.pids.indexOf(pid)) : pdoc?.pid || `#${pid}`,
+                label: tdoc && tdoc.pids.includes(pid) ? getAlphabeticId(tdoc.pids.indexOf(pid)) : pdoc?.pid || `#${pid}`,
             };
         });
         return { total: records.length, byStatus, byProblem };
@@ -637,14 +642,16 @@ export function applyManage(ctx: Context, dependencies: {
                 if (!pdoc?.config || typeof pdoc.config === 'string') { failed.push(`${pdoc?.pid || `#${pid}`} 题目配置无效，已跳过`); continue; }
                 for (const part of chunks(group)) {
                     const ids = part.map((record) => record._id);
-                    // The result before, saved ahead of the reset that clears it.
+                    // As Hydro's problem rejudge: below fresh submissions, contest records without details.
+                    const priority = await RecordModel.submissionPriority(this.user._id, -10000 - ids.length * 5 - 50);
+                    await RecordModel.reset(target, ids, true);
+                    // The result before (read with the selection), recorded once the reset has cleared it:
+                    // a history read in between must not take the old final result for the new one.
+                    // Still ahead of judging, so record/judge finds the items.
                     await items.insertMany(part.map((record): RejudgeItem => ({
                         job: jobId, rid: record._id, domainId: target, pid: record.pid, uid: record.uid, contest: record.contest ? String(record.contest) : null,
                         before: record.status, beforeScore: typeof record.score === 'number' ? record.score : null, after: null, afterScore: null, judgedAt: null,
                     })), { ordered: false });
-                    // As Hydro's problem rejudge: below fresh submissions, contest records without details.
-                    const priority = await RecordModel.submissionPriority(this.user._id, -10000 - ids.length * 5 - 50);
-                    await RecordModel.reset(target, ids, true);
                     const inContest = part.filter((record) => record.contest).map((record) => record._id);
                     const outside = part.filter((record) => !record.contest).map((record) => record._id);
                     await Promise.all([
@@ -689,7 +696,7 @@ export function applyManage(ctx: Context, dependencies: {
                     job.contest ? ContestModel.get(job.domainId, new ObjectId(job.contest)) : null,
                     ProblemModel.getList(job.domainId, [...new Set(rows.map((row) => row.pid))], true, false, ['docId', 'pid', 'title']),
                 ]);
-                const label = (pid: number) => (tdoc && tdoc.pids.includes(pid) ? String.fromCharCode(65 + tdoc.pids.indexOf(pid))
+                const label = (pid: number) => (tdoc && tdoc.pids.includes(pid) ? getAlphabeticId(tdoc.pids.indexOf(pid))
                     : (pdocs as Record<number, { pid?: string }>)[pid]?.pid || `#${pid}`);
                 this.response.body = {
                     job: { ...job, _id: String(job._id), description: describeJob(job) },
@@ -748,7 +755,7 @@ export function applyManage(ctx: Context, dependencies: {
                 const pdocs = await ProblemModel.getList(target, tdoc.pids, true, false, ['docId', 'pid', 'title']);
                 this.response.body = {
                     problems: tdoc.pids.map((pid, index) => ({
-                        pid, label: String.fromCharCode(65 + index), title: (pdocs as Record<number, { title?: string }>)[pid]?.title || `#${pid}`,
+                        pid, label: getAlphabeticId(index), title: (pdocs as Record<number, { title?: string }>)[pid]?.title || `#${pid}`,
                     })),
                 };
                 return;

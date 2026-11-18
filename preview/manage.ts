@@ -126,6 +126,8 @@ export function createManagePreview(env: Environment, version: string) {
             const reason = protectedReason(user, 2, 'edit');
             if (reason) throw new ManageError(reason, 403);
             const edit = normalizeUserEdit(payload.edit);
+            const mailChanged = !!edit.mail && edit.mail.toLowerCase() !== user.mail.toLowerCase();
+            if ((edit.password || mailChanged) && (user.priv & PRIV_EDIT_SYSTEM)) verify(payload.adminPassword);
             if (edit.mail && users.some((other) => other !== user && other.mail.toLowerCase() === edit.mail!.toLowerCase())) throw new ManageError(`邮箱 ${edit.mail} 已被其他账号使用`);
             Object.assign(user, { ...edit, password: undefined });
             return { ok: true };
@@ -222,7 +224,7 @@ export function createManagePreview(env: Environment, version: string) {
                 total: rows.length, page: number, pageSize: 50,
                 users: page(rows, number).map((user) => ({
                     _id: user._id, uname: user.uname, mail: user.mail, school: user.school, studentId: user.studentId, displayName: user.displayName,
-                    regat: user.regat, loginat: user.loginat, judge: isJudge(user), locked: protectedReason(user, 2, 'edit'), undeletable: protectedReason(user, 2, 'delete'),
+                    regat: user.regat, loginat: user.loginat, judge: isJudge(user), admin: user.priv !== -1 && !!(user.priv & PRIV_EDIT_SYSTEM), locked: protectedReason(user, 2, 'edit'), undeletable: protectedReason(user, 2, 'delete'),
                 })),
             };
         }

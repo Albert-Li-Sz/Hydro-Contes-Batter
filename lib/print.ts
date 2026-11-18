@@ -180,18 +180,24 @@ export function parseConnectionCode(code: string) {
 /**
  * Whether a print server takes a request: its contest is bound (or none are), and the team's seat
  * starts with one of the server's prefixes. A server without prefixes takes the seats no other
- * active server claims, so every request has somewhere to go.
+ * active server claims. When every active server for the contest has prefixes, a request whose
+ * seat none of them claims (no seat imported, or a seat outside every range) goes to any of them,
+ * so every request has somewhere to go.
  */
 export function serverTakes(
     server: Pick<PrintServerInput, 'contests' | 'seatPrefixes'> & { id: string },
     request: { contest: string; seat: string },
     others: (Pick<PrintServerInput, 'contests' | 'seatPrefixes'> & { id: string })[],
 ) {
-    if (server.contests.length && !server.contests.includes(request.contest)) return false;
+    type Candidate = Pick<PrintServerInput, 'contests' | 'seatPrefixes'>;
+    const serves = (candidate: Candidate) => !candidate.contests.length || candidate.contests.includes(request.contest);
+    if (!serves(server)) return false;
     const seat = request.seat.toLowerCase();
-    const claims = (candidate: Pick<PrintServerInput, 'contests' | 'seatPrefixes'>) => !!seat
-        && (!candidate.contests.length || candidate.contests.includes(request.contest))
+    const claims = (candidate: Candidate) => !!seat && serves(candidate)
         && candidate.seatPrefixes.some((prefix) => seat.startsWith(prefix.toLowerCase()));
-    if (server.seatPrefixes.length) return claims(server);
-    return !others.some((other) => other.id !== server.id && claims(other));
+    const rest = others.filter((other) => other.id !== server.id);
+    if (!server.seatPrefixes.length) return !rest.some(claims);
+    if (claims(server)) return true;
+    // An orphan: nobody's range covers it and no catch-all server is there to take it.
+    return !rest.some((other) => claims(other) || (serves(other) && !other.seatPrefixes.length));
 }

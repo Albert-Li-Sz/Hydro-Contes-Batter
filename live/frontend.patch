@@ -1,18 +1,99 @@
+diff --git a/src/frontend/admin-configuration/src/AppNav.tsx b/src/frontend/admin-configuration/src/AppNav.tsx
+index 0260e12..df74787 100644
+--- a/src/frontend/admin-configuration/src/AppNav.tsx
++++ b/src/frontend/admin-configuration/src/AppNav.tsx
+@@ -14,7 +14,8 @@ import {
+ import MenuIcon from "@mui/icons-material/Menu";
+ import NotesIcon from "@mui/icons-material/Notes";
+ import { getAdminConfigurationMenuItems } from "./feature";
+-import { MenuItem as AdminMenuItem } from "admin-home-page";
++import { LanguageSwitch, MenuItem as AdminMenuItem } from "admin-home-page";
++import { t } from "shared-code/i18n";
+ 
+ interface ResponsiveAppBarProps {
+     onDrawerToggle: () => void;
+@@ -62,16 +63,16 @@ function ResponsiveAppBar({
+         <Button
+             key={page.path}
+             onClick={() => handleNavigate(page.path)}
+-            sx={{ my: 2, color: "text.primary", display: "block" }}
++            sx={{ my: 2, color: "text.primary", display: "block", whiteSpace: "nowrap" }}
+         >
+-            {page.name === "Backend Log" ? <NotesIcon /> : page.name}
++            {page.name === "Backend Log" ? <NotesIcon titleAccess={t("Backend Log")} /> : t(page.name)}
+         </Button>
+     );
+ 
+     const renderMenuItem = (page: AdminMenuItem) => (
+         <MenuItem key={page.path} onClick={() => handleNavigate(page.path)}>
+             <Typography textAlign="center" color="black">
+-                {page.name}
++                {t(page.name)}
+             </Typography>
+         </MenuItem>
+     );
+@@ -82,7 +83,7 @@ function ResponsiveAppBar({
+                 <Toolbar disableGutters>
+                     <IconButton
+                         size="large"
+-                        aria-label="side menu"
++                        aria-label={t("side menu")}
+                         onClick={onDrawerToggle}
+                         color="inherit"
+                         sx={{ mr: 1 }}
+@@ -97,7 +98,7 @@ function ResponsiveAppBar({
+                     >
+                         <IconButton
+                             size="large"
+-                            aria-label="navigation menu"
++                            aria-label={t("navigation menu")}
+                             aria-controls="menu-appbar"
+                             aria-haspopup="true"
+                             onClick={handleOpenNavMenu}
+@@ -164,6 +165,7 @@ function ResponsiveAppBar({
+                     >
+                         {pages.map((page) => renderPageButton(page))}
+                     </Box>
++                    <LanguageSwitch />
+                 </Toolbar>
+             </Container>
+         </AppBar>
 diff --git a/src/frontend/admin-configuration/src/components/ConfigurationEditor.tsx b/src/frontend/admin-configuration/src/components/ConfigurationEditor.tsx
-index 127f40f..de946c7 100644
+index 127f40f..c6d6293 100644
 --- a/src/frontend/admin-configuration/src/components/ConfigurationEditor.tsx
 +++ b/src/frontend/admin-configuration/src/components/ConfigurationEditor.tsx
-@@ -13,7 +13,6 @@ import Typography from "@mui/material/Typography";
+@@ -13,9 +13,9 @@ import Typography from "@mui/material/Typography";
  import { createApiGet, createApiPost } from "shared-code/utils";
  import JsonEditor, { JSONSchema } from "./atoms/JsonEditor";
  import Box from "@mui/material/Box";
 -import Editor from "@monaco-editor/react";
  import { BASE_URL_BACKEND } from "../config.ts";
  import CsvCodeEditor from "./atoms/CsvEditor.tsx";
-
-@@ -81,12 +80,17 @@ function ExamplesContainer({
++import { t } from "shared-code/i18n";
+ 
+ type ExampleOptions = Record<string, string>;
+ 
+@@ -58,7 +58,7 @@ function ExamplesContainer({
+ 
+     return (
+         <Container>
+-            <Typography variant="h3">Examples</Typography>
++            <Typography variant="h3">{t("Examples")}</Typography>
+             <FormControl
+                 variant="standard"
+                 sx={{ minWidth: 240, mt: 2, mb: 2 }}
+@@ -70,7 +70,7 @@ function ExamplesContainer({
+                     displayEmpty
+                 >
+                     <MenuItem value="">
+-                        <em>Select an example…</em>
++                        <em>{t("Select an example…")}</em>
+                     </MenuItem>
+                     {Object.keys(options).map((key) => (
+                         <MenuItem key={key} value={key}>
+@@ -81,12 +81,17 @@ function ExamplesContainer({
              </FormControl>
-
+ 
              {currentExample && (
 -                <Editor
 -                    options={{ readOnly: true }}
@@ -34,21 +115,54 @@ index 127f40f..de946c7 100644
              )}
          </Container>
      );
-@@ -137,8 +141,12 @@ export function ConfigurationEditor({
-
+@@ -121,7 +126,7 @@ export function ConfigurationEditor({
+         if (editorType === EditorLanguage.Json) {
+             apiGet("/schema")
+                 .then((data: unknown) => setSchema(data as JSONSchema))
+-                .catch(errorHandler(`Failed to load ${apiRoot} schema`));
++                .catch(errorHandler(t("Failed to load {name} schema", { name: apiRoot })));
+         }
+     }, [apiRoot]);
+ 
+@@ -132,13 +137,17 @@ export function ConfigurationEditor({
+                 return data;
+             })
+             .then((data: unknown) => setContent(data as string))
+-            .catch(errorHandler(`Failed to load ${apiRoot} data`));
++            .catch(errorHandler(t("Failed to load {name} data", { name: apiRoot })));
+     }, [apiRoot]);
+ 
      const onSubmit = () => {
          if (content === undefined) return;
 -        apiPost("", content, "POST", true).catch(
 -            errorHandler("Failed to save advanced json data"),
 +        if (new TextEncoder().encode(content).length > 200_000) {
-+            enqueueSnackbar("画面配置不能超过 200 KB（UTF-8 编码）", { variant: "error" });
++            enqueueSnackbar(t("Visual config cannot exceed 200 KB (UTF-8)"), { variant: "error" });
 +            return;
 +        }
 +        apiPost("", { visualConfig: content }).catch(
-+            errorHandler("保存画面配置失败"),
++            errorHandler(t("Failed to save visual config")),
          );
      };
-
+ 
+@@ -148,7 +157,7 @@ export function ConfigurationEditor({
+     ) {
+         return (
+             <Container maxWidth="md" sx={{ pt: 2 }}>
+-                <Typography variant="h6">Loading...</Typography>
++                <Typography variant="h6">{t("Loading...")}</Typography>
+             </Container>
+         );
+     }
+@@ -175,7 +184,7 @@ export function ConfigurationEditor({
+                 </Box>
+                 {readonly || (
+                     <Button type="submit" onClick={onSubmit} sx={{ mt: 2 }}>
+-                        Save
++                        {t("Save")}
+                     </Button>
+                 )}
+             </Container>
 diff --git a/src/frontend/admin-configuration/src/components/atoms/CsvEditor.tsx b/src/frontend/admin-configuration/src/components/atoms/CsvEditor.tsx
 index 98d9652..93f6cd2 100644
 --- a/src/frontend/admin-configuration/src/components/atoms/CsvEditor.tsx
@@ -58,14 +172,14 @@ index 98d9652..93f6cd2 100644
 -import Editor, { OnMount, OnChange, Monaco } from "@monaco-editor/react";
 +import React from "react";
 +import { TextCodeEditor } from "./TextCodeEditor";
-
+ 
  interface CsvEditorProps {
      defaultValue: string;
 -    onChange: OnChange;
 +    onChange: (value: string) => void;
      readonly: boolean;
  }
-
+ 
 -function CsvCodeEditor({
 -    defaultValue,
 -    onChange,
@@ -110,7 +224,7 @@ index 98d9652..93f6cd2 100644
 +function CsvCodeEditor(props: CsvEditorProps): React.ReactElement {
 +    return <TextCodeEditor {...props} />;
  }
-
+ 
  export default CsvCodeEditor;
 diff --git a/src/frontend/admin-configuration/src/components/atoms/JsonEditor.tsx b/src/frontend/admin-configuration/src/components/atoms/JsonEditor.tsx
 index 6d226b5..33027c5 100644
@@ -121,9 +235,9 @@ index 6d226b5..33027c5 100644
 -import Editor, { OnMount, OnChange, Monaco } from "@monaco-editor/react";
 +import React from "react";
 +import { TextCodeEditor } from "./TextCodeEditor";
-
+ 
  type JSONSchema = Record<string, unknown>;
-
+ 
  interface JsonEditorProps {
      schema: JSONSchema;
      defaultValue: string;
@@ -131,7 +245,7 @@ index 6d226b5..33027c5 100644
 +    onChange: (value: string) => void;
      readonly: boolean;
  }
-
+ 
 +function validateJson(value: string): string | null {
 +    try {
 +        JSON.parse(value);
@@ -262,6 +376,383 @@ index 0000000..e910553
 +        </div>
 +    );
 +}
+diff --git a/src/frontend/admin-configuration/src/components/pages/ContestInfo.tsx b/src/frontend/admin-configuration/src/components/pages/ContestInfo.tsx
+index fe13814..0d14da8 100644
+--- a/src/frontend/admin-configuration/src/components/pages/ContestInfo.tsx
++++ b/src/frontend/admin-configuration/src/components/pages/ContestInfo.tsx
+@@ -33,6 +33,8 @@ import {
+ } from "@shared/api.ts";
+ import { DataGrid, GridColDef } from "@mui/x-data-grid";
+ import Brightness1Icon from "@mui/icons-material/Brightness1";
++import { language, t } from "shared-code/i18n";
++import { zhCN } from "@mui/x-data-grid/locales";
+ 
+ const ContestInfoStatusTable = ({
+     rows,
+@@ -43,8 +45,8 @@ const ContestInfoStatusTable = ({
+         <Grid container direction="column">
+             {rows.map(([h, v], i) => (
+                 <Grid container direction="row" size={{ md: 12 }} key={i}>
+-                    <Grid size={{ xs: 6, md: 4 }}>{h}</Grid>
+-                    <Grid size={{ xs: 6, md: 8 }}>{v}</Grid>
++                    <Grid size={{ xs: 6, md: 4 }}>{typeof h === "string" ? t(h) : h}</Grid>
++                    <Grid size={{ xs: 6, md: 8 }}>{typeof v === "string" ? t(v) : v}</Grid>
+                 </Grid>
+             ))}
+         </Grid>
+@@ -123,7 +125,7 @@ const InfoRowContainer = ({
+ }) => {
+     return (
+         <Grid container direction="row">
+-            <Grid size={{ xs: 6, md: 4 }}>{name}</Grid>
++            <Grid size={{ xs: 6, md: 4 }}>{t(name)}</Grid>
+             <Grid size={{ xs: 6, md: 8 }}>{value}</Grid>
+         </Grid>
+     );
+@@ -134,11 +136,11 @@ const problemPolicyStr = (policy?: ProblemColorPolicy) => {
+         case null:
+             return "??";
+         case ProblemColorPolicy.Type.afterStart:
+-            return `Replace with ${policy.colorBeforeStart || "null"} before start`;
++            return t("Replace with {color} before start", { color: policy.colorBeforeStart || "null" });
+         case ProblemColorPolicy.Type.whenSolved:
+-            return `Replace with ${policy.colorBeforeSolved || "null"} before problem is solved`;
++            return t("Replace with {color} before problem is solved", { color: policy.colorBeforeSolved || "null" });
+         case ProblemColorPolicy.Type.always:
+-            return `Always show problem color`;
++            return t("Always show problem color");
+     }
+ };
+ 
+@@ -178,7 +180,7 @@ const ContestInfoContainer = ({ contestInfo }: BasicContainerProps) => {
+             />
+             <InfoRowContainer
+                 name="Show team without submissions"
+-                value={contestInfo?.showTeamsWithoutSubmissions ? "Yes" : "No"}
++                value={contestInfo?.showTeamsWithoutSubmissions ? t("Yes") : t("No")}
+             />
+             <InfoRowContainer
+                 name="Problem color policy"
+@@ -188,7 +190,7 @@ const ContestInfoContainer = ({ contestInfo }: BasicContainerProps) => {
+                 Object.entries(contestInfo.customFields).map(([key, value]) => (
+                     <InfoRowContainer
+                         key={key}
+-                        name={"Custom:" + key}
++                        name={t("Custom:") + key}
+                         value={String(value)}
+                     />
+                 ))}
+@@ -245,8 +247,8 @@ const orgsCustomField = (info: ContestInfo, name: string, def: string) => {
+         .filter((t) => t.value != null && t.value != def);
+     const columns = [
+         { field: "id", headerName: "ID" },
+-        { field: "name", headerName: "Organization" },
+-        { field: "value", headerName: "Overridden value" },
++        { field: "name", headerName: t("Organization") },
++        { field: "value", headerName: t("Overridden value") },
+     ];
+     if (data.length == 0) return "";
+     return <SimpleGrid rows={data} columns={columns} />;
+@@ -259,43 +261,43 @@ const AwardTableColumns = (info: ContestInfo) => [
+     },
+     {
+         field: "citation",
+-        headerName: "Citation",
++        headerName: t("Citation"),
+     },
+     {
+         field: "maxRank",
+-        headerName: "Max rank",
++        headerName: t("Max rank"),
+     },
+     {
+         field: "minScore",
+-        headerName: "Min score",
++        headerName: t("Min score"),
+     },
+     {
+         field: "tieBreakMode",
+-        headerName: "Tie-break mode",
++        headerName: t("Tie-break mode"),
+     },
+     {
+         field: "organizationLimit",
+-        headerName: "Organization limit",
++        headerName: t("Organization limit"),
+     },
+     {
+         field: "organizationLimitCustomField",
+-        headerName: "Organization limit overrides",
++        headerName: t("Organization limit overrides"),
+         renderCell: ({ value, row }) =>
+             orgsCustomField(info, value, row.organizationLimit),
+     },
+     {
+         field: "chainOrganizationLimit",
+-        headerName: "Chain organization limit",
++        headerName: t("Chain organization limit"),
+     },
+     {
+         field: "chainOrganizationLimitCustomField",
+-        headerName: "Chain organization limit overrides",
++        headerName: t("Chain organization limit overrides"),
+         renderCell: ({ value, row }) =>
+             orgsCustomField(info, value, row.chainOrganizationLimit),
+     },
+     {
+         field: "manualTeamIds",
+-        headerName: "Manual teams",
++        headerName: t("Manual teams"),
+         valueGetter: (v: TeamId[]) => v.map((c) => c).join(", "),
+     },
+ ];
+@@ -309,7 +311,7 @@ const AwardsContainer = ({ contestInfo }: BasicContainerProps) => {
+                     sx={{ borderBottom: 1, borderColor: "divider" }}
+                 >
+                     <InfoRowContainer
+-                        name={"Groups"}
++                        name={t("Groups")}
+                         value={
+                             chain.groups?.length == 0
+                                 ? "all"
+@@ -317,7 +319,7 @@ const AwardsContainer = ({ contestInfo }: BasicContainerProps) => {
+                         }
+                     />
+                     <InfoRowContainer
+-                        name={"Excluded groups"}
++                        name={t("Excluded groups")}
+                         value={
+                             chain.excludedGroups?.length == 0
+                                 ? "none"
+@@ -325,7 +327,7 @@ const AwardsContainer = ({ contestInfo }: BasicContainerProps) => {
+                         }
+                     />
+                     <InfoRowContainer
+-                        name={"Organization Limit"}
++                        name={t("Organization Limit")}
+                         value={
+                             chain.organizationLimit === null
+                                 ? "unlimited"
+@@ -333,7 +335,7 @@ const AwardsContainer = ({ contestInfo }: BasicContainerProps) => {
+                         }
+                     />
+                     <InfoRowContainer
+-                        name={"Overridden organization limits"}
++                        name={t("Overridden organization limits")}
+                         value={orgsCustomField(
+                             contestInfo,
+                             chain.organizationLimitCustomField,
+@@ -354,6 +356,7 @@ const SimpleGrid = ({ rows, columns }) => {
+     if (rows == undefined) return undefined;
+     return (
+         <DataGrid
++            localeText={language === "zh" ? zhCN.components.MuiDataGrid.defaultProps.localeText : undefined}
+             rows={rows}
+             columns={columns}
+             initialState={{
+@@ -425,7 +428,7 @@ function SimpleDialog({ onClose, open, medias }: SimpleDialogProps) {
+ const ProblemTableColumns: GridColDef<ProblemInfo>[] = [
+     {
+         field: "ordinal",
+-        headerName: "Order",
++        headerName: t("Order"),
+         type: "number",
+     },
+     {
+@@ -434,15 +437,15 @@ const ProblemTableColumns: GridColDef<ProblemInfo>[] = [
+     },
+     {
+         field: "letter",
+-        headerName: "Letter",
++        headerName: t("Letter"),
+     },
+     {
+         field: "name",
+-        headerName: "Name",
++        headerName: t("Name"),
+     },
+     {
+         field: "color",
+-        headerName: "Color",
++        headerName: t("Color"),
+         renderCell: ({ value }) =>
+             value && (
+                 <>
+@@ -453,21 +456,21 @@ const ProblemTableColumns: GridColDef<ProblemInfo>[] = [
+     },
+     {
+         field: "isHidden",
+-        headerName: "Hidden",
++        headerName: t("Hidden"),
+         type: "boolean",
+     },
+     {
+         field: "maxScore",
+-        headerName: "Max Score",
++        headerName: t("Max Score"),
+         type: "number",
+     },
+     {
+         field: "scoreMergeMode",
+-        headerName: "Merge mode",
++        headerName: t("Merge mode"),
+     },
+     {
+         field: "ftsMode",
+-        headerName: "FTS mode",
++        headerName: t("FTS mode"),
+         valueGetter: (v: FtsMode) => {
+             switch (v.type) {
+                 case FtsMode.Type.auto:
+@@ -491,28 +494,28 @@ const TeamTableColumns = (
+     },
+     {
+         field: "name",
+-        headerName: "Full name",
++        headerName: t("Full name"),
+     },
+     {
+         field: "shortName",
+-        headerName: "Display name",
++        headerName: t("Display name"),
+     },
+     {
+         field: "groups",
+-        headerName: "Groups",
++        headerName: t("Groups"),
+         valueGetter: (v: GroupId[]) => v.map((c) => c).join(", "),
+     },
+     {
+         field: "hashTag",
+-        headerName: "HashTag",
++        headerName: t("HashTag"),
+     },
+     {
+         field: "organizationId",
+-        headerName: "Organization",
++        headerName: t("Organization"),
+     },
+     {
+         field: "medias",
+-        headerName: "Medias",
++        headerName: t("Medias"),
+         renderCell: ({ value }) => {
+             const handleClickOpen = () => {
+                 setOpen(true);
+@@ -529,7 +532,7 @@ const TeamTableColumns = (
+                         color="primary"
+                         onClick={handleClickOpen}
+                     >
+-                        Medias
++                        {t("Medias")}
+                     </Button>
+                 </div>
+             );
+@@ -537,7 +540,7 @@ const TeamTableColumns = (
+     },
+     {
+         field: "color",
+-        headerName: "Color",
++        headerName: t("Color"),
+         renderCell: ({ value }) =>
+             value && (
+                 <>
+@@ -548,12 +551,12 @@ const TeamTableColumns = (
+     },
+     {
+         field: "isOutOfContest",
+-        headerName: "Out Of Contest",
++        headerName: t("Out Of Contest"),
+         type: "boolean",
+     },
+     {
+         field: "isHidden",
+-        headerName: "Hidden",
++        headerName: t("Hidden"),
+         type: "boolean",
+     },
+ ];
+@@ -568,15 +571,15 @@ const OrganizationTableColumns = (
+     },
+     {
+         field: "displayName",
+-        headerName: "Display name",
++        headerName: t("Display name"),
+     },
+     {
+         field: "fullName",
+-        headerName: "Full name",
++        headerName: t("Full name"),
+     },
+     {
+         field: "logo",
+-        headerName: "Logo",
++        headerName: t("Logo"),
+         renderCell: ({ value }) => {
+             const handleClickOpen = () => {
+                 setOpen(true);
+@@ -593,7 +596,7 @@ const OrganizationTableColumns = (
+                         color="primary"
+                         onClick={handleClickOpen}
+                     >
+-                        Logos
++                        {t("Logos")}
+                     </Button>
+                 </div>
+             );
+@@ -608,16 +611,16 @@ const GroupTableColumns: GridColDef<GroupInfo>[] = [
+     },
+     {
+         field: "displayName",
+-        headerName: "Display name",
++        headerName: t("Display name"),
+     },
+     {
+         field: "isOutOfContest",
+-        headerName: "Out Of Contest",
++        headerName: t("Out Of Contest"),
+         type: "boolean",
+     },
+     {
+         field: "isHidden",
+-        headerName: "Hidden",
++        headerName: t("Hidden"),
+         type: "boolean",
+     },
+ ];
+@@ -628,7 +631,7 @@ const ContestInfoPage = () => {
+     const [value, setValue] = useState(
+         location.hash.substring(1) !== ""
+             ? location.hash.substring(1)
+-            : "Contest",
++            : t("Contest"),
+     );
+ 
+     const handleChange = (_, newValue: string) => {
+@@ -656,15 +659,15 @@ const ContestInfoPage = () => {
+                     <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
+                         <TabList
+                             onChange={handleChange}
+-                            aria-label="lab API tabs example"
++                            aria-label={t("Contest Info")}
+                         >
+-                            <Tab label="Contest" value="Contest" />
+-                            <Tab label="Problems" value="Problems" />
+-                            <Tab label="Teams" value="Teams" />
+-                            <Tab label="Groups" value="Groups" />
+-                            <Tab label="Organizations" value="Organizations" />
+-                            <Tab label="Queue" value="Queue" />
+-                            <Tab label="Awards" value="Awards" />
++                            <Tab label={t("Contest")} value="Contest" />
++                            <Tab label={t("Problems")} value="Problems" />
++                            <Tab label={t("Teams")} value="Teams" />
++                            <Tab label={t("Groups")} value="Groups" />
++                            <Tab label={t("Organizations")} value="Organizations" />
++                            <Tab label={t("Queue")} value="Queue" />
++                            <Tab label={t("Awards")} value="Awards" />
+                         </TabList>
+                     </Box>
+                     <TabPanel value="Contest">
 diff --git a/src/frontend/admin-configuration/src/config.ts b/src/frontend/admin-configuration/src/config.ts
 index e176c60..bf528df 100644
 --- a/src/frontend/admin-configuration/src/config.ts
@@ -313,7 +804,7 @@ index 03b9977..753f257 100644
 -    SettingsJsonPage,
 -} from "./components/ConfigurationEditor";
 +import { VisualConfigPage } from "./components/ConfigurationEditor";
-
+ 
  export interface AdminConfigurationPage {
      name: string;
 @@ -22,31 +16,11 @@ export const adminConfigurationPages: AdminConfigurationPage[] = [
@@ -346,53 +837,172 @@ index 03b9977..753f257 100644
 -        element: <OrgCustomFieldsPage />,
 -    },
  ];
-
+ 
  export function getAdminConfigurationMenuItems(
 diff --git a/src/frontend/admin-home-page/src/AdminHomePage.tsx b/src/frontend/admin-home-page/src/AdminHomePage.tsx
-index fbc4cba..10f286d 100644
+index fbc4cba..a629f49 100644
 --- a/src/frontend/admin-home-page/src/AdminHomePage.tsx
 +++ b/src/frontend/admin-home-page/src/AdminHomePage.tsx
-@@ -1,5 +1,6 @@
+@@ -1,5 +1,8 @@
  import { Box, Typography, Link, List, ListItem, Paper } from "@mui/material";
  import { useEffect, useState } from "react";
 +import { ADMIN_BACKEND_ROOT } from "./branding";
-
++import { LanguageSwitch } from "./LanguageSwitch";
++import { t } from "shared-code/i18n";
+ 
  export const AdminHomePage = () => {
      const [gitInfo, setGitInfo] = useState<{
-@@ -12,12 +13,12 @@ export const AdminHomePage = () => {
+@@ -12,12 +15,12 @@ export const AdminHomePage = () => {
      >([]);
-
+ 
      useEffect(() => {
 -        fetch("/main-page/git")
 +        fetch(`${ADMIN_BACKEND_ROOT}/main-page/git`)
              .then((response) => response.json())
              .then((data) => setGitInfo(data))
              .catch((error) => console.error("Error fetching git info:", error));
-
+ 
 -        fetch("/main-page/links")
 +        fetch(`${ADMIN_BACKEND_ROOT}/main-page/links`)
              .then((response) => response.json())
              .then((data) => setUsefulLinks(data))
              .catch((error) => console.error("Error fetching links:", error));
+@@ -34,23 +37,24 @@ export const AdminHomePage = () => {
+             }}
+         >
+             <Typography variant="h4">ICPC Live 3</Typography>
++            <LanguageSwitch />
+ 
+             <Paper sx={{ p: 2, minWidth: 300 }}>
+                 <Typography variant="body1">
+-                    <strong>Commit:</strong> {gitInfo?.commit || "loading..."}
++                    <strong>{t("Commit:")}</strong> {gitInfo?.commit || t("loading...")}
+                 </Typography>
+                 <Typography variant="body1">
+-                    <strong>Branch:</strong> {gitInfo?.branch || "loading..."}
++                    <strong>{t("Branch:")}</strong> {gitInfo?.branch || t("loading...")}
+                 </Typography>
+                 <Typography variant="body1">
+-                    <strong>Version:</strong>{" "}
+-                    {gitInfo?.description || "loading..."}
++                    <strong>{t("Version:")}</strong>{" "}
++                    {gitInfo?.description || t("loading...")}
+                 </Typography>
+             </Paper>
+ 
+             <Box sx={{ textAlign: "center" }}>
+                 <Typography variant="h6" sx={{ mb: 1 }}>
+-                    Useful Links
++                    {t("Useful Links")}
+                 </Typography>
+                 <List
+                     sx={{
+@@ -72,7 +76,7 @@ export const AdminHomePage = () => {
+                                     ? { target: "_blank", rel: "noopener" }
+                                     : {})}
+                             >
+-                                {link.name}
++                                {t(link.name)}
+                             </Link>
+                         </ListItem>
+                     ))}
+diff --git a/src/frontend/admin-home-page/src/AdminLayout.tsx b/src/frontend/admin-home-page/src/AdminLayout.tsx
+index 99cfe6a..cf4a0f4 100644
+--- a/src/frontend/admin-home-page/src/AdminLayout.tsx
++++ b/src/frontend/admin-home-page/src/AdminLayout.tsx
+@@ -12,6 +12,7 @@ import MenuIcon from "@mui/icons-material/Menu";
+ import { useLocation, useNavigate } from "react-router-dom";
+ 
+ import { MenuItem } from "./menuConfig";
++import { t } from "shared-code/i18n";
+ 
+ export const AdminLayout = ({
+     children,
+@@ -57,7 +58,7 @@ export const AdminLayout = ({
+             {!hideToggleButton && !isRoot && (
+                 <IconButton
+                     color="inherit"
+-                    aria-label="open drawer"
++                    aria-label={t("open drawer")}
+                     onClick={handleDrawerToggle}
+                     sx={{
+                         position: "fixed",
+@@ -107,7 +108,7 @@ export const AdminLayout = ({
+                                             ))
+                                     }
+                                 >
+-                                    <ListItemText primary={item.name} />
++                                    <ListItemText primary={t(item.name)} />
+                                 </ListItemButton>
+                             </ListItem>
+                         ))}
+diff --git a/src/frontend/admin-home-page/src/LanguageSwitch.tsx b/src/frontend/admin-home-page/src/LanguageSwitch.tsx
+new file mode 100644
+index 0000000..4fff010
+--- /dev/null
++++ b/src/frontend/admin-home-page/src/LanguageSwitch.tsx
+@@ -0,0 +1,16 @@
++// Hydro: 中文 / English for the director's console (kept in this browser; default Chinese).
++import { Button } from "@mui/material";
++import TranslateIcon from "@mui/icons-material/Translate";
++import { language, setLanguage, t } from "shared-code/i18n";
++
++export const LanguageSwitch = () => (
++    <Button
++        onClick={() => setLanguage(language === "zh" ? "en" : "zh")}
++        startIcon={<TranslateIcon />}
++        aria-label={t("Switch language")}
++        title={t("Switch language")}
++        sx={{ my: 2, color: "text.primary", whiteSpace: "nowrap", flexShrink: 0, textTransform: "none" }}
++    >
++        {language === "zh" ? "English" : "中文"}
++    </Button>
++);
 diff --git a/src/frontend/admin-home-page/src/branding.tsx b/src/frontend/admin-home-page/src/branding.tsx
 index e2e4fc1..09549a9 100644
 --- a/src/frontend/admin-home-page/src/branding.tsx
 +++ b/src/frontend/admin-home-page/src/branding.tsx
 @@ -7,7 +7,7 @@ const BACKEND_PROTO =
      window.location.protocol === "https:" ? "https://" : "http://";
-
+ 
  export const ADMIN_BACKEND_ROOT =
 -    import.meta.env.VITE_BACKEND_ROOT ??
 +    (window as unknown as { __HYDRO_LIVE__?: { root: string } }).__HYDRO_LIVE__?.root ??
      BACKEND_PROTO + window.location.hostname + ":" + window.location.port;
-
+ 
  const hexToRgb = (hex: string) => {
+diff --git a/src/frontend/admin-home-page/src/index.ts b/src/frontend/admin-home-page/src/index.ts
+index 23fbdaa..e912096 100644
+--- a/src/frontend/admin-home-page/src/index.ts
++++ b/src/frontend/admin-home-page/src/index.ts
+@@ -2,3 +2,4 @@ export * from "./AdminLayout";
+ export * from "./AdminHomePage";
+ export * from "./branding";
+ export * from "./menuConfig";
++export * from "./LanguageSwitch";
 diff --git a/src/frontend/admin-overlay/src/App.tsx b/src/frontend/admin-overlay/src/App.tsx
-index f265976..917135e 100644
+index f265976..c3777b6 100644
 --- a/src/frontend/admin-overlay/src/App.tsx
 +++ b/src/frontend/admin-overlay/src/App.tsx
-@@ -114,7 +114,7 @@ export function AdminApp() {
-
+@@ -27,6 +27,7 @@ import {
+     getAdminConfigurationMenuItems,
+     isAdminConfigurationPath,
+ } from "admin-configuration";
++import { t } from "shared-code/i18n";
+ 
+ export function AdminApp() {
+     const [isOverlayPreviewShown, setIsOverlayPreviewShown] =
+@@ -34,7 +35,7 @@ export function AdminApp() {
+ 
+     const { contestColor, hiddenPageNames } = useAdminBranding(
+         BASE_URL_BACKEND,
+-        "ICPC Live 3 Admin",
++        t("ICPC Live 3 Admin"),
+     );
+ 
+     const reloadHandleService = useReloadHandleService();
+@@ -114,7 +115,7 @@ export function AdminApp() {
+ 
  function App() {
      return (
 -        <BrowserRouter basename={import.meta.env.BASE_URL ?? ""}>
@@ -400,6 +1010,1404 @@ index f265976..917135e 100644
              <AdminApp />
          </BrowserRouter>
      );
+diff --git a/src/frontend/admin-overlay/src/AppNav.tsx b/src/frontend/admin-overlay/src/AppNav.tsx
+index cf11d90..195013b 100644
+--- a/src/frontend/admin-overlay/src/AppNav.tsx
++++ b/src/frontend/admin-overlay/src/AppNav.tsx
+@@ -14,8 +14,9 @@ import {
+ import MenuIcon from "@mui/icons-material/Menu";
+ import PreviewIcon from "@mui/icons-material/Preview";
+ import NotesIcon from "@mui/icons-material/Notes";
+-import { MenuItem as AdminMenuItem } from "admin-home-page";
++import { LanguageSwitch, MenuItem as AdminMenuItem } from "admin-home-page";
+ import { getAdminOverlayMenuItems } from "./navigation";
++import { t } from "shared-code/i18n";
+ 
+ interface ResponsiveAppBarProps {
+     showOrHideOverlayPreview: () => void;
+@@ -67,16 +68,16 @@ function ResponsiveAppBar({
+         <Button
+             key={page.path}
+             onClick={() => handleNavigate(page.path)}
+-            sx={{ my: 2, color: "text.primary", display: "block" }}
++            sx={{ my: 2, color: "text.primary", display: "block", whiteSpace: "nowrap" }}
+         >
+-            {page.name === "Backend Log" ? <NotesIcon /> : page.name}
++            {page.name === "Backend Log" ? <NotesIcon titleAccess={t("Backend Log")} /> : t(page.name)}
+         </Button>
+     );
+ 
+     const renderMenuItem = (page: AdminMenuItem) => (
+         <MenuItem key={page.path} onClick={() => handleNavigate(page.path)}>
+             <Typography textAlign="center" color="black">
+-                {page.name}
++                {t(page.name)}
+             </Typography>
+         </MenuItem>
+     );
+@@ -87,7 +88,7 @@ function ResponsiveAppBar({
+                 <Toolbar disableGutters>
+                     <IconButton
+                         size="large"
+-                        aria-label="side menu"
++                        aria-label={t("side menu")}
+                         onClick={onDrawerToggle}
+                         color="inherit"
+                         sx={{ mr: 1 }}
+@@ -102,7 +103,7 @@ function ResponsiveAppBar({
+                     >
+                         <IconButton
+                             size="large"
+-                            aria-label="navigation menu"
++                            aria-label={t("navigation menu")}
+                             aria-controls="menu-appbar"
+                             aria-haspopup="true"
+                             onClick={handleOpenNavMenu}
+@@ -175,11 +176,12 @@ function ResponsiveAppBar({
+                                 color: "text.primary",
+                                 display: "block",
+                             }}
+-                            aria-label="Toggle overlay preview"
++                            aria-label={t("Toggle overlay preview")}
+                         >
+                             <PreviewIcon />
+                         </Button>
+                     </Box>
++                    <LanguageSwitch />
+                 </Toolbar>
+             </Container>
+         </AppBar>
+diff --git a/src/frontend/admin-overlay/src/components/Advertisement.tsx b/src/frontend/admin-overlay/src/components/Advertisement.tsx
+index 55e3eb6..c18ac65 100644
+--- a/src/frontend/admin-overlay/src/components/Advertisement.tsx
++++ b/src/frontend/admin-overlay/src/components/Advertisement.tsx
+@@ -4,6 +4,7 @@ import { useSnackbar } from "notistack";
+ import { errorHandlerWithSnackbar } from "shared-code/errors";
+ import { PresetsManager } from "./PresetsManager";
+ import { usePresetWidgetService } from "../services/presetWidget";
++import { t } from "shared-code/i18n";
+ 
+ function Advertisement(): React.ReactElement {
+     const { enqueueSnackbar } = useSnackbar();
+@@ -14,7 +15,7 @@ function Advertisement(): React.ReactElement {
+ 
+     return (
+         <Container maxWidth="lg" sx={{ pt: 2 }}>
+-            <PresetsManager service={service} tableKeys={["text"]} />
++            <PresetsManager service={service} tableKeys={["text"]} tableKeysHeaders={[t("Text")]} />
+         </Container>
+     );
+ }
+diff --git a/src/frontend/admin-overlay/src/components/MediaFiles.tsx b/src/frontend/admin-overlay/src/components/MediaFiles.tsx
+index fbfe7b5..18b47fd 100644
+--- a/src/frontend/admin-overlay/src/components/MediaFiles.tsx
++++ b/src/frontend/admin-overlay/src/components/MediaFiles.tsx
+@@ -8,6 +8,7 @@ import AttachFileIcon from "@mui/icons-material/AttachFile";
+ import Box from "@mui/material/Box";
+ import { BASE_URL_BACKEND, MEDIAS_LOCATION } from "../config";
+ import "../App.css";
++import { t } from "shared-code/i18n";
+ 
+ const fileUrl = (fileName: string): string => `${MEDIAS_LOCATION}/${fileName}`;
+ 
+@@ -56,7 +57,7 @@ function MediaFiles(): React.ReactElement {
+         apiGet("")
+             .then((f: unknown) => setMediaFiles((f as string[]) ?? []))
+             .catch(() => {
+-                errorHandler("Failed to load media files");
++                errorHandler(t("Failed to load media files"));
+             });
+     };
+ 
+@@ -83,10 +84,10 @@ function MediaFiles(): React.ReactElement {
+             .then((r) => {
+                 if (r.status === "error") {
+                     errorHandler(
+-                        `Failed to upload files ${list.map((f) => f.name).join(",")}`,
++                        t("Failed to upload files {names}", { names: list.map((f) => f.name).join(",") }),
+                     );
+                 } else if (r.status !== "ok" && !r.response) {
+-                    errorHandler("Failed to upload files");
++                    errorHandler(t("Failed to upload files"));
+                 }
+                 setUploadedFileUrls(
+                     r.status === "ok" && r.response ? r.response : null,
+@@ -94,7 +95,7 @@ function MediaFiles(): React.ReactElement {
+                 loadFiles();
+             })
+             .catch(() => {
+-                errorHandler("Failed to upload files");
++                errorHandler(t("Failed to upload files"));
+             });
+     };
+ 
+@@ -103,6 +104,8 @@ function MediaFiles(): React.ReactElement {
+             <FileUploader
+                 handleChange={uploadNewFile}
+                 name="file"
++                label={t("Upload or drop files here")}
++                hoverTitle={t("Drop here")}
+                 classes="media-files-uploader"
+                 multiple
+             />
+diff --git a/src/frontend/admin-overlay/src/components/Picture.tsx b/src/frontend/admin-overlay/src/components/Picture.tsx
+index 1b636f5..586abe2 100644
+--- a/src/frontend/admin-overlay/src/components/Picture.tsx
++++ b/src/frontend/admin-overlay/src/components/Picture.tsx
+@@ -5,6 +5,7 @@ import { useSnackbar } from "notistack";
+ import { errorHandlerWithSnackbar } from "shared-code/errors";
+ import { PresetsManager } from "./PresetsManager";
+ import { usePresetWidgetService } from "../services/presetWidget";
++import { t } from "shared-code/i18n";
+ 
+ function Picture(): React.ReactElement {
+     const { enqueueSnackbar } = useSnackbar();
+@@ -18,6 +19,7 @@ function Picture(): React.ReactElement {
+             <PresetsManager
+                 service={service}
+                 tableKeys={["name", "url"]}
++                tableKeysHeaders={[t("name"), t("url")]}
+                 RowComponent={PictureTableRow}
+             />
+         </Container>
+diff --git a/src/frontend/admin-overlay/src/components/PictureTableRow.tsx b/src/frontend/admin-overlay/src/components/PictureTableRow.tsx
+index ce65948..3abc1c4 100644
+--- a/src/frontend/admin-overlay/src/components/PictureTableRow.tsx
++++ b/src/frontend/admin-overlay/src/components/PictureTableRow.tsx
+@@ -12,6 +12,7 @@ import Typography from "@mui/material/Typography";
+ 
+ import ShowPresetButton from "./controls/ShowPresetButton.tsx";
+ import { activeRowColor } from "../styles.js";
++import { t } from "shared-code/i18n";
+ 
+ // TODO: MOVE TO consts.ts?
+ const FULL_IMG_WIDTH = "25%";
+@@ -151,7 +152,7 @@ export function PictureTableRow({
+                                                 value={form.name}
+                                                 type="text"
+                                                 size="small"
+-                                                label="name"
++                                                label={t("name")}
+                                                 onChange={handleChange("name")}
+                                             />
+                                         </Box>
+@@ -161,7 +162,7 @@ export function PictureTableRow({
+                                                 value={form.url}
+                                                 type="text"
+                                                 size="small"
+-                                                label="url"
++                                                label={t("url")}
+                                                 onChange={handleChange("url")}
+                                             />
+                                         </Box>
+@@ -186,7 +187,7 @@ export function PictureTableRow({
+                                     color={!isEditing ? "inherit" : "primary"}
+                                     onClick={handleEditToggle}
+                                     disabled={isImmutable}
+-                                    aria-label={!isEditing ? "Edit" : "Save"}
++                                    aria-label={!isEditing ? t("Edit") : t("Save")}
+                                 >
+                                     {!isEditing ? <EditIcon /> : <SaveIcon />}
+                                 </IconButton>
+@@ -194,7 +195,7 @@ export function PictureTableRow({
+                                     color="error"
+                                     onClick={onDelete}
+                                     disabled={isImmutable}
+-                                    aria-label="Delete"
++                                    aria-label={t("Delete")}
+                                 >
+                                     <DeleteIcon />
+                                 </IconButton>
+diff --git a/src/frontend/admin-overlay/src/components/PresetsManager.tsx b/src/frontend/admin-overlay/src/components/PresetsManager.tsx
+index 56af468..bc234f6 100644
+--- a/src/frontend/admin-overlay/src/components/PresetsManager.tsx
++++ b/src/frontend/admin-overlay/src/components/PresetsManager.tsx
+@@ -10,6 +10,7 @@ import {
+ import AddIcon from "@mui/icons-material/Add";
+ import IconButton from "@mui/material/IconButton";
+ import { PresetsTableRow } from "./PresetsTableRow";
++import { t } from "shared-code/i18n";
+ 
+ export interface Preset<S = Record<string, unknown>> {
+     id: number | string;
+@@ -62,7 +63,7 @@ export const DefaultAddPresetButton = <
+             color="primary"
+             size="large"
+             onClick={() => onCreate()}
+-            aria-label="Add new preset"
++            aria-label={t("Add new preset")}
+         >
+             <AddIcon />
+         </IconButton>
+@@ -120,7 +121,7 @@ export const PresetsManager = <
+             setElements(list ?? []);
+         } catch (err) {
+             console.error("Failed to load presets:", err);
+-            setError("Failed to load presets");
++            setError(t("Failed to load presets"));
+         } finally {
+             setIsLoaded(true);
+         }
+@@ -132,7 +133,7 @@ export const PresetsManager = <
+                 await service.createPreset(rowData ?? defaultRowDataResolved);
+             } catch (err) {
+                 console.error("Failed to create preset:", err);
+-                setError("Failed to create preset");
++                setError(t("Failed to create preset"));
+             }
+         },
+         [service, defaultRowDataResolved],
+@@ -144,7 +145,7 @@ export const PresetsManager = <
+                 await service.editPreset(data.id, data.settings);
+             } catch (err) {
+                 console.error("Failed to edit preset:", err);
+-                setError("Failed to edit preset");
++                setError(t("Failed to edit preset"));
+             }
+         },
+         [service],
+@@ -156,7 +157,7 @@ export const PresetsManager = <
+                 await service.deletePreset(id);
+             } catch (err) {
+                 console.error("Failed to delete preset:", err);
+-                setError("Failed to delete preset");
++                setError(t("Failed to delete preset"));
+             }
+         },
+         [service],
+@@ -172,7 +173,7 @@ export const PresetsManager = <
+                 }
+             } catch (err) {
+                 console.error("Failed to toggle preset visibility:", err);
+-                setError("Failed to toggle preset visibility");
++                setError(t("Failed to toggle preset visibility"));
+             }
+         },
+         [service],
+@@ -234,7 +235,7 @@ export const PresetsManager = <
+                                 }
+                                 align="center"
+                             >
+-                                Loading...
++                                {t("Loading...")}
+                             </TableCell>
+                         </TableRow>
+                     ) : filteredElements.length === 0 ? (
+@@ -247,7 +248,7 @@ export const PresetsManager = <
+                                 align="center"
+                                 sx={{ color: "text.secondary" }}
+                             >
+-                                No presets found
++                                {t("No presets found")}
+                             </TableCell>
+                         </TableRow>
+                     ) : (
+diff --git a/src/frontend/admin-overlay/src/components/PresetsTableRow.tsx b/src/frontend/admin-overlay/src/components/PresetsTableRow.tsx
+index a53d511..738e9d5 100644
+--- a/src/frontend/admin-overlay/src/components/PresetsTableRow.tsx
++++ b/src/frontend/admin-overlay/src/components/PresetsTableRow.tsx
+@@ -12,6 +12,7 @@ import {
+     usePresetTableRowDataState,
+     type PresetData,
+ } from "./PresetsTableRowUtils.tsx";
++import { t } from "shared-code/i18n";
+ 
+ interface PresetsTableRowProps {
+     data: PresetData;
+@@ -63,14 +64,14 @@ function ManagementButtonsCell({
+                 <IconButton
+                     color={getEditButtonColor(isEditMode)}
+                     onClick={onClickEdit}
+-                    aria-label={isEditMode ? "Save changes" : "Edit row"}
++                    aria-label={isEditMode ? t("Save changes") : t("Edit row")}
+                 >
+                     {getEditButtonIcon(isEditMode)}
+                 </IconButton>
+                 <IconButton
+                     color="error"
+                     onClick={onDelete}
+-                    aria-label="Delete row"
++                    aria-label={t("Delete row")}
+                 >
+                     <DeleteIcon />
+                 </IconButton>
+diff --git a/src/frontend/admin-overlay/src/components/TeamSpotlight.tsx b/src/frontend/admin-overlay/src/components/TeamSpotlight.tsx
+index a77057d..2f95fa8 100644
+--- a/src/frontend/admin-overlay/src/components/TeamSpotlight.tsx
++++ b/src/frontend/admin-overlay/src/components/TeamSpotlight.tsx
+@@ -15,6 +15,7 @@ import {
+ import { selectedRowColor } from "../styles";
+ import { useTeamSpotlightService } from "../services/teamSpotlight";
+ import { AddTeamScoreRequest, InterestingTeam, TeamId } from "@shared/api";
++import { t } from "shared-code/i18n";
+ 
+ interface ButtonGroupTextFieldProps {
+     value: number;
+@@ -218,12 +219,12 @@ function TeamSpotlight(): React.ReactElement {
+                     <ButtonGroup disabled={isActionDisabled} sx={{ px: 2 }}>
+                         <ButtonGroupTextField
+                             value={scoreFrom}
+-                            label="Score from"
++                            label={t("Score from")}
+                             onChange={handleScoreFromChange}
+                         />
+                         <ButtonGroupTextField
+                             value={scoreTo}
+-                            label="Score to"
++                            label={t("Score to")}
+                             onChange={handleScoreToChange}
+                         />
+                         <Button
+@@ -231,10 +232,10 @@ function TeamSpotlight(): React.ReactElement {
+                             variant="outlined"
+                             onClick={handleAddScoreClick}
+                         >
+-                            Add score
++                            {t("Add score")}
+                         </Button>
+                         <Button color="error" onClick={handleResetClick}>
+-                            Reset
++                            {t("Reset")}
+                         </Button>
+                     </ButtonGroup>
+                 </Box>
+diff --git a/src/frontend/admin-overlay/src/components/TeamTable.tsx b/src/frontend/admin-overlay/src/components/TeamTable.tsx
+index e9f430c..7c1a055 100644
+--- a/src/frontend/admin-overlay/src/components/TeamTable.tsx
++++ b/src/frontend/admin-overlay/src/components/TeamTable.tsx
+@@ -14,6 +14,7 @@ import {
+     MediaType as ApiMediaType,
+     WidgetUsageStatisticsEntry,
+ } from "@shared/api";
++import { t } from "shared-code/i18n";
+ 
+ export interface TeamViewData {
+     id: TeamId | null;
+@@ -89,11 +90,11 @@ export interface TeamTableProps {
+ }
+ 
+ const DEFAULT_MEDIA_TYPES: MediaTypeOption[] = [
+-    { text: "Camera", mediaType: TeamMediaType.camera },
+-    { text: "Screen", mediaType: TeamMediaType.screen },
+-    { text: "Record", mediaType: TeamMediaType.record },
+-    { text: "Photo", mediaType: TeamMediaType.photo },
+-    { text: "Empty", mediaType: null },
++    { text: t("Camera"), mediaType: TeamMediaType.camera },
++    { text: t("Screen"), mediaType: TeamMediaType.screen },
++    { text: t("Record"), mediaType: TeamMediaType.record },
++    { text: t("Photo"), mediaType: TeamMediaType.photo },
++    { text: t("Empty"), mediaType: null },
+ ];
+ 
+ const DEFAULT_TABLE_STYLE: TableStyle = {
+@@ -163,7 +164,7 @@ function ToggleButton({
+     ) : undefined;
+ 
+     return (
+-        <Tooltip title={`${label} ${isActive ? "will" : "won't"} be shown`}>
++        <Tooltip title={t(isActive ? "{label} will be shown" : "{label} won't be shown", { label })}>
+             <Button
+                 disabled={disabled}
+                 startIcon={visibilityIcon || icon}
+@@ -320,7 +321,7 @@ export function TeamSettingsPanel({
+         <ButtonGroup variant="outlined" sx={{ flexWrap: "wrap", gap: 0.5 }}>
+             {enableMultipleMode && (
+                 <ToggleButton
+-                    label="Multiple mode"
++                    label={t("Multiple mode")}
+                     isActive={isMultipleMode}
+                     disabled={!canShow}
+                     onClick={handleMultipleModeToggle}
+@@ -339,7 +340,7 @@ export function TeamSettingsPanel({
+ 
+             {onStatusToggle && isStatusShown !== undefined && (
+                 <ToggleButton
+-                    label="Task status"
++                    label={t("Task status")}
+                     isActive={isStatusShown}
+                     disabled={!canShow}
+                     onClick={() => onStatusToggle(!isStatusShown)}
+@@ -349,7 +350,7 @@ export function TeamSettingsPanel({
+ 
+             {onAchievementToggle && isAchievementShown !== undefined && (
+                 <ToggleButton
+-                    label="Team achievement"
++                    label={t("Team achievement")}
+                     isActive={isAchievementShown}
+                     disabled={!canShow}
+                     onClick={() => onAchievementToggle(!isAchievementShown)}
+@@ -365,7 +366,7 @@ export function TeamSettingsPanel({
+                     onClick={onHideTeam}
+                     sx={{ mx: 0.25 }}
+                 >
+-                    Hide
++                    {t("Hide")}
+                 </Button>
+             )}
+         </ButtonGroup>
+diff --git a/src/frontend/admin-overlay/src/components/TickerMessage.tsx b/src/frontend/admin-overlay/src/components/TickerMessage.tsx
+index 4af0c91..9774ec4 100644
+--- a/src/frontend/admin-overlay/src/components/TickerMessage.tsx
++++ b/src/frontend/admin-overlay/src/components/TickerMessage.tsx
+@@ -16,6 +16,7 @@ import {
+     PresetService,
+ } from "./PresetsManager";
+ import { ClockType, TickerPart } from "../../../generated/api";
++import { t } from "shared-code/i18n";
+ 
+ interface BaseTickerSettings extends Record<string, unknown> {
+     periodMs: number;
+@@ -150,7 +151,7 @@ const createAddButtons = (
+                             color="primary"
+                             size="large"
+                             onClick={() => handlePresetCreate(preset)}
+-                            aria-label={`Add ${preset.type} preset`}
++                            aria-label={t("Add {type} preset", { type: t(preset.type) })}
+                         >
+                             <AddIcon />
+                             <IconComponent />
+@@ -178,7 +179,7 @@ function TickerPartComponent({
+         <PresetsManager<TickerMessageSettings>
+             service={service}
+             tableKeys={["type", "text", "periodMs"]}
+-            tableKeysHeaders={["Type", "Text", "Period (ms)"]}
++            tableKeysHeaders={[t("Type"), t("Text"), t("Period (ms)")]}
+             RowComponent={TickerTableRow}
+             rowsFilter={rowsFilter}
+             AddButtons={AddButtonsComponent}
+diff --git a/src/frontend/admin-overlay/src/components/TickerTableRow.tsx b/src/frontend/admin-overlay/src/components/TickerTableRow.tsx
+index bd19c04..a04b2aa 100644
+--- a/src/frontend/admin-overlay/src/components/TickerTableRow.tsx
++++ b/src/frontend/admin-overlay/src/components/TickerTableRow.tsx
+@@ -23,6 +23,7 @@ import ImageIcon from "@mui/icons-material/Image";
+ import ShowPresetButton from "./controls/ShowPresetButton";
+ import { activeRowColor } from "../styles";
+ import { ClockType } from "../../../generated/api";
++import { t } from "shared-code/i18n";
+ 
+ type TickerType = "clock" | "scoreboard" | "text" | "image";
+ 
+@@ -87,13 +88,13 @@ function getTickerIcon(type: TickerType): React.ReactElement {
+ function formatClockDisplay(settings: ClockSettings): string {
+     const clockType = settings.clockType || ClockType.standard;
+     const secondsText =
+-        settings.showSeconds !== false ? "w/ seconds" : "no seconds";
++        settings.showSeconds !== false ? t("w/ seconds") : t("no seconds");
+     const timeZoneText = settings.timeZone ? ` (${settings.timeZone})` : "";
+     return `${clockType} ${secondsText}${timeZoneText}`;
+ }
+ 
+ function formatScoreboardDisplay(settings: ScoreboardSettings): string {
+-    return `From ${settings.from} to ${settings.to}`;
++    return t("From {from} to {to}", { from: settings.from, to: settings.to });
+ }
+ 
+ function validateTimeZone(timeZone: string): {
+@@ -109,7 +110,7 @@ function validateTimeZone(timeZone: string): {
+         isValid: dateTime.isValid,
+         errorMessage: dateTime.isValid
+             ? ""
+-            : dateTime.invalidReason || "Invalid timezone",
++            : dateTime.invalidReason || t("Invalid timezone"),
+     };
+ }
+ 
+@@ -236,9 +237,9 @@ function ClockEditor({
+                     value={settings.clockType || ClockType.standard}
+                     onChange={handleClockTypeChange}
+                 >
+-                    <MenuItem value={ClockType.standard}>Standard</MenuItem>
+-                    <MenuItem value={ClockType.countdown}>Countdown</MenuItem>
+-                    <MenuItem value={ClockType.global}>Global</MenuItem>
++                    <MenuItem value={ClockType.standard}>{t("Standard")}</MenuItem>
++                    <MenuItem value={ClockType.countdown}>{t("Countdown")}</MenuItem>
++                    <MenuItem value={ClockType.global}>{t("Global")}</MenuItem>
+                 </Select>
+             </FormControl>
+             <FormControlLabel
+@@ -249,12 +250,12 @@ function ClockEditor({
+                         size="small"
+                     />
+                 }
+-                label="Show seconds"
++                label={t("Show seconds")}
+             />
+             {settings.clockType === ClockType.global && (
+                 <TextField
+                     size="small"
+-                    placeholder="Timezone"
++                    placeholder={t("Timezone")}
+                     defaultValue={
+                         (data.settings as ClockSettings).timeZone || ""
+                     }
+@@ -499,14 +500,14 @@ export function TickerTableRow({
+                     <IconButton
+                         color={isEditMode ? "primary" : "inherit"}
+                         onClick={handleEditToggle}
+-                        aria-label={isEditMode ? "Save changes" : "Edit row"}
++                        aria-label={isEditMode ? t("Save changes") : t("Edit row")}
+                     >
+                         {isEditMode ? <SaveIcon /> : <EditIcon />}
+                     </IconButton>
+                     <IconButton
+                         color="error"
+                         onClick={onDelete}
+-                        aria-label="Delete row"
++                        aria-label={t("Delete row")}
+                     >
+                         <DeleteIcon />
+                     </IconButton>
+diff --git a/src/frontend/admin-overlay/src/components/Title.tsx b/src/frontend/admin-overlay/src/components/Title.tsx
+index bfe95c5..d18d1c0 100644
+--- a/src/frontend/admin-overlay/src/components/Title.tsx
++++ b/src/frontend/admin-overlay/src/components/Title.tsx
+@@ -34,6 +34,7 @@ import { usePresetWidgetService } from "../services/presetWidget.js";
+ import { useTitleWidgetService } from "../services/titleWidget.js";
+ import { useDebounce } from "../utils.ts";
+ import { TitleTemplate } from "@admin/services/titleWidget.ts";
++import { t } from "shared-code/i18n";
+ 
+ interface TitleSettings extends PresetSettings {
+     preset: string;
+@@ -179,7 +180,7 @@ function PreviewSVGDialog({
+ 
+     return (
+         <Dialog fullWidth maxWidth="md" open={open} onClose={handleClose}>
+-            <DialogTitle>Title preview</DialogTitle>
++            <DialogTitle>{t("Title preview")}</DialogTitle>
+             <DialogContent>
+                 <Card sx={{ borderRadius: 0, minHeight: 200 }}>
+                     {loading && (
+@@ -192,7 +193,7 @@ function PreviewSVGDialog({
+                             type="image/svg+xml"
+                             data={content}
+                             style={{ width: "100%", display: "block" }}
+-                            aria-label="SVG Preview"
++                            aria-label={t("SVG Preview")}
+                         />
+                     )}
+                 </Card>
+@@ -258,7 +259,7 @@ function TemplateEditor({
+                 renderInput={(params) => (
+                     <TextField
+                         {...params}
+-                        label="SVG preset"
++                        label={t("SVG preset")}
+                         InputProps={{
+                             ...params.InputProps,
+                             endAdornment: (
+@@ -313,7 +314,7 @@ function ParamsDataEditor({
+                 multiline
+                 hiddenLabel
+                 value={inputValue}
+-                placeholder="key: value"
++                placeholder={t("key: value")}
+                 type="text"
+                 size="small"
+                 sx={{ width: 1 }}
+@@ -329,7 +330,7 @@ function renderParamsData(data: Record<string, unknown>): React.ReactElement {
+     const entries = Object.entries(data);
+ 
+     if (entries.length === 0) {
+-        return <Box sx={{ color: "text.secondary" }}>No parameters</Box>;
++        return <Box sx={{ color: "text.secondary" }}>{t("No parameters")}</Box>;
+     }
+ 
+     return (
+@@ -359,7 +360,7 @@ function PresetSelectionCell({
+                 <IconButton
+                     color="primary"
+                     onClick={onLeftPresetSelect}
+-                    aria-label="Apply left preset"
++                    aria-label={t("Apply left preset")}
+                     size="small"
+                 >
+                     L
+@@ -367,7 +368,7 @@ function PresetSelectionCell({
+                 <IconButton
+                     color="primary"
+                     onClick={onRightPresetSelect}
+-                    aria-label="Apply right preset"
++                    aria-label={t("Apply right preset")}
+                     size="small"
+                 >
+                     R
+@@ -394,7 +395,7 @@ function ActionButtonsCell({
+                 {!isEditMode && (
+                     <IconButton
+                         onClick={onPreviewOpen}
+-                        aria-label="Preview"
++                        aria-label={t("Preview")}
+                         size="small"
+                     >
+                         <PreviewIcon />
+@@ -403,7 +404,7 @@ function ActionButtonsCell({
+                 <IconButton
+                     color={isEditMode ? "primary" : "inherit"}
+                     onClick={onEditClick}
+-                    aria-label={isEditMode ? "Save changes" : "Edit row"}
++                    aria-label={isEditMode ? t("Save changes") : t("Edit row")}
+                     size="small"
+                 >
+                     {isEditMode ? <SaveIcon /> : <EditIcon />}
+@@ -411,7 +412,7 @@ function ActionButtonsCell({
+                 <IconButton
+                     color="error"
+                     onClick={onDeleteClick}
+-                    aria-label="Delete row"
++                    aria-label={t("Delete row")}
+                     size="small"
+                 >
+                     <DeleteIcon />
+@@ -537,10 +538,10 @@ export function Title(): React.ReactElement {
+                 service={service}
+                 tableKeys={["leftPreset", "rightPreset", "preset", "data"]}
+                 tableKeysHeaders={[
+-                    "Left template",
+-                    "Right template",
+-                    "Template",
+-                    "Data",
++                    t("Left template"),
++                    t("Right template"),
++                    t("Template"),
++                    t("Data"),
+                 ]}
+                 defaultRowData={defaultRowData}
+                 RowComponent={TitleTableRow}
+diff --git a/src/frontend/admin-overlay/src/components/controls/ShowPresetButton.tsx b/src/frontend/admin-overlay/src/components/controls/ShowPresetButton.tsx
+index 1d0511a..35da31b 100644
+--- a/src/frontend/admin-overlay/src/components/controls/ShowPresetButton.tsx
++++ b/src/frontend/admin-overlay/src/components/controls/ShowPresetButton.tsx
+@@ -1,6 +1,7 @@
+ import VisibilityIcon from "@mui/icons-material/Visibility";
+ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
+ import { Button, ButtonProps } from "@mui/material";
++import { t } from "shared-code/i18n";
+ 
+ type ShowPresetButtonProps = {
+     checked: boolean;
+@@ -26,7 +27,7 @@ const ShowPresetButton = ({
+             disabled={disabled}
+             sx={{ width: "100px", ...sx }}
+         >
+-            {checked ? "Hide" : "Show"}
++            {checked ? t("Hide") : t("Show")}
+         </Button>
+     );
+ };
+diff --git a/src/frontend/admin-overlay/src/components/controls/TeamMediaSwitcher.tsx b/src/frontend/admin-overlay/src/components/controls/TeamMediaSwitcher.tsx
+index 481e408..4419073 100644
+--- a/src/frontend/admin-overlay/src/components/controls/TeamMediaSwitcher.tsx
++++ b/src/frontend/admin-overlay/src/components/controls/TeamMediaSwitcher.tsx
+@@ -1,6 +1,7 @@
+ import { TeamMediaType } from "@shared/api";
+ import { Button } from "@mui/material";
+ import ButtonGroup from "@admin/components/atoms/ButtonGroup";
++import { t } from "shared-code/i18n";
+ 
+ export const DEFAULT_MEDIA_TYPES = [
+     TeamMediaType.screen,
+@@ -11,7 +12,7 @@ export const DEFAULT_MEDIA_TYPES = [
+ ];
+ 
+ const mediaTypeName = (type: TeamMediaType | null) => {
+-    return type === null ? "empty" : type;
++    return type === null ? t("empty") : t(type);
+ };
+ 
+ type TeamMediaSwitcherProps = {
+diff --git a/src/frontend/admin-overlay/src/components/managers/ContestOverviewManager.tsx b/src/frontend/admin-overlay/src/components/managers/ContestOverviewManager.tsx
+new file mode 100644
+index 0000000..3858615
+--- /dev/null
++++ b/src/frontend/admin-overlay/src/components/managers/ContestOverviewManager.tsx
+@@ -0,0 +1,136 @@
++// Hydro: settings of 赛况总览 (the overlay's ContestOverviewWidget): language, title, panels.
++import { SlimTableCell } from "../atoms/Table.js";
++import {
++    Alert,
++    Button,
++    ButtonGroup,
++    FormControlLabel,
++    MenuItem,
++    Select,
++    Switch,
++    Table,
++    TableBody,
++    TableRow,
++    TextField,
++} from "@mui/material";
++import { Dispatch, SetStateAction } from "react";
++import { AbstractSingleWidgetService } from "@admin/services/abstractSingleWidget.ts";
++import { t } from "shared-code/i18n";
++
++export interface ContestOverviewSettings {
++    language: "zh" | "en";
++    title: string;
++    topTeams: number;
++    showRanking: boolean;
++    showProblems: boolean;
++    showSchools: boolean;
++    showRecent: boolean;
++    showCharts: boolean;
++}
++
++export const DEFAULT_CONTEST_OVERVIEW_SETTINGS: ContestOverviewSettings = {
++    language: "zh",
++    title: "",
++    topTeams: 10,
++    showRanking: true,
++    showProblems: true,
++    showSchools: true,
++    showRecent: true,
++    showCharts: true,
++};
++
++type Panel = "showRanking" | "showProblems" | "showSchools" | "showRecent" | "showCharts";
++const panels: [Panel, string][] = [
++    ["showRanking", "Standings"],
++    ["showProblems", "Problems"],
++    ["showSchools", "Schools"],
++    ["showRecent", "Recent accepts"],
++    ["showCharts", "Charts (submissions, solved, verdicts)"],
++];
++
++export type ContestOverviewManagerProps = {
++    service: AbstractSingleWidgetService<ContestOverviewSettings>;
++    isShown: boolean;
++    settings: ContestOverviewSettings;
++    setSettings: Dispatch<SetStateAction<ContestOverviewSettings>>;
++};
++
++const ContestOverviewManager = ({ service, isShown, settings, setSettings }: ContestOverviewManagerProps) => {
++    const set = <K extends keyof ContestOverviewSettings>(key: K, value: ContestOverviewSettings[K]) =>
++        setSettings((current) => ({ ...current, [key]: value }));
++    return (
++        <>
++            <Alert severity="info" sx={{ mb: 1 }}>
++                {t("Public data only: frozen like the public board, and rejected results are not told apart until the contest ends.")}
++            </Alert>
++            <Table align="center" size="small">
++                <TableBody>
++                    <TableRow>
++                        <SlimTableCell>{t("Screen language")}</SlimTableCell>
++                        <SlimTableCell>
++                            <Select
++                                size="small"
++                                value={settings.language}
++                                onChange={(event) => set("language", event.target.value as ContestOverviewSettings["language"])}
++                            >
++                                <MenuItem value="zh">{t("Chinese")}</MenuItem>
++                                <MenuItem value="en">{t("English")}</MenuItem>
++                            </Select>
++                        </SlimTableCell>
++                    </TableRow>
++                    <TableRow>
++                        <SlimTableCell>{t("Title")}</SlimTableCell>
++                        <SlimTableCell>
++                            <TextField
++                                size="small"
++                                fullWidth
++                                value={settings.title}
++                                placeholder={t("Leave empty to use the contest title")}
++                                inputProps={{ maxLength: 100 }}
++                                onChange={(event) => set("title", event.target.value)}
++                            />
++                        </SlimTableCell>
++                    </TableRow>
++                    <TableRow>
++                        <SlimTableCell>{t("Teams in the standings")}</SlimTableCell>
++                        <SlimTableCell>
++                            <Select
++                                size="small"
++                                value={settings.topTeams}
++                                onChange={(event) => set("topTeams", Number(event.target.value))}
++                            >
++                                {[3, 5, 6, 8, 10].map((count) => (
++                                    <MenuItem key={count} value={count}>{count}</MenuItem>
++                                ))}
++                            </Select>
++                        </SlimTableCell>
++                    </TableRow>
++                    <TableRow>
++                        <SlimTableCell>{t("Panels")}</SlimTableCell>
++                        <SlimTableCell>
++                            {panels.map(([key, label]) => (
++                                <FormControlLabel
++                                    key={key}
++                                    control={<Switch checked={settings[key]} onChange={(event) => set(key, event.target.checked)} />}
++                                    label={t(label)}
++                                />
++                            ))}
++                        </SlimTableCell>
++                    </TableRow>
++                </TableBody>
++            </Table>
++            <div>
++                <ButtonGroup variant="contained" sx={{ m: 2 }}>
++                    <Button color="primary" onClick={() => service.showWithSettings(settings)}>
++                        {isShown ? t("Update") : t("Show")}
++                    </Button>
++                    <Button color="error" disabled={!isShown} onClick={() => service.hide()}>
++                        {t("Hide")}
++                    </Button>
++                </ButtonGroup>
++            </div>
++        </>
++    );
++};
++
++export default ContestOverviewManager;
+diff --git a/src/frontend/admin-overlay/src/components/managers/FullScreenClockManager.tsx b/src/frontend/admin-overlay/src/components/managers/FullScreenClockManager.tsx
+index 57f81a7..40b103d 100644
+--- a/src/frontend/admin-overlay/src/components/managers/FullScreenClockManager.tsx
++++ b/src/frontend/admin-overlay/src/components/managers/FullScreenClockManager.tsx
+@@ -16,6 +16,7 @@ import {
+ import { Dispatch, SetStateAction } from "react";
+ import { FullScreenClockSettings, ClockType } from "@shared/api.ts";
+ import { AbstractSingleWidgetService } from "@admin/services/abstractSingleWidget.ts";
++import { t } from "shared-code/i18n";
+ 
+ export const DEFAULT_FULL_SCREEN_CLOCK_SETTINGS: FullScreenClockSettings = {
+     clockType: ClockType.standard,
+@@ -44,7 +45,7 @@ const FullScreenClockManager = ({
+                         <SlimTableCell>
+                             <FormControl component="fieldset">
+                                 <FormLabel component="legend">
+-                                    Clock Type
++                                    {t("Clock Type")}
+                                 </FormLabel>
+                                 <RadioGroup
+                                     value={settings.clockType}
+@@ -59,24 +60,24 @@ const FullScreenClockManager = ({
+                                     <FormControlLabel
+                                         value={ClockType.standard}
+                                         control={<Radio />}
+-                                        label="Standard (countdown → contest time → over)"
++                                        label={t("Standard (countdown → contest time → over)")}
+                                     />
+                                     <FormControlLabel
+                                         value={ClockType.countdown}
+                                         control={<Radio />}
+-                                        label="Countdown (countdown to start → countdown to finish → over)"
++                                        label={t("Countdown (countdown to start → countdown to finish → over)")}
+                                     />
+                                     <FormControlLabel
+                                         value={ClockType.global}
+                                         control={<Radio />}
+-                                        label="Global time (timezone based)"
++                                        label={t("Global time (timezone based)")}
+                                     />
+                                 </RadioGroup>
+                             </FormControl>
+                         </SlimTableCell>
+                     </TableRow>
+                     <TableRow>
+-                        <SlimTableCell>Show seconds</SlimTableCell>
++                        <SlimTableCell>{t("Show seconds")}</SlimTableCell>
+                         <SlimTableCell align={"center"}>
+                             <Switch
+                                 checked={settings.showSeconds}
+@@ -91,7 +92,7 @@ const FullScreenClockManager = ({
+                     </TableRow>
+                     {settings.clockType === ClockType.global && (
+                         <TableRow>
+-                            <SlimTableCell>Timezone</SlimTableCell>
++                            <SlimTableCell>{t("Timezone")}</SlimTableCell>
+                             <SlimTableCell align={"center"}>
+                                 <TextField
+                                     value={settings.timeZone || ""}
+@@ -101,7 +102,7 @@ const FullScreenClockManager = ({
+                                             timeZone: e.target.value || null,
+                                         }))
+                                     }
+-                                    placeholder="e.g., Europe/London, America/New_York"
++                                    placeholder={t("e.g., Europe/London, America/New_York")}
+                                     size="small"
+                                     fullWidth
+                                 />
+@@ -116,14 +117,14 @@ const FullScreenClockManager = ({
+                         color="primary"
+                         onClick={() => service.showWithSettings(settings)}
+                     >
+-                        Show
++                        {t("Show")}
+                     </Button>
+                     <Button
+                         color="error"
+                         disabled={!isShown}
+                         onClick={() => service.hide()}
+                     >
+-                        Hide
++                        {t("Hide")}
+                     </Button>
+                 </ButtonGroup>
+             </div>
+diff --git a/src/frontend/admin-overlay/src/components/managers/ScoreboardManager.tsx b/src/frontend/admin-overlay/src/components/managers/ScoreboardManager.tsx
+index a20babe..7c1fb4c 100644
+--- a/src/frontend/admin-overlay/src/components/managers/ScoreboardManager.tsx
++++ b/src/frontend/admin-overlay/src/components/managers/ScoreboardManager.tsx
+@@ -30,6 +30,7 @@ import {
+ } from "@shared/api.ts";
+ import { ScoreboardWidgetService } from "@admin/services/scoreboardService.ts";
+ import ScrollDirectionSwitcher from "@admin/components/controls/ScrollDirectionSwitcher.tsx";
++import { t } from "shared-code/i18n";
+ 
+ type ScoreboardSettingsTabProps = {
+     isShown: boolean;
+@@ -70,7 +71,7 @@ const ScoreboardSettingsTab = ({
+                     onClick={() => showWithSettings(settings)}
+                     variant="contained"
+                 >
+-                    {isShown ? "Update" : "Show"}
++                    {isShown ? t("Update") : t("Show")}
+                 </Button>
+                 <Button
+                     color="error"
+@@ -78,7 +79,7 @@ const ScoreboardSettingsTab = ({
+                     onClick={hide}
+                     variant="contained"
+                 >
+-                    Hide
++                    {t("Hide")}
+                 </Button>
+             </ButtonGroup>
+             <ScrollDirectionSwitcher
+@@ -147,9 +148,9 @@ const ScoreboardGroupSetting = ({
+             <TableHead>
+                 <TableRow>
+                     <TableCell>
+-                        <Typography variant="h6">Groups</Typography>
++                        <Typography variant="h6">{t("Groups")}</Typography>
+                     </TableCell>
+-                    {["Normal", "Optimistic", "Pessimistic"].map((val) => (
++                    {[t("Normal"), t("Optimistic"), t("Pessimistic")].map((val) => (
+                         <TableCell key={val} align="center">
+                             <Typography variant="h6">{val}</Typography>
+                         </TableCell>
+@@ -164,7 +165,7 @@ const ScoreboardGroupSetting = ({
+                             justifyContent="space-between"
+                             alignItems="center"
+                         >
+-                            <Box>All groups</Box>
++                            <Box>{t("All groups")}</Box>
+                             <Button
+                                 onClick={() =>
+                                     setIsGroupsExpand(!isGroupsExpand)
+diff --git a/src/frontend/admin-overlay/src/components/pages/Analytics.tsx b/src/frontend/admin-overlay/src/components/pages/Analytics.tsx
+index e423af0..d80e028 100644
+--- a/src/frontend/admin-overlay/src/components/pages/Analytics.tsx
++++ b/src/frontend/admin-overlay/src/components/pages/Analytics.tsx
+@@ -34,6 +34,8 @@ import {
+     CommonTeamViewInstancesState,
+     useTeamViewWidgetService,
+ } from "@admin/services/teamViewService";
++import { language, t } from "shared-code/i18n";
++import { zhCN } from "@mui/x-data-grid/locales";
+ 
+ const featuredRunMediaTypes = [
+     TeamMediaType.screen,
+@@ -78,7 +80,7 @@ const buildMessagesTableColumns = (
+     },
+     {
+         field: "comments",
+-        headerName: "Messages",
++        headerName: t("Messages"),
+         flex: 3,
+         sortable: false,
+         valueGetter: (v: AnalyticsMessageComment[]) =>
+@@ -125,7 +127,7 @@ const buildMessagesTableColumns = (
+     },
+     {
+         field: "teamId",
+-        headerName: "Team",
++        headerName: t("Team"),
+         flex: 2,
+         valueGetter: (id: string) => {
+             const team = teams[id];
+@@ -139,7 +141,7 @@ const buildMessagesTableColumns = (
+     },
+     {
+         field: "problemId",
+-        headerName: "Problem",
++        headerName: t("Problem"),
+         width: 70,
+         valueGetter: (_, message) =>
+             message.runInfo &&
+@@ -152,13 +154,13 @@ const buildMessagesTableColumns = (
+     },
+     {
+         field: "runId",
+-        headerName: "Run",
++        headerName: t("Run"),
+         width: 70,
+         valueGetter: (_, message) => message.runInfo?.id ?? "",
+     },
+     {
+         field: "runInfoResult",
+-        headerName: "Result",
++        headerName: t("Result"),
+         width: 50,
+         valueGetter: (_, message): string => {
+             if (message.runInfo?.result?.type === RunResult.Type.ICPC) {
+@@ -171,7 +173,7 @@ const buildMessagesTableColumns = (
+     },
+     {
+         field: "relativeTimeMs",
+-        headerName: "Time",
++        headerName: t("Time"),
+         width: 70,
+         renderCell: (
+             params: GridRenderCellParams<AnalyticsMessage, number>,
+@@ -208,6 +210,7 @@ function MessagesTable({
+ 
+     return (
+         <DataGrid
++            localeText={language === "zh" ? zhCN.components.MuiDataGrid.defaultProps.localeText : undefined}
+             ref={ref}
+             rows={messages}
+             columns={buildMessagesTableColumns(
+@@ -258,7 +261,7 @@ const FeaturedRunControl = ({
+ }: FeaturedRunControlProps) => {
+     return (
+         <>
+-            Featured run:&nbsp;
++            {t("Featured run:")}&nbsp;
+             <TeamMediaSwitcher
+                 mediaTypes={featuredRunMediaTypes}
+                 onSwitch={(mediaType) =>
+@@ -280,7 +283,7 @@ const FeaturedRunControl = ({
+                     }}
+                 >
+                     <div>
+-                        Featured run {featuredRunStatus.runInfo?.id} (
++                        {t("Featured run")} {featuredRunStatus.runInfo?.id} (
+                         {featuredRunStatus.teamInfo?.shortName})
+                     </div>
+                     &nbsp;
+@@ -331,7 +334,7 @@ const TeamViewControl = ({ selectedEvent }: TeamViewControlProps) => {
+                         )
+                     }
+                 >
+-                    TeamView
++                    {t("TeamView")}
+                 </Button>
+                 <Button
+                     color="error"
+@@ -340,7 +343,7 @@ const TeamViewControl = ({ selectedEvent }: TeamViewControlProps) => {
+                         teamViewService.hide(TeamViewPosition.SINGLE)
+                     }
+                 >
+-                    Hide
++                    {t("Hide")}
+                 </Button>
+             </ButtonGroup>
+         </>
+@@ -436,7 +439,7 @@ function Analytics() {
+                                 )
+                             }
+                         >
+-                            advertisement
++                            {t("Advertisement")}
+                         </Button>
+                         <TextField
+                             sx={{ width: "84px" }}
+@@ -447,7 +450,7 @@ function Analytics() {
+                             }
+                             value={advertisementTtl}
+                             size="small"
+-                            label="TTL"
++                            label={t("TTL")}
+                             variant="outlined"
+                             InputProps={{ style: { height: "30px" } }}
+                         />
+@@ -463,7 +466,7 @@ function Analytics() {
+                                 )
+                             }
+                         >
+-                            Hide
++                            {t("Hide")}
+                         </Button>
+                     </ButtonGroup>
+                     &nbsp;
+@@ -484,7 +487,7 @@ function Analytics() {
+                                 )
+                             }
+                         >
+-                            ticker
++                            {t("Ticker")}
+                         </Button>
+                         <TextField
+                             sx={{ width: "84px" }}
+@@ -493,7 +496,7 @@ function Analytics() {
+                             }
+                             value={tickerMsgTtl}
+                             size="small"
+-                            label="TTL"
++                            label={t("TTL")}
+                             variant="outlined"
+                             InputProps={{ style: { height: "30px" } }}
+                         />
+@@ -509,7 +512,7 @@ function Analytics() {
+                                 )
+                             }
+                         >
+-                            Hide
++                            {t("Hide")}
+                         </Button>
+                     </ButtonGroup>
+                     &nbsp;
+diff --git a/src/frontend/admin-overlay/src/components/pages/ControlsPage.tsx b/src/frontend/admin-overlay/src/components/pages/ControlsPage.tsx
+index c07d134..3925fe8 100644
+--- a/src/frontend/admin-overlay/src/components/pages/ControlsPage.tsx
++++ b/src/frontend/admin-overlay/src/components/pages/ControlsPage.tsx
+@@ -20,6 +20,11 @@ import ScoreboardManager, {
+ import FullScreenClockManager, {
+     DEFAULT_FULL_SCREEN_CLOCK_SETTINGS,
+ } from "@admin/components/managers/FullScreenClockManager.tsx";
++import ContestOverviewManager, {
++    ContestOverviewSettings,
++    DEFAULT_CONTEST_OVERVIEW_SETTINGS,
++} from "@admin/components/managers/ContestOverviewManager.tsx";
++import { t } from "shared-code/i18n";
+ 
+ type WidgetGroupProp = {
+     title: string;
+@@ -89,7 +94,7 @@ const ScoreboardWidgetGroup = () => {
+ 
+     return (
+         <WidgetGroup
+-            title={"Scoreboard"}
++            title={t("Scoreboard")}
+             isShown={isShown}
+             onClickShow={(s) => (s ? service.show() : service.hide())}
+         >
+@@ -113,7 +118,7 @@ const FullScreenClockWidgetGroup = () => {
+ 
+     return (
+         <WidgetGroup
+-            title={"Full screen clock"}
++            title={t("Full screen clock")}
+             isShown={isShown}
+             onClickShow={(s) => (s ? service.show() : service.hide())}
+         >
+@@ -127,14 +132,39 @@ const FullScreenClockWidgetGroup = () => {
+     );
+ };
+ 
++// Hydro: 赛况总览, the contest at a glance for the audience.
++const ContestOverviewWidgetGroup = () => {
++    const service = useSingleWidgetService<ContestOverviewSettings>("/overview");
++    const { isShown, settings, setSettings } = useServiceLoadStatus(
++        service,
++        DEFAULT_CONTEST_OVERVIEW_SETTINGS,
++    );
++
++    return (
++        <WidgetGroup
++            title={t("Contest overview")}
++            isShown={isShown}
++            onClickShow={(s) => (s ? service.showWithSettings(settings) : service.hide())}
++        >
++            <ContestOverviewManager
++                service={service}
++                isShown={isShown}
++                settings={settings}
++                setSettings={setSettings}
++            />
++        </WidgetGroup>
++    );
++};
++
+ const ControlsPage = () => {
+     return (
+         <Container maxWidth="md" sx={{ pt: 2 }} className="Controls">
+             <ScoreboardWidgetGroup />
+-            <SimpleWidgetGroup title={"Queue"} apiPath={"/queue"} />
+-            <SimpleWidgetGroup title={"Statistics"} apiPath={"/statistics"} />
+-            <SimpleWidgetGroup title={"Ticker"} apiPath={"/ticker"} />
++            <SimpleWidgetGroup title={t("Queue")} apiPath={"/queue"} />
++            <SimpleWidgetGroup title={t("Statistics")} apiPath={"/statistics"} />
++            <SimpleWidgetGroup title={t("Ticker")} apiPath={"/ticker"} />
+             <FullScreenClockWidgetGroup />
++            <ContestOverviewWidgetGroup />
+         </Container>
+     );
+ };
+diff --git a/src/frontend/admin-overlay/src/components/pages/TeamView.tsx b/src/frontend/admin-overlay/src/components/pages/TeamView.tsx
+index b228ed4..8139f71 100644
+--- a/src/frontend/admin-overlay/src/components/pages/TeamView.tsx
++++ b/src/frontend/admin-overlay/src/components/pages/TeamView.tsx
+@@ -58,6 +58,7 @@ import {
+ } from "@admin/services/teamViewService";
+ import { ObjectStatus } from "@admin/services/abstractSingleWidget";
+ import { useLocalStorageState } from "@admin/utils";
++import { t } from "shared-code/i18n";
+ 
+ interface TeamInfoWithStatus extends TeamInfo {
+     shown?: boolean;
+@@ -100,8 +101,8 @@ interface UseTeamsListReturn {
+ 
+ const AUTOMODE_TEAM: TeamInfoWithStatus = {
+     id: null,
+-    name: "Automode",
+-    shortName: "Automode",
++    name: t("Automode"),
++    shortName: t("Automode"),
+     hashTag: "",
+     groups: [],
+     organizationId: "",
+@@ -260,15 +261,15 @@ const VariantSelect: React.FC<VariantSelectProps> = ({
+         >
+             <ToggleButton value="single">
+                 <SingleTeamViewIcon />
+-                Single
++                {t("Single")}
+             </ToggleButton>
+             <ToggleButton value="pvp">
+                 <PVPTeamViewIcon />
+-                PVP
++                {t("PVP")}
+             </ToggleButton>
+             <ToggleButton value="split">
+                 <SplitTeamViewIcon />
+-                SplitScreen
++                {t("SplitScreen")}
+             </ToggleButton>
+         </ToggleButtonGroup>
+     );
+@@ -314,22 +315,22 @@ const InstanceStatus: React.FC<InstanceStatusProps> = ({
+                         onClick={onShow(instanceId)}
+                     >
+                         {selectedInstance === instanceId
+-                            ? "Selected"
++                            ? t("Selected")
+                             : !iStatus?.shown
+-                              ? "Show here"
+-                              : "Replace here"}
++                              ? t("Show here")
++                              : t("Replace here")}
+                     </Button>
+                     <Button
+                         color="error"
+                         disabled={!iStatus?.shown}
+                         onClick={onHide(instanceId)}
+                     >
+-                        Hide
++                        {t("Hide")}
+                     </Button>
+                 </ButtonGroup>
+             </Stack>
+-            <Box>Team: {shownTeam?.shortName ?? "Auto"}</Box>
+-            <Box>Media: {iStatus?.settings?.mediaTypes?.join(", ")}</Box>
++            <Box>{t("Team:")} {shownTeam?.shortName ?? t("Auto")}</Box>
++            <Box>{t("Media:")} {iStatus?.settings?.mediaTypes?.join(", ")}</Box>
+         </Paper>
+     );
+ };
+@@ -408,10 +409,10 @@ const MultipleModeSwitch: React.FC<MultipleModeSwitchProps> = ({
+     return (
+         <Tooltip
+             sx={{ display: "flex", alignContent: "center" }}
+-            title="When enabled any modifications to the team instances will be applied after you press Show all"
++            title={t("When enabled any modifications to the team instances will be applied after you press Show all")}
+         >
+             <Box>
+-                <Box sx={{ p: 1 }}>Multiple mode</Box>
++                <Box sx={{ p: 1 }}>{t("Multiple mode")}</Box>
+                 <Switch onChange={(_, newV) => setIsMultipleMode(newV)} />
+                 <ButtonGroup>
+                     <Button
+@@ -419,7 +420,7 @@ const MultipleModeSwitch: React.FC<MultipleModeSwitchProps> = ({
+                         onClick={() => currentService?.showAll()}
+                         startIcon={<VisibilityIcon />}
+                     >
+-                        All
++                        {t("All")}
+                     </Button>
+                     <Button
+                         variant="contained"
+@@ -427,7 +428,7 @@ const MultipleModeSwitch: React.FC<MultipleModeSwitchProps> = ({
+                         onClick={() => currentService?.hideAll()}
+                         startIcon={<VisibilityOffIcon />}
+                     >
+-                        All
++                        {t("All")}
+                     </Button>
+                 </ButtonGroup>
+             </Box>
+@@ -653,7 +654,7 @@ const TeamViewManager: React.FC = () => {
+                                 defaultValue={searchValue}
+                                 size="small"
+                                 margin="none"
+-                                label="Search"
++                                label={t("Search")}
+                                 variant="outlined"
+                                 fullWidth
+                             />
+@@ -666,7 +667,7 @@ const TeamViewManager: React.FC = () => {
+                     )}
+                     {selectedTeamId !== undefined && (
+                         <FormControl fullWidth sx={{ mb: 1 }}>
+-                            <FormLabel component="legend">Team name</FormLabel>
++                            <FormLabel component="legend">{t("Team name")}</FormLabel>
+                             <TextField
+                                 defaultValue={selectedTeam?.name}
+                                 variant="standard"
+@@ -688,7 +689,7 @@ const TeamViewManager: React.FC = () => {
+                             <Grid container>
+                                 <Grid size={{ xs: 12, sm: 4 }}>
+                                     <FormLabel component="legend">
+-                                        Main content
++                                        {t("Main content")}
+                                     </FormLabel>
+                                 </Grid>
+                                 <Grid size={{ xs: 12, sm: 8 }}>
+@@ -700,7 +701,7 @@ const TeamViewManager: React.FC = () => {
+                                 </Grid>
+                                 <Grid size={{ xs: 12, sm: 4 }}>
+                                     <FormLabel component="legend">
+-                                        Additional content
++                                        {t("Additional content")}
+                                     </FormLabel>
+                                 </Grid>
+                                 <Grid size={{ xs: 12, sm: 8 }}>
+@@ -715,7 +716,7 @@ const TeamViewManager: React.FC = () => {
+                                 </Grid>
+                                 <Grid size={{ xs: 10, sm: 4 }}>
+                                     <FormLabel component="legend">
+-                                        Name, ranking, submissions
++                                        {t("Name, ranking, submissions")}
+                                     </FormLabel>
+                                 </Grid>
+                                 <Grid size={{ xs: 2, sm: 8 }}>
+@@ -729,7 +730,7 @@ const TeamViewManager: React.FC = () => {
+                                     <>
+                                         <Grid size={{ xs: 10, sm: 4 }}>
+                                             <FormLabel component="legend">
+-                                                Achievements
++                                                {t("Achievements")}
+                                             </FormLabel>
+                                         </Grid>
+                                         <Grid size={{ xs: 2, sm: 8 }}>
+@@ -757,7 +758,7 @@ const TeamViewManager: React.FC = () => {
+                                     <>
+                                         <Grid size={{ xs: 10, sm: 4 }}>
+                                             <FormLabel component="legend">
+-                                                TimeLine
++                                                {t("TimeLine")}
+                                             </FormLabel>
+                                         </Grid>
+                                         <Grid size={{ xs: 2, sm: 8 }}>
+@@ -780,7 +781,7 @@ const TeamViewManager: React.FC = () => {
+                                 variant="contained"
+                                 onClick={onShow}
+                             >
+-                                Show
++                                {t("Show")}
+                             </Button>
+                         </>
+                     )}
 diff --git a/src/frontend/admin-overlay/src/config.ts b/src/frontend/admin-overlay/src/config.ts
 index e176c60..bf528df 100644
 --- a/src/frontend/admin-overlay/src/config.ts
@@ -435,8 +2443,71 @@ index e176c60..bf528df 100644
 +export const BASE_URL_WS = HYDRO_LIVE.adminWs;
  export const WEBSOCKET_RECONNECT_TIME = 5000;
  export const ADMIN_ACTIONS_WS_URL = BASE_URL_WS + "/adminActions";
+diff --git a/src/frontend/admin-overlay/src/services/abstractSingleWidget.ts b/src/frontend/admin-overlay/src/services/abstractSingleWidget.ts
+index 92f8aa2..535f33c 100644
+--- a/src/frontend/admin-overlay/src/services/abstractSingleWidget.ts
++++ b/src/frontend/admin-overlay/src/services/abstractSingleWidget.ts
+@@ -5,6 +5,7 @@ import {
+     useServiceSnackbarErrorHandler,
+ } from "@admin/services/abstractWidgetWithStatus.ts";
+ import { useReloadHandler } from "@admin/services/reloadHandler.ts";
++import { t } from "shared-code/i18n";
+ 
+ export interface ObjectStatus<SettingsType extends ObjectSettings> {
+     shown: boolean;
+@@ -20,25 +21,25 @@ export class AbstractSingleWidgetService<
+ 
+     show() {
+         return this.apiPost("/show").catch(
+-            this.errorHandler("Failed to show " + this.apiPath),
++            this.errorHandler(t("Failed to show ") + this.apiPath),
+         );
+     }
+ 
+     hide() {
+         return this.apiPost("/hide").catch(
+-            this.errorHandler("Failed to hide " + this.apiPath),
++            this.errorHandler(t("Failed to hide ") + this.apiPath),
+         );
+     }
+ 
+     showWithSettings(settings: Settings) {
+         return this.apiPost("/show_with_settings", settings).catch(
+-            this.errorHandler("Failed to show " + this.apiPath),
++            this.errorHandler(t("Failed to show ") + this.apiPath),
+         );
+     }
+ 
+     setSettings(settings: Settings) {
+         return this.apiPost("/", settings).catch(
+-            this.errorHandler("Failed to set settings " + this.apiPath),
++            this.errorHandler(t("Failed to set settings ") + this.apiPath),
+         );
+     }
+ }
+diff --git a/src/frontend/admin-overlay/src/services/abstractWidgetWithStatus.ts b/src/frontend/admin-overlay/src/services/abstractWidgetWithStatus.ts
+index da0300c..a8feeb0 100644
+--- a/src/frontend/admin-overlay/src/services/abstractWidgetWithStatus.ts
++++ b/src/frontend/admin-overlay/src/services/abstractWidgetWithStatus.ts
+@@ -10,6 +10,7 @@ import {
+ } from "@shared/utils.ts";
+ import { ErrorHandler, ReloadHandler } from "@shared/abstractWidget.ts";
+ import { BASE_URL_BACKEND } from "@admin/config.ts";
++import { t } from "shared-code/i18n";
+ 
+ export class AbstractWidgetWithStatus<StatusType> {
+     apiPath: string;
+@@ -56,7 +57,7 @@ export class AbstractWidgetWithStatus<StatusType> {
+     loadStatus() {
+         return this.apiGet("/")
+             .catch(
+-                this.errorHandler("Failed to load status of " + this.apiPath),
++                this.errorHandler(t("Failed to load status of ") + this.apiPath),
+             )
+             .then((j) => j as StatusType);
+     }
 diff --git a/src/frontend/admin-overlay/src/services/analytics.ts b/src/frontend/admin-overlay/src/services/analytics.ts
-index 7ddf644..940a7c2 100644
+index 7ddf644..4f0d437 100644
 --- a/src/frontend/admin-overlay/src/services/analytics.ts
 +++ b/src/frontend/admin-overlay/src/services/analytics.ts
 @@ -1,4 +1,6 @@
@@ -446,7 +2517,15 @@ index 7ddf644..940a7c2 100644
  import { useWebsocket } from "@admin/utils";
  import { BASE_URL_BACKEND, BASE_URL_WS } from "@admin/config";
  import {
-@@ -21,6 +23,7 @@ export type FeaturedRunStatus = {
+@@ -10,6 +12,7 @@ import {
+     TeamMediaType,
+ } from "@shared/api.ts";
+ import { createApiGet, createApiPost } from "@shared/utils.ts";
++import { t } from "shared-code/i18n";
+ 
+ const apiPath = "/analytics";
+ const apiPost = createApiPost(BASE_URL_BACKEND + apiPath);
+@@ -21,6 +24,7 @@ export type FeaturedRunStatus = {
      teamInfo: TeamInfo;
  };
  export const useAnalyticsService = () => {
@@ -454,34 +2533,60 @@ index 7ddf644..940a7c2 100644
      const [messages, setMessages] = useState<{
          [id: string]: AnalyticsMessage;
      }>({});
-@@ -123,7 +126,9 @@ export const useAnalyticsService = () => {
+@@ -123,7 +127,9 @@ export const useAnalyticsService = () => {
          );
-
+ 
      const makeFeaturedRun = (messageId: string, mediaType: TeamMediaType) =>
 -        apiPost("/" + messageId + "/featuredRun", mediaType, "POST");
 +        apiPost("/" + messageId + "/featuredRun", { mediaType }, "POST").catch(
-+            errorHandlerWithSnackbar(enqueueSnackbar)("放大播放失败"),
++            errorHandlerWithSnackbar(enqueueSnackbar)(t("Featured run failed")),
 +        );
      const makeNotFeaturedRun = (messageId: string) =>
          apiPost("/" + messageId + "/featuredRun", undefined, "DELETE");
-
+ 
 diff --git a/src/frontend/admin-overlay/src/services/controlsWidget.ts b/src/frontend/admin-overlay/src/services/controlsWidget.ts
-index 99cc341..7bb166b 100644
+index 99cc341..c039454 100644
 --- a/src/frontend/admin-overlay/src/services/controlsWidget.ts
 +++ b/src/frontend/admin-overlay/src/services/controlsWidget.ts
-@@ -2,7 +2,9 @@ import { useMemo } from "react";
+@@ -2,7 +2,10 @@ import { useMemo } from "react";
  import { createApiGet } from "shared-code/utils";
  import { AbstractWidgetImpl } from "./abstractWidgetImpl";
  import { ErrorHandler } from "@shared/abstractWidget";
 -import { BACKEND_ROOT } from "../config";
++import { t } from "shared-code/i18n";
 +
 +
 +const HYDRO_OVERLAY_API = (window as unknown as { __HYDRO_LIVE__: { overlayApi: string } }).__HYDRO_LIVE__.overlayApi;
-
+ 
  interface ControlElement {
      text: string;
-@@ -52,8 +54,8 @@ export class ControlsWidgetService extends AbstractWidgetImpl<ControlElementSett
-
+@@ -24,11 +27,12 @@ interface LoadOneResponse {
+ }
+ 
+ const CONTROL_ELEMENTS: readonly ControlElement[] = [
+-    { text: "Scoreboard", id: "scoreboard" },
+-    { text: "Queue", id: "queue" },
+-    { text: "Statistics", id: "statistics" },
+-    { text: "Ticker", id: "ticker" },
+-    { text: "Full screen clock", id: "fullScreenClock" },
++    { text: t("Scoreboard"), id: "scoreboard" },
++    { text: t("Queue"), id: "queue" },
++    { text: t("Statistics"), id: "statistics" },
++    { text: t("Ticker"), id: "ticker" },
++    { text: t("Full screen clock"), id: "fullScreenClock" },
++    { text: t("Contest overview"), id: "overview" },
+ ] as const;
+ 
+ export class ControlsWidgetService extends AbstractWidgetImpl<ControlElementSettings> {
+@@ -46,14 +50,14 @@ export class ControlsWidgetService extends AbstractWidgetImpl<ControlElementSett
+         try {
+             return await this.apiGet(`/${elementId}`);
+         } catch (error) {
+-            throw this.errorHandler(`Failed to load ${elementId} info`)(error);
++            throw this.errorHandler(t("Failed to load {name} info", { name: elementId }))(error);
+         }
+     }
+ 
      private async loadVisualConfig(): Promise<string[]> {
          try {
 -            const config = await createApiGet(BACKEND_ROOT)(
@@ -491,6 +2596,289 @@ index 99cc341..7bb166b 100644
              );
              return config.ADMIN_HIDE_CONTROL ?? [];
          } catch (error) {
+diff --git a/src/frontend/admin-overlay/src/services/presetWidget.ts b/src/frontend/admin-overlay/src/services/presetWidget.ts
+index bb2fa94..8b62470 100644
+--- a/src/frontend/admin-overlay/src/services/presetWidget.ts
++++ b/src/frontend/admin-overlay/src/services/presetWidget.ts
+@@ -1,6 +1,7 @@
+ import { useMemo } from "react";
+ import { AbstractWidgetImpl } from "./abstractWidgetImpl";
+ import { ErrorHandler } from "@shared/abstractWidget";
++import { t } from "shared-code/i18n";
+ 
+ export interface Preset<S = Record<string, unknown>> {
+     id: string | number;
+@@ -37,7 +38,7 @@ export class PresetWidgetService<
+         try {
+             return await this.apiGet("");
+         } catch (error) {
+-            throw this.errorHandler("Failed to load list of presets")(error);
++            throw this.errorHandler(t("Failed to load list of presets"))(error);
+         }
+     }
+ 
+@@ -45,7 +46,7 @@ export class PresetWidgetService<
+         try {
+             await this.apiPost("", presetSettings);
+         } catch (error) {
+-            throw this.errorHandler("Failed to add preset")(error);
++            throw this.errorHandler(t("Failed to add preset"))(error);
+         }
+     }
+ 
+@@ -56,7 +57,7 @@ export class PresetWidgetService<
+         try {
+             await this.apiPost(`/${presetId}`, presetSettings);
+         } catch (error) {
+-            throw this.errorHandler("Failed to edit preset")(error);
++            throw this.errorHandler(t("Failed to edit preset"))(error);
+         }
+     }
+ 
+@@ -64,7 +65,7 @@ export class PresetWidgetService<
+         try {
+             await this.apiPost(`/${presetId}`, {}, "DELETE");
+         } catch (error) {
+-            throw this.errorHandler("Failed to delete preset")(error);
++            throw this.errorHandler(t("Failed to delete preset"))(error);
+         }
+     }
+ 
+@@ -72,7 +73,7 @@ export class PresetWidgetService<
+         try {
+             await this.apiPost(`/${presetId}/show`, {});
+         } catch (error) {
+-            throw this.errorHandler("Failed to show preset")(error);
++            throw this.errorHandler(t("Failed to show preset"))(error);
+         }
+     }
+ 
+@@ -80,7 +81,7 @@ export class PresetWidgetService<
+         try {
+             await this.apiPost(`/${presetId}/hide`, {});
+         } catch (error) {
+-            throw this.errorHandler("Failed to hide preset")(error);
++            throw this.errorHandler(t("Failed to hide preset"))(error);
+         }
+     }
+ 
+@@ -95,7 +96,7 @@ export class PresetWidgetService<
+                 presetSettings,
+             );
+         } catch (error) {
+-            throw this.errorHandler("Failed to add preset")(error);
++            throw this.errorHandler(t("Failed to add preset"))(error);
+         }
+     }
+ 
+@@ -103,7 +104,7 @@ export class PresetWidgetService<
+         try {
+             return await this.apiGet(`/${presetId}/preview`);
+         } catch (error) {
+-            throw this.errorHandler("Failed to load preset preview")(error);
++            throw this.errorHandler(t("Failed to load preset preview"))(error);
+         }
+     }
+ 
+@@ -119,7 +120,7 @@ export class PresetWidgetService<
+             );
+             await Promise.all(promises);
+         } catch (error) {
+-            throw this.errorHandler("Failed to batch update presets")(error);
++            throw this.errorHandler(t("Failed to batch update presets"))(error);
+         }
+     }
+ 
+@@ -128,7 +129,7 @@ export class PresetWidgetService<
+             const promises = presetIds.map((id) => this.deletePreset(id));
+             await Promise.all(promises);
+         } catch (error) {
+-            throw this.errorHandler("Failed to batch delete presets")(error);
++            throw this.errorHandler(t("Failed to batch delete presets"))(error);
+         }
+     }
+ 
+@@ -136,7 +137,7 @@ export class PresetWidgetService<
+         try {
+             return await this.apiGet(`/${presetId}`);
+         } catch (error) {
+-            throw this.errorHandler("Failed to load preset")(error);
++            throw this.errorHandler(t("Failed to load preset"))(error);
+         }
+     }
+ 
+@@ -152,7 +153,7 @@ export class PresetWidgetService<
+             };
+             await this.createPreset(newSettings);
+         } catch (error) {
+-            throw this.errorHandler("Failed to duplicate preset")(error);
++            throw this.errorHandler(t("Failed to duplicate preset"))(error);
+         }
+     }
+ }
+diff --git a/src/frontend/admin-overlay/src/services/scoreboardService.ts b/src/frontend/admin-overlay/src/services/scoreboardService.ts
+index 7023f76..5c7ab99 100644
+--- a/src/frontend/admin-overlay/src/services/scoreboardService.ts
++++ b/src/frontend/admin-overlay/src/services/scoreboardService.ts
+@@ -2,6 +2,7 @@ import { useMemo } from "react";
+ import { GroupInfo, ScoreboardSettings } from "@shared/api.ts";
+ import { AbstractSingleWidgetService } from "@admin/services/abstractSingleWidget.ts";
+ import { useServiceSnackbarErrorHandler } from "@admin/services/abstractWidgetWithStatus.ts";
++import { t } from "shared-code/i18n";
+ 
+ export class ScoreboardWidgetService extends AbstractSingleWidgetService<ScoreboardSettings> {
+     constructor() {
+@@ -12,7 +13,7 @@ export class ScoreboardWidgetService extends AbstractSingleWidgetService<Scorebo
+         return this.apiGet("/regions")
+             .catch(
+                 this.errorHandler(
+-                    "Failed to load list of groups of " + this.apiPath,
++                    t("Failed to load list of groups of ") + this.apiPath,
+                 ),
+             )
+             .then((r) => r as GroupInfo[]);
+diff --git a/src/frontend/admin-overlay/src/services/teamSpotlight.ts b/src/frontend/admin-overlay/src/services/teamSpotlight.ts
+index 051fd98..ab530f2 100644
+--- a/src/frontend/admin-overlay/src/services/teamSpotlight.ts
++++ b/src/frontend/admin-overlay/src/services/teamSpotlight.ts
+@@ -3,6 +3,7 @@ import { useWebsocket } from "../utils";
+ import { BASE_URL_BACKEND, BASE_URL_WS } from "../config";
+ import { useMemo, useState, useCallback } from "react";
+ import { AddTeamScoreRequest, InterestingTeam } from "@shared/api";
++import { t } from "shared-code/i18n";
+ 
+ interface TeamSpotlightService {
+     teamsList: InterestingTeam[];
+@@ -23,7 +24,7 @@ async function addScoreApi(requests: AddTeamScoreRequest[]) {
+         await apiPost(API_ENDPOINTS.ADD_SCORE, requests, "POST");
+     } catch (error) {
+         console.error(`Failed to add scores: ${error}`);
+-        throw new Error(`Failed to add scores`);
++        throw new Error(t("Failed to add scores"));
+     }
+ }
+ 
+@@ -44,7 +45,7 @@ export const useTeamSpotlightService = (): TeamSpotlightService => {
+             setError(null);
+         } catch (error) {
+             console.error(`Failed to parse WebSocket message: ${error}`);
+-            setError("Failed to update team data");
++            setError(t("Failed to update team data"));
+         }
+     }, []);
+ 
+@@ -64,7 +65,7 @@ export const useTeamSpotlightService = (): TeamSpotlightService => {
+             const errorMessage =
+                 error instanceof Error
+                     ? error.message
+-                    : "An unexpected error occurred";
++                    : t("An unexpected error occurred");
+             setError(errorMessage);
+             throw error;
+         } finally {
+diff --git a/src/frontend/admin-overlay/src/services/teamViewService.ts b/src/frontend/admin-overlay/src/services/teamViewService.ts
+index a5323d9..9c33588 100644
+--- a/src/frontend/admin-overlay/src/services/teamViewService.ts
++++ b/src/frontend/admin-overlay/src/services/teamViewService.ts
+@@ -11,6 +11,7 @@ import {
+ } from "@admin/services/abstractWidgetWithStatus.ts";
+ import { ObjectStatus } from "./abstractSingleWidget";
+ import { useReloadHandler } from "./reloadHandler";
++import { t } from "shared-code/i18n";
+ 
+ export type TeamViewContentType = "single" | "pvp" | "split";
+ 
+@@ -30,13 +31,13 @@ export class TeamViewWidgetService extends AbstractWidgetWithStatus<ExternalTeam
+         settings: ExternalTeamViewSettings,
+     ) {
+         return this.apiPost(`/${instance}/show_with_settings`, settings).catch(
+-            this.errorHandler("Failed to show " + this.apiPath),
++            this.errorHandler(t("Failed to show ") + this.apiPath),
+         );
+     }
+ 
+     hide(instance: TeamViewPosition) {
+         return this.apiPost(`/${instance}/hide`).catch(
+-            this.errorHandler("Failed to hide " + this.apiPath),
++            this.errorHandler(t("Failed to hide ") + this.apiPath),
+         );
+     }
+ 
+@@ -45,19 +46,19 @@ export class TeamViewWidgetService extends AbstractWidgetWithStatus<ExternalTeam
+         settings: ExternalTeamViewSettings,
+     ) {
+         return this.apiPost(`/${instance}`, settings).catch(
+-            this.errorHandler("Failed to set settings " + this.apiPath),
++            this.errorHandler(t("Failed to set settings ") + this.apiPath),
+         );
+     }
+ 
+     showAll() {
+         return this.apiPost("/show").catch(
+-            this.errorHandler("Failed to show all " + this.apiPath),
++            this.errorHandler(t("Failed to show all ") + this.apiPath),
+         );
+     }
+ 
+     hideAll() {
+         return this.apiPost("/hide").catch(
+-            this.errorHandler("Failed to hide all " + this.apiPath),
++            this.errorHandler(t("Failed to hide all ") + this.apiPath),
+         );
+     }
+ 
+@@ -65,7 +66,7 @@ export class TeamViewWidgetService extends AbstractWidgetWithStatus<ExternalTeam
+         return this.apiGet("/teams")
+             .catch(
+                 this.errorHandler(
+-                    "Failed to load list of groups of " + this.apiPath,
++                    t("Failed to load list of groups of ") + this.apiPath,
+                 ),
+             )
+             .then((r) => r as TeamInfo[]);
+@@ -75,7 +76,7 @@ export class TeamViewWidgetService extends AbstractWidgetWithStatus<ExternalTeam
+         return this.apiGet("/usage_stats")
+             .catch(
+                 this.errorHandler(
+-                    "Failed to load usage stats of " + this.apiPath,
++                    t("Failed to load usage stats of ") + this.apiPath,
+                 ),
+             )
+             .then((r) => r as WidgetUsageStatisticsEntry.per_team);
+diff --git a/src/frontend/admin-overlay/src/services/titleWidget.ts b/src/frontend/admin-overlay/src/services/titleWidget.ts
+index 12c4a18..f8d8716 100644
+--- a/src/frontend/admin-overlay/src/services/titleWidget.ts
++++ b/src/frontend/admin-overlay/src/services/titleWidget.ts
+@@ -1,6 +1,7 @@
+ import { useMemo } from "react";
+ import { PresetWidgetService } from "./presetWidget";
+ import { ErrorHandler } from "@shared/abstractWidget";
++import { t } from "shared-code/i18n";
+ 
+ export interface TitleTemplate {
+     id: string | number;
+@@ -24,7 +25,7 @@ export class TitleWidgetService<
+         try {
+             return await this.apiGet("/templates");
+         } catch (error) {
+-            throw this.errorHandler("Failed to load list of templates")(error);
++            throw this.errorHandler(t("Failed to load list of templates"))(error);
+         }
+     }
+ }
+diff --git a/src/frontend/common/package.json b/src/frontend/common/package.json
+index 7fc92b2..f6c7971 100644
+--- a/src/frontend/common/package.json
++++ b/src/frontend/common/package.json
+@@ -4,6 +4,7 @@
+     "./utils": "./src/utils.ts",
+     "./errors": "./src/errors.ts",
+     "./abstractWidget": "./src/abstractWidget.ts",
+-    "./package.json": "./package.json"
++    "./package.json": "./package.json",
++    "./i18n": "./src/i18n.ts"
+   }
+ }
 diff --git a/src/frontend/common/src/errors.ts b/src/frontend/common/src/errors.ts
 index 799a87c..79851ad 100644
 --- a/src/frontend/common/src/errors.ts
@@ -503,6 +2891,336 @@ index 799a87c..79851ad 100644
 +            snackBarEnqueue(error.message ? `${cause} · ${error.message}` : cause, { variant: "error" });
          };
      };
+diff --git a/src/frontend/common/src/i18n.ts b/src/frontend/common/src/i18n.ts
+new file mode 100644
+index 0000000..281b0ea
+--- /dev/null
++++ b/src/frontend/common/src/i18n.ts
+@@ -0,0 +1,324 @@
++// Hydro: the director's console in Chinese (default) or English. Texts are written in English in
++// the source and looked up here; text that arrives in Chinese (from Hydro) is looked up the other
++// way for English. The choice is kept in this browser, and switching reloads the page.
++export type Language = "zh" | "en";
++
++const STORAGE_KEY = "hydro-live-language";
++
++function stored(): Language {
++    try {
++        return localStorage.getItem(STORAGE_KEY) === "en" ? "en" : "zh";
++    } catch {
++        return "zh";
++    }
++}
++
++export const language: Language = stored();
++
++if (typeof document !== "undefined") {
++    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
++}
++
++export function setLanguage(next: Language) {
++    try {
++        localStorage.setItem(STORAGE_KEY, next);
++    } catch {
++        /* private mode: the choice lasts for this page only */
++    }
++    window.location.reload();
++}
++
++const zh: Record<string, string> = {
++    // Navigation
++    Home: "首页",
++    Overlay: "画面控制",
++    Configuration: "配置",
++    Controls: "控制台",
++    Titles: "字幕",
++    TeamView: "队伍画面",
++    Scoreboard: "榜单",
++    Ticker: "滚动条",
++    Analytics: "赛事分析",
++    Spotlight: "焦点队伍",
++    Media: "媒体文件",
++    "Backend Log": "后端日志",
++    "Contest Info": "比赛信息",
++    "Visual config": "画面配置",
++    "ICPC Live 3 Admin": "ICPC Live 导播台",
++    "Toggle overlay preview": "显示或隐藏画面预览",
++    "side menu": "侧边菜单",
++    "navigation menu": "导航菜单",
++    "open drawer": "打开菜单",
++    "Switch language": "切换语言",
++
++    // Home page
++    "Commit:": "提交：",
++    "Branch:": "分支：",
++    "Version:": "版本：",
++    "loading...": "加载中…",
++    "Loading...": "加载中…",
++    "Useful Links": "常用链接",
++    "Director controls /admin/controls": "导播控制 /admin/controls",
++    "OBS overlay /overlay?noStatus": "OBS 画面 /overlay?noStatus",
++    "Live settings": "直播设置",
++
++    // Controls
++    Queue: "评测队列",
++    Statistics: "题目统计",
++    "Full screen clock": "全屏时钟",
++    Show: "显示",
++    Hide: "隐藏",
++    Update: "更新",
++    "Clock Type": "时钟类型",
++    "Standard (countdown → contest time → over)": "标准（开赛倒计时 → 比赛用时 → 结束）",
++    "Countdown (countdown to start → countdown to finish → over)": "倒计时（距开始 → 距结束 → 结束）",
++    "Global time (timezone based)": "当地时间（按时区）",
++    "Show seconds": "显示秒",
++    Timezone: "时区",
++    "e.g., Europe/London, America/New_York": "例如 Asia/Shanghai、Europe/London",
++    Groups: "分组",
++    Normal: "正常",
++    Optimistic: "乐观",
++    Pessimistic: "悲观",
++    "All groups": "全部分组",
++
++    // 赛况总览
++    "Contest overview": "赛况总览",
++    "Screen language": "画面语言",
++    Chinese: "中文",
++    English: "English",
++    Title: "标题",
++    "Leave empty to use the contest title": "留空则使用比赛名称",
++    "Teams in the standings": "排名显示队数",
++    Panels: "显示内容",
++    Standings: "排名",
++    Schools: "学校",
++    "Recent accepts": "最近通过",
++    "Charts (submissions, solved, verdicts)": "图表（提交趋势、过题分布、评测结果）",
++    "Public data only: frozen like the public board, and rejected results are not told apart until the contest ends.":
++        "只使用公开榜数据：封榜规则与公开榜一致，比赛结束前不区分具体的错误类型。",
++
++    // Presets and tables
++    "Add new preset": "新建预设",
++    "No presets found": "暂无预设",
++    "Save changes": "保存修改",
++    "Edit row": "编辑",
++    "Delete row": "删除",
++    Edit: "编辑",
++    Save: "保存",
++    Delete: "删除",
++    Preview: "预览",
++    name: "名称",
++    url: "地址",
++    Type: "类型",
++    Text: "文本",
++    "Period (ms)": "周期（毫秒）",
++    "Add {type} preset": "添加{type}预设",
++    text: "文本",
++    image: "图片",
++    clock: "时钟",
++    scoreboard: "榜单",
++    empty: "空白",
++    Standard: "标准",
++    Countdown: "倒计时",
++    Global: "当地时间",
++    "w/ seconds": "带秒",
++    "no seconds": "不带秒",
++    "Invalid timezone": "时区无效",
++    "From {from} to {to}": "第 {from} 至 {to} 名",
++
++    // Titles
++    "Title preview": "字幕预览",
++    "SVG Preview": "SVG 预览",
++    "SVG preset": "SVG 模板",
++    "key: value": "名称: 值",
++    "No parameters": "无参数",
++    "Apply left preset": "使用左侧模板",
++    "Apply right preset": "使用右侧模板",
++    "Left template": "左侧模板",
++    "Right template": "右侧模板",
++    Template: "模板",
++    Data: "数据",
++    "Failed to load preview: {error}": "加载预览失败：{error}",
++    "Failed to load templates: {error}": "加载模板失败：{error}",
++
++    // Team view
++    Camera: "摄像头",
++    Screen: "屏幕",
++    Record: "录像",
++    Photo: "照片",
++    Empty: "空",
++    "{label} will be shown": "将显示{label}",
++    "{label} won't be shown": "不显示{label}",
++    "Multiple mode": "多画面模式",
++    "Task status": "题目状态",
++    "Team achievement": "队伍成就",
++    Achievements: "成就",
++    "Additional content": "附加内容",
++    All: "全部",
++    Auto: "自动",
++    Automode: "自动模式",
++    "Main content": "主画面",
++    "Media:": "媒体：",
++    "Name, ranking, submissions": "队名、排名与提交",
++    "Replace here": "替换到这里",
++    "Show here": "显示在这里",
++    Selected: "已选",
++    Search: "搜索",
++    Single: "单画面",
++    SplitScreen: "四分屏",
++    "Team name": "队伍名称",
++    "Team:": "队伍：",
++    TimeLine: "时间线",
++    "When enabled any modifications to the team instances will be applied after you press Show all":
++        "开启后，对各队伍画面的修改要点击“全部显示”后才生效",
++
++    // Spotlight
++    "Add score": "加分",
++    Reset: "重置",
++    "Score from": "起始分数",
++    "Score to": "结束分数",
++    "Failed to add scores: {error}": "加分失败：{error}",
++    "Failed to add scores": "加分失败",
++    "Failed to update team data": "更新队伍数据失败",
++    "An unexpected error occurred": "发生意外错误",
++
++    // Analytics
++    Messages: "消息",
++    Team: "队伍",
++    Problem: "题目",
++    Run: "提交",
++    Result: "结果",
++    Time: "时间",
++    "Featured run": "放大播放",
++    "Featured run:": "放大播放：",
++    "Featured run failed": "放大播放失败",
++    Advertisement: "公告",
++    PVP: "双队对比",
++    camera: "摄像头",
++    screen: "屏幕",
++    record: "录像",
++    photo: "照片",
++    reactionVideo: "选手反应",
++    achievement: "成就",
++    audio: "音频",
++    backup: "备用画面",
++    keylog: "键盘记录",
++    toolData: "工具数据",
++    TTL: "时长",
++
++    // Media files
++    "Upload or drop files here": "点击上传或把文件拖到这里",
++    "Drop here": "松开即可上传",
++    "Failed to load media files": "加载媒体文件失败",
++    "Failed to upload files": "上传文件失败",
++    "Failed to upload files {names}": "上传文件失败：{names}",
++
++    // Configuration
++    Examples: "示例",
++    "Failed to save visual config": "保存画面配置失败",
++    "Select an example…": "选择示例…",
++    "Failed to load {name} schema": "加载 {name} 的结构定义失败",
++    "Failed to load {name} data": "加载 {name} 的数据失败",
++    "Visual config cannot exceed 200 KB (UTF-8)": "画面配置不能超过 200 KB（UTF-8 编码）",
++    Contest: "比赛",
++    Problems: "题目",
++    Teams: "队伍",
++    Organizations: "学校",
++    Awards: "奖项",
++    Name: "名称",
++    "Result type": "计分类型",
++    Status: "状态",
++    "Contest length": "比赛时长",
++    "Freeze time": "封榜时间",
++    "Penalty per wrong attempt": "每次错误罚时",
++    "Penalty rounding mode": "罚时取整方式",
++    "Emulation speed": "回放速度",
++    "Show team without submissions": "显示没有提交的队伍",
++    Yes: "是",
++    No: "否",
++    "Problem color policy": "题目颜色规则",
++    "Custom:": "自定义：",
++    "Replace with {color} before start": "开赛前显示为 {color}",
++    "Replace with {color} before problem is solved": "题目被解出前显示为 {color}",
++    "Always show problem color": "始终显示题目颜色",
++    "Time in queue normal": "普通提交在队列停留",
++    "Time in queue FTS": "一血在队列停留",
++    "Time in queue featured": "放大提交在队列停留",
++    "Time in queue in progress": "评测中提交在队列停留",
++    "Max queue size": "队列最大长度",
++    "Max untested runs": "最多未评测提交",
++    "Scheduled start time": "计划开始时间",
++    "Hold time": "暂停时长",
++    "Start at": "开始于",
++    "Frozen at": "封榜于",
++    before: "未开始",
++    running: "进行中",
++    over: "已结束",
++    finalized: "已定榜",
++    Citation: "奖项名称",
++    "Max rank": "名次上限",
++    "Min score": "最低分数",
++    "Tie-break mode": "并列处理方式",
++    "Organization limit": "每校名额",
++    "Organization limit overrides": "每校名额例外",
++    "Chain organization limit": "链式每校名额",
++    "Chain organization limit overrides": "链式每校名额例外",
++    "Manual teams": "手动指定队伍",
++    Organization: "学校",
++    "Overridden value": "例外名额",
++    "Excluded groups": "排除的分组",
++    "Organization Limit": "每校名额",
++    "Overridden organization limits": "每校名额例外",
++    Order: "顺序",
++    Letter: "题号",
++    Color: "颜色",
++    Hidden: "隐藏",
++    "Max Score": "满分",
++    "Merge mode": "合并方式",
++    "FTS mode": "一血规则",
++    "Full name": "全称",
++    "Display name": "显示名称",
++    HashTag: "话题标签",
++    Medias: "媒体",
++    Logo: "校徽",
++    Logos: "校徽",
++    "Out Of Contest": "打星",
++
++    // Errors (the address of the widget follows)
++    "Failed to show ": "显示失败：",
++    "Failed to hide ": "隐藏失败：",
++    "Failed to set settings ": "保存设置失败：",
++    "Failed to show all ": "全部显示失败：",
++    "Failed to hide all ": "全部隐藏失败：",
++    "Failed to load list of groups of ": "加载分组失败：",
++    "Failed to load usage stats of ": "加载使用统计失败：",
++    "Failed to load status of ": "加载状态失败：",
++    "Failed to load {name} info": "加载 {name} 的状态失败",
++    "Failed to add preset": "添加预设失败",
++    "Failed to batch delete presets": "批量删除预设失败",
++    "Failed to batch update presets": "批量更新预设失败",
++    "Failed to create preset": "创建预设失败",
++    "Failed to delete preset": "删除预设失败",
++    "Failed to duplicate preset": "复制预设失败",
++    "Failed to edit preset": "修改预设失败",
++    "Failed to hide preset": "隐藏预设失败",
++    "Failed to show preset": "显示预设失败",
++    "Failed to load list of presets": "加载预设列表失败",
++    "Failed to load list of templates": "加载模板列表失败",
++    "Failed to load preset preview": "加载预设预览失败",
++    "Failed to load preset": "加载预设失败",
++    "Failed to load presets": "加载预设失败",
++    "Failed to toggle preset visibility": "切换预设显示失败",
++};
++
++const en: Record<string, string> = Object.fromEntries(
++    Object.entries(zh).map(([english, chinese]) => [chinese, english]),
++);
++
++/** The text in the console's language; `{name}` placeholders are filled from `params`. */
++export function t(text: string, params?: Record<string, string | number | null | undefined>): string {
++    const translated = language === "zh" ? (zh[text] ?? text) : (en[text] ?? text);
++    if (!params) return translated;
++    return translated.replace(/\{(\w+)\}/g, (match, key) => (key in params ? String(params[key] ?? "") : match));
++}
 diff --git a/src/frontend/common/src/utils.ts b/src/frontend/common/src/utils.ts
 index e0c89a5..4fb8075 100644
 --- a/src/frontend/common/src/utils.ts
@@ -516,19 +3234,679 @@ index e0c89a5..4fb8075 100644
                  }
                  return response;
              });
+diff --git a/src/frontend/overlay/src/components/layouts/MainLayout.tsx b/src/frontend/overlay/src/components/layouts/MainLayout.tsx
+index 739bcfa..b871d67 100644
+--- a/src/frontend/overlay/src/components/layouts/MainLayout.tsx
++++ b/src/frontend/overlay/src/components/layouts/MainLayout.tsx
+@@ -19,6 +19,7 @@ import Videos from "../organisms/widgets/Videos";
+ // import PVP from "../organisms/widgets/PVP";
+ import FullScreenClock from "../organisms/widgets/FullScreenClock";
+ import Locator from "../organisms/widgets/Locator";
++import ContestOverview from "../organisms/widgets/ContestOverview";
+ import { Widget } from "@shared/api";
+ import { LocationRectangle } from "@/utils/location-rectangle";
+ 
+@@ -100,6 +101,7 @@ const WIDGETS = {
+     // TeamPVPWidget: PVP, // Not actually a widget in backend.
+     FullScreenClockWidget: FullScreenClock,
+     TeamLocatorWidget: Locator,
++    ContestOverviewWidget: ContestOverview,
+ };
+ 
+ const useWidgets = () => {
+diff --git a/src/frontend/overlay/src/components/organisms/widgets/ContestOverview.tsx b/src/frontend/overlay/src/components/organisms/widgets/ContestOverview.tsx
+new file mode 100644
+index 0000000..4346465
+--- /dev/null
++++ b/src/frontend/overlay/src/components/organisms/widgets/ContestOverview.tsx
+@@ -0,0 +1,634 @@
++// Hydro: 赛况总览, the contest at a glance for the audience. The data is Hydro's public board
++// (frozen, rejected results masked while the contest runs), streamed on /overview.
++import React, { useEffect, useState } from "react";
++import styled from "styled-components";
++import { Settings } from "luxon";
++import c from "../../../config";
++
++type Language = "zh" | "en";
++
++export interface ContestOverviewSettings {
++    language: Language;
++    title: string;
++    topTeams: number;
++    showRanking: boolean;
++    showProblems: boolean;
++    showSchools: boolean;
++    showRecent: boolean;
++    showCharts: boolean;
++}
++
++interface ProblemStat {
++    label: string;
++    color: string | null;
++    solvedTeams: number;
++    attemptedTeams: number;
++    submissions: number;
++    accepted: number;
++    firstSolve: { minute: number; team: string; school: string } | null;
++}
++
++interface Overview {
++    hidden: boolean;
++    title: string;
++    status: "before" | "running" | "frozen" | "ended";
++    serverTime: number;
++    beginAt: number;
++    endAt: number;
++    lockAt: number | null;
++    teams?: number;
++    officialTeams?: number;
++    unofficialTeams?: number;
++    schools?: number;
++    problems?: number;
++    solvedProblems?: number;
++    submissions?: number;
++    accepted?: number;
++    acceptRate?: number;
++    solvedTeams?: number;
++    solvedTeamsRate?: number;
++    averageSolved?: number;
++    frozenRuns?: number;
++    topTeams?: { rank: number; name: string; school: string; solved: number; penaltyMinutes: number }[];
++    problemStats?: ProblemStat[];
++    schoolStats?: { name: string; teams: number; solvedTeams: number; solved: number; bestRank: number | null }[];
++    histogram?: { solved: number; teams: number }[];
++    verdicts?: { key: string; label: string; count: number }[];
++    recentAccepts?: { minute: number; team: string; school: string; problem: string; color: string | null; firstSolve: boolean; unofficial: boolean }[];
++    trend?: { minute: number; submissions: number; accepted: number }[];
++}
++
++const texts = {
++    zh: {
++        title: "赛况总览", before: "比赛尚未开始", running: "进行中", frozen: "封榜中", ended: "已结束", endedFrozen: "已结束 · 待揭晓",
++        elapsed: "已进行", remaining: "剩余", startsIn: "距开始", teams: "参赛队伍", schools: "参赛学校", submissions: "提交",
++        accepted: "通过", acceptRate: "提交通过率", solvedTeams: "已过题队伍", averageSolved: "平均过题", frozenRuns: "封榜后提交",
++        ranking: "排名", rankingHint: "正式队伍", frozenHint: "封榜时", problems: "题目", firstSolve: "一血", noSolve: "暂无通过",
++        schoolTable: "学校", recent: "最近通过", noRecent: "暂无通过", trend: "累计提交与通过", histogram: "过题数分布",
++        verdicts: "评测结果", solved: "题", penalty: "罚时", minute: "分", unofficial: "打星", teamsUnit: "队",
++        teamsWithUnofficial: "参赛队伍（打星 {n}）", schoolBest: "最佳", waiting: "正在连接…",
++        verdict: { ok: "通过", rejected: "未通过", wa: "答案错误", tle: "超时", mle: "内存超限", re: "运行错误", ce: "编译错误", other: "其他", pending: "评测中" } as Record<string, string>,
++    },
++    en: {
++        title: "Contest Overview", before: "Not started", running: "Running", frozen: "Frozen", ended: "Over", endedFrozen: "Over · results pending",
++        elapsed: "Elapsed", remaining: "Remaining", startsIn: "Starts in", teams: "Teams", schools: "Schools", submissions: "Submissions",
++        accepted: "Accepted", acceptRate: "Acceptance", solvedTeams: "Teams solved", averageSolved: "Avg. solved", frozenRuns: "After freeze",
++        ranking: "Standings", rankingHint: "official teams", frozenHint: "at freeze", problems: "Problems", firstSolve: "First", noSolve: "No solve yet",
++        schoolTable: "Schools", recent: "Recent accepts", noRecent: "No accepts yet", trend: "Submissions and accepts", histogram: "Problems solved",
++        verdicts: "Verdicts", solved: "", penalty: "pen.", minute: "min", unofficial: "star", teamsUnit: "teams",
++        teamsWithUnofficial: "Teams ({n} unofficial)", schoolBest: "best", waiting: "Connecting…",
++        verdict: { ok: "Accepted", rejected: "Rejected", wa: "Wrong answer", tle: "Time limit", mle: "Memory limit", re: "Run-time error", ce: "Compile error", other: "Other", pending: "Pending" } as Record<string, string>,
++    },
++};
++
++const verdictColors: Record<string, string> = {
++    ok: c.VERDICT_OK, rejected: c.VERDICT_NOK, wa: c.VERDICT_NOK, tle: "#d9822b", mle: "#b05fd6", re: "#e05d8f",
++    ce: "#7a8796", other: "#56606b", pending: c.VERDICT_UNKNOWN,
++};
++
++const now = () => Settings.now();
++
++function useOverview(): Overview | null {
++    const [overview, setOverview] = useState<Overview | null>(null);
++    useEffect(() => {
++        let socket: WebSocket | null = null;
++        let retry: ReturnType<typeof setTimeout> | null = null;
++        let closed = false;
++        const connect = () => {
++            socket = new WebSocket(`${c.BASE_URL_WS}/overview`);
++            socket.onmessage = (event) => {
++                try { setOverview(JSON.parse(event.data)); } catch (error) { console.error("overview: bad message", error); }
++            };
++            socket.onclose = () => { if (!closed) retry = setTimeout(connect, c.WEBSOCKET_RECONNECT_TIME); };
++        };
++        connect();
++        return () => {
++            closed = true;
++            if (retry) clearTimeout(retry);
++            socket?.close();
++        };
++    }, []);
++    return overview;
++}
++
++function useClock() {
++    const [time, setTime] = useState(now());
++    useEffect(() => {
++        const timer = setInterval(() => setTime(now()), 1000);
++        return () => clearInterval(timer);
++    }, []);
++    return time;
++}
++
++const pad = (value: number) => String(value).padStart(2, "0");
++function duration(ms: number) {
++    const seconds = Math.max(0, Math.floor(ms / 1000));
++    return `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`;
++}
++const percent = (value: number | undefined) => `${(value ?? 0).toFixed(1)}%`;
++
++// Readable text on a problem's balloon colour.
++function textOn(background: string | null) {
++    const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})/i.exec(background || "");
++    if (!match) return "#fff";
++    const [r, g, b] = match.slice(1).map((part) => parseInt(part, 16));
++    return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "#111" : "#fff";
++}
++
++const Wrap = styled.div`
++    box-sizing: border-box;
++    display: flex;
++    flex-direction: column;
++    gap: 14px;
++    width: 100%;
++    height: 100%;
++    padding: 20px 24px;
++    overflow: hidden;
++
++    font-family: ${c.GLOBAL_DEFAULT_FONT_FAMILY};
++    font-size: 22px;
++    color: ${c.GLOBAL_TEXT_COLOR};
++
++    background: ${c.GLOBAL_BACKGROUND_COLOR};
++    border-radius: ${c.GLOBAL_BORDER_RADIUS};
++`;
++
++const Head = styled.div`
++    display: flex;
++    gap: 20px;
++    align-items: center;
++`;
++
++const Title = styled.div`
++    overflow: hidden;
++    flex: 1;
++    font-size: 36px;
++    font-weight: ${c.GLOBAL_DEFAULT_FONT_WEIGHT_BOLD};
++    text-overflow: ellipsis;
++    white-space: nowrap;
++`;
++
++const Pill = styled.div<{ $tone: string }>`
++    padding: 4px 16px;
++    font-size: 22px;
++    font-weight: ${c.GLOBAL_DEFAULT_FONT_WEIGHT_BOLD};
++    background: ${({ $tone }) => $tone};
++    border-radius: 999px;
++`;
++
++const Clock = styled.div`
++    display: flex;
++    flex-direction: column;
++    align-items: flex-end;
++    line-height: 1.1;
++
++    small {
++        font-size: 16px;
++        opacity: 0.7;
++    }
++
++    b {
++        font-size: 34px;
++        font-variant-numeric: tabular-nums;
++    }
++`;
++
++const Progress = styled.div`
++    position: relative;
++    overflow: hidden;
++    height: 10px;
++    background: rgb(255 255 255 / 12%);
++    border-radius: 5px;
++`;
++
++const ProgressBar = styled.div<{ $width: number }>`
++    width: ${({ $width }) => $width}%;
++    height: 100%;
++    background: ${c.CONTEST_COLOR};
++`;
++
++const Freeze = styled.div<{ $left: number }>`
++    position: absolute;
++    top: 0;
++    right: 0;
++    bottom: 0;
++    left: ${({ $left }) => $left}%;
++    background: repeating-linear-gradient(135deg, rgb(110 180 255 / 35%) 0 6px, transparent 6px 12px);
++`;
++
++const Kpis = styled.div`
++    display: grid;
++    grid-auto-columns: 1fr;
++    grid-auto-flow: column;
++    gap: 12px;
++`;
++
++const Kpi = styled.div`
++    padding: 10px 14px;
++    background: rgb(255 255 255 / 6%);
++    border-radius: 10px;
++
++    b {
++        display: block;
++        font-size: 34px;
++        font-variant-numeric: tabular-nums;
++        line-height: 1.15;
++    }
++
++    span {
++        font-size: 17px;
++        opacity: 0.75;
++    }
++`;
++
++const Main = styled.div<{ $columns: string }>`
++    display: grid;
++    flex: 1;
++    grid-template-columns: ${({ $columns }) => $columns};
++    gap: 14px;
++    min-height: 0;
++`;
++
++const Panel = styled.section`
++    display: flex;
++    flex-direction: column;
++    gap: 8px;
++    min-width: 0;
++    min-height: 0;
++    padding: 12px 16px;
++    background: rgb(255 255 255 / 5%);
++    border-radius: 10px;
++`;
++
++const PanelHead = styled.div`
++    display: flex;
++    gap: 10px;
++    align-items: baseline;
++
++    h2 {
++        margin: 0;
++        font-size: 22px;
++        font-weight: ${c.GLOBAL_DEFAULT_FONT_WEIGHT_BOLD};
++    }
++
++    span {
++        font-size: 15px;
++        opacity: 0.6;
++    }
++`;
++
++const Rows = styled.div`
++    display: flex;
++    flex-direction: column;
++    gap: 4px;
++    min-height: 0;
++`;
++
++const Row = styled.div<{ $columns: string }>`
++    display: grid;
++    grid-template-columns: ${({ $columns }) => $columns};
++    gap: 10px;
++    align-items: center;
++    min-width: 0;
++    padding: 5px 8px;
++    font-size: 20px;
++    background: rgb(255 255 255 / 4%);
++    border-radius: 6px;
++`;
++
++const Cut = styled.div`
++    overflow: hidden;
++    min-width: 0;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++
++    small {
++        margin-left: 8px;
++        font-size: 15px;
++        opacity: 0.6;
++    }
++`;
++
++const Num = styled.div`
++    font-variant-numeric: tabular-nums;
++    text-align: right;
++`;
++
++const Problems = styled.div<{ $count: number }>`
++    display: grid;
++    grid-template-columns: repeat(${({ $count }) => ($count > 12 ? 3 : 2)}, minmax(0, 1fr));
++    gap: 8px;
++    align-content: start;
++    min-height: 0;
++`;
++
++const ProblemTile = styled.div`
++    display: grid;
++    grid-template-columns: 44px minmax(0, 1fr);
++    gap: 10px;
++    align-items: center;
++    padding: 6px 8px;
++    background: rgb(255 255 255 / 4%);
++    border-radius: 6px;
++`;
++
++const Balloon = styled.div<{ $color: string | null }>`
++    display: flex;
++    align-items: center;
++    justify-content: center;
++    width: 44px;
++    height: 44px;
++    font-size: 24px;
++    font-weight: ${c.GLOBAL_DEFAULT_FONT_WEIGHT_BOLD};
++    color: ${({ $color }) => textOn($color)};
++    background: ${({ $color }) => $color || "#556"};
++    border-radius: 8px;
++`;
++
++const Meter = styled.div<{ $width: number }>`
++    position: relative;
++    overflow: hidden;
++    height: 6px;
++    margin-top: 4px;
++    background: rgb(255 255 255 / 10%);
++    border-radius: 3px;
++
++    &::after {
++        content: "";
++        position: absolute;
++        inset: 0 auto 0 0;
++        width: ${({ $width }) => $width}%;
++        background: ${c.VERDICT_OK};
++    }
++`;
++
++const Side = styled.div`
++    display: flex;
++    flex-direction: column;
++    gap: 14px;
++    min-width: 0;
++    min-height: 0;
++`;
++
++const Charts = styled.div`
++    display: grid;
++    grid-template-columns: 1.4fr 1fr 1fr;
++    gap: 14px;
++    height: 210px;
++`;
++
++const Empty = styled.div`
++    padding: 8px;
++    font-size: 18px;
++    opacity: 0.55;
++`;
++
++const Center = styled.div`
++    display: flex;
++    flex: 1;
++    flex-direction: column;
++    gap: 20px;
++    align-items: center;
++    justify-content: center;
++    font-size: 40px;
++
++    b {
++        font-size: 96px;
++        font-variant-numeric: tabular-nums;
++    }
++`;
++
++function TrendChart({ trend }: { trend: NonNullable<Overview["trend"]> }) {
++    const width = 600;
++    const height = 140;
++    const top = Math.max(1, ...trend.map((point) => point.submissions));
++    const last = trend[trend.length - 1]?.minute || 1;
++    const line = (key: "submissions" | "accepted") => trend
++        .map((point, index) => `${index ? "L" : "M"}${((point.minute / last) * width).toFixed(1)},${(height - (point[key] / top) * height).toFixed(1)}`)
++        .join(" ");
++    if (!trend.length) return null;
++    return (
++        <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ width: "100%", flex: 1, minHeight: 0 }}>
++            <path d={`${line("submissions")} L${width},${height} L0,${height} Z`} fill="rgb(120 170 255 / 18%)" />
++            <path d={line("submissions")} fill="none" stroke="#78aaff" strokeWidth="3" vectorEffect="non-scaling-stroke" />
++            <path d={line("accepted")} fill="none" stroke={c.VERDICT_OK} strokeWidth="3" vectorEffect="non-scaling-stroke" />
++        </svg>
++    );
++}
++
++function Histogram({ bins }: { bins: NonNullable<Overview["histogram"]> }) {
++    const top = Math.max(1, ...bins.map((bin) => bin.teams));
++    return (
++        <div style={{ display: "flex", flex: 1, gap: 4, alignItems: "flex-end", minHeight: 0 }}>
++            {bins.map((bin) => (
++                <div key={bin.solved} style={{ display: "flex", flex: 1, flexDirection: "column", alignItems: "center", height: "100%", justifyContent: "flex-end", fontSize: 14 }}>
++                    <span style={{ opacity: 0.8 }}>{bin.teams || ""}</span>
++                    <div style={{ width: "100%", height: `${(bin.teams / top) * 70}%`, minHeight: bin.teams ? 3 : 0, background: c.CONTEST_COLOR, borderRadius: "3px 3px 0 0" }} />
++                    <span style={{ opacity: 0.6 }}>{bin.solved}</span>
++                </div>
++            ))}
++        </div>
++    );
++}
++
++function Verdicts({ verdicts, names }: { verdicts: NonNullable<Overview["verdicts"]>; names: Record<string, string> }) {
++    const total = verdicts.reduce((sum, verdict) => sum + verdict.count, 0);
++    const shown = verdicts.filter((verdict) => verdict.count);
++    return (
++        <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1, minHeight: 0 }}>
++            <div style={{ display: "flex", height: 16, overflow: "hidden", borderRadius: 8, background: "rgb(255 255 255 / 8%)" }}>
++                {shown.map((verdict) => (
++                    <div key={verdict.key} style={{ width: `${(verdict.count / Math.max(1, total)) * 100}%`, background: verdictColors[verdict.key] || "#666" }} />
++                ))}
++            </div>
++            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px", fontSize: 16 }}>
++                {shown.map((verdict) => (
++                    <div key={verdict.key} style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
++                        <i style={{ width: 10, height: 10, borderRadius: 5, background: verdictColors[verdict.key] || "#666", flex: "none" }} />
++                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{names[verdict.key] || verdict.label}</span>
++                        <b style={{ fontVariantNumeric: "tabular-nums" }}>{verdict.count}</b>
++                    </div>
++                ))}
++            </div>
++        </div>
++    );
++}
++
++export const ContestOverview = ({ widgetData }: { widgetData: { settings: ContestOverviewSettings } }) => {
++    const settings: ContestOverviewSettings = {
++        language: "zh", title: "", topTeams: 10, showRanking: true, showProblems: true, showSchools: true, showRecent: true, showCharts: true,
++        ...widgetData.settings,
++    };
++    const t = texts[settings.language] ?? texts.zh;
++    const overview = useOverview();
++    const time = useClock();
++    if (!overview) return <Wrap><Center>{t.waiting}</Center></Wrap>;
++
++    const title = settings.title.trim() || overview.title || t.title;
++    const elapsed = Math.min(Math.max(time - overview.beginAt, 0), overview.endAt - overview.beginAt);
++    const total = Math.max(1, overview.endAt - overview.beginAt);
++    const before = time < overview.beginAt;
++    const ended = time >= overview.endAt;
++    const frozenAfterEnd = ended && (overview.frozenRuns ?? 0) > 0;
++    const status = before ? "before" : ended ? "ended" : overview.lockAt !== null && time >= overview.lockAt ? "frozen" : "running";
++    const tone = { before: "#6b7280", running: c.VERDICT_OK, frozen: "#3b82c4", ended: "#8b5cf6" }[status];
++    const statusText = status === "ended" && frozenAfterEnd ? t.endedFrozen : t[status];
++    const clock = before
++        ? <Clock><small>{t.startsIn}</small><b>{duration(overview.beginAt - time)}</b></Clock>
++        : <>
++            <Clock><small>{t.elapsed}</small><b>{duration(elapsed)}</b></Clock>
++            <Clock><small>{t.remaining}</small><b>{duration(overview.endAt - Math.max(time, overview.beginAt))}</b></Clock>
++        </>;
++    const header = (
++        <>
++            <Head>
++                <Title>{title}</Title>
++                <Pill $tone={tone}>{statusText}</Pill>
++                {clock}
++            </Head>
++            <Progress>
++                <ProgressBar $width={(elapsed / total) * 100} />
++                {overview.lockAt !== null && <Freeze $left={((overview.lockAt - overview.beginAt) / total) * 100} />}
++            </Progress>
++        </>
++    );
++    if (overview.hidden) {
++        return (
++            <Wrap>
++                {header}
++                <Center>
++                    <div>{t.before}</div>
++                    {before && <b>{duration(overview.beginAt - time)}</b>}
++                </Center>
++            </Wrap>
++        );
++    }
++
++    const frozen = status === "frozen" || frozenAfterEnd;
++    const kpis: [React.ReactNode, string][] = [
++        [overview.teams, overview.unofficialTeams ? t.teamsWithUnofficial.replace("{n}", String(overview.unofficialTeams)) : t.teams],
++        ...(overview.schools ? [[overview.schools, t.schools] as [React.ReactNode, string]] : []),
++        [overview.submissions, t.submissions],
++        [overview.accepted, t.accepted],
++        [percent(overview.acceptRate), t.acceptRate],
++        [`${overview.solvedTeams} · ${percent(overview.solvedTeamsRate)}`, t.solvedTeams],
++        [overview.averageSolved, t.averageSolved],
++        ...(frozen ? [[overview.frozenRuns, t.frozenRuns] as [React.ReactNode, string]] : []),
++    ];
++    const schools = settings.showSchools ? overview.schoolStats ?? [] : [];
++    const showSide = schools.length > 0 || settings.showRecent;
++    const columns = [
++        settings.showRanking ? "minmax(0, 1.15fr)" : null,
++        settings.showProblems ? "minmax(0, 1.2fr)" : null,
++        showSide ? "minmax(0, 1fr)" : null,
++    ].filter(Boolean).join(" ") || "1fr";
++    const problems = overview.problemStats ?? [];
++    const teams = (overview.topTeams ?? []).slice(0, settings.topTeams);
++
++    return (
++        <Wrap>
++            {header}
++            <Kpis>
++                {kpis.map(([value, label]) => <Kpi key={label}><b>{value ?? 0}</b><span>{label}</span></Kpi>)}
++            </Kpis>
++            <Main $columns={columns}>
++                {settings.showRanking && (
++                    <Panel>
++                        <PanelHead><h2>{t.ranking}</h2><span>{frozen ? `${t.rankingHint} · ${t.frozenHint}` : t.rankingHint}</span></PanelHead>
++                        <Rows>
++                            {teams.map((team) => (
++                                <Row key={`${team.rank}-${team.name}`} $columns="40px minmax(0, 1fr) 44px 64px">
++                                    <Num style={{ fontWeight: 700, textAlign: "center" }}>{team.rank}</Num>
++                                    <Cut>{team.name}{team.school && <small>{team.school}</small>}</Cut>
++                                    <Num style={{ fontWeight: 700 }}>{team.solved}</Num>
++                                    <Num style={{ opacity: 0.7 }}>{team.penaltyMinutes}</Num>
++                                </Row>
++                            ))}
++                        </Rows>
++                    </Panel>
++                )}
++                {settings.showProblems && (
++                    <Panel>
++                        <PanelHead><h2>{t.problems}</h2><span>{`${overview.solvedProblems ?? 0} / ${overview.problems ?? 0}`}</span></PanelHead>
++                        <Problems $count={problems.length}>
++                            {problems.map((problem) => (
++                                <ProblemTile key={problem.label}>
++                                    <Balloon $color={problem.color}>{problem.label}</Balloon>
++                                    <div style={{ minWidth: 0 }}>
++                                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 19 }}>
++                                            <b style={{ fontVariantNumeric: "tabular-nums" }}>{problem.solvedTeams} / {problem.attemptedTeams}</b>
++                                            <span style={{ opacity: 0.7, fontSize: 16 }}>{problem.submissions ? percent((problem.accepted / problem.submissions) * 100) : "—"}</span>
++                                        </div>
++                                        <Meter $width={problem.attemptedTeams ? (problem.solvedTeams / problem.attemptedTeams) * 100 : 0} />
++                                        <Cut style={{ fontSize: 15, opacity: 0.75, marginTop: 3 }}>
++                                            {problem.firstSolve ? `${t.firstSolve} ${problem.firstSolve.minute}${t.minute} · ${problem.firstSolve.team}` : t.noSolve}
++                                        </Cut>
++                                    </div>
++                                </ProblemTile>
++                            ))}
++                        </Problems>
++                    </Panel>
++                )}
++                {showSide && (
++                    <Side>
++                        {schools.length > 0 && (
++                            <Panel style={{ flex: settings.showRecent ? "0 1 auto" : 1 }}>
++                                <PanelHead><h2>{t.schoolTable}</h2></PanelHead>
++                                <Rows>
++                                    {schools.slice(0, settings.showRecent ? 5 : 10).map((school) => (
++                                        <Row key={school.name} $columns="minmax(0, 1fr) auto auto">
++                                            <Cut>{school.name}</Cut>
++                                            <Num style={{ opacity: 0.75, fontSize: 16 }}>{`${school.solvedTeams}/${school.teams} ${t.teamsUnit}`}</Num>
++                                            <Num style={{ fontWeight: 700 }}>{school.bestRank ? `${t.schoolBest} ${school.bestRank}` : "—"}</Num>
++                                        </Row>
++                                    ))}
++                                </Rows>
++                            </Panel>
++                        )}
++                        {settings.showRecent && (
++                            <Panel style={{ flex: 1 }}>
++                                <PanelHead><h2>{t.recent}</h2></PanelHead>
++                                <Rows>
++                                    {(overview.recentAccepts ?? []).length ? (overview.recentAccepts ?? []).slice(0, schools.length ? 5 : 9).map((run, index) => (
++                                        <Row key={`${run.minute}-${run.team}-${run.problem}-${index}`} $columns="34px minmax(0, 1fr) auto">
++                                            <Balloon $color={run.color} style={{ width: 32, height: 32, fontSize: 18 }}>{run.problem}</Balloon>
++                                            <Cut>
++                                                {run.team}
++                                                {run.firstSolve && <small style={{ color: "#ffd75e", opacity: 1 }}>{t.firstSolve}</small>}
++                                                {run.unofficial && <small>{t.unofficial}</small>}
++                                            </Cut>
++                                            <Num style={{ opacity: 0.7, fontSize: 17 }}>{`${run.minute}${t.minute}`}</Num>
++                                        </Row>
++                                    )) : <Empty>{t.noRecent}</Empty>}
++                                </Rows>
++                            </Panel>
++                        )}
++                    </Side>
++                )}
++            </Main>
++            {settings.showCharts && (
++                <Charts>
++                    <Panel>
++                        <PanelHead>
++                            <h2>{t.trend}</h2>
++                            <span><span style={{ color: "#78aaff", opacity: 1 }}>■</span> {t.submissions} <span style={{ color: c.VERDICT_OK, opacity: 1 }}>■</span> {t.accepted}</span>
++                        </PanelHead>
++                        <TrendChart trend={overview.trend ?? []} />
++                    </Panel>
++                    <Panel>
++                        <PanelHead><h2>{t.histogram}</h2></PanelHead>
++                        <Histogram bins={overview.histogram ?? []} />
++                    </Panel>
++                    <Panel>
++                        <PanelHead><h2>{t.verdicts}</h2></PanelHead>
++                        <Verdicts verdicts={overview.verdicts ?? []} names={t.verdict} />
++                    </Panel>
++                </Charts>
++            )}
++        </Wrap>
++    );
++};
++
++ContestOverview.overrideTimeout = c.SVG_APPEAR_TIME;
++
++export default ContestOverview;
 diff --git a/src/frontend/overlay/src/components/organisms/widgets/scoreboard/ScoreboardContainer.tsx b/src/frontend/overlay/src/components/organisms/widgets/scoreboard/ScoreboardContainer.tsx
 index 79cee2c..9f77f8f 100644
 --- a/src/frontend/overlay/src/components/organisms/widgets/scoreboard/ScoreboardContainer.tsx
 +++ b/src/frontend/overlay/src/components/organisms/widgets/scoreboard/ScoreboardContainer.tsx
 @@ -61,6 +61,9 @@ interface ScoreboardRowsProps {
-
+ 
  const ScoreboardRows = ({ settings, onPage }: ScoreboardRowsProps) => {
      const rows = useScoreboardRows(settings.optimismLevel, settings.group);
 +    // Hydro: a sub-board shows its own ranks and medals.
 +    const group =
 +        settings.group && settings.group !== "all" ? settings.group : null;
      const rowHeight = c.SCOREBOARD_ROW_HEIGHT + c.SCOREBOARD_ROW_PADDING;
-
+ 
      const targetScrollPos = useScroller(
 @@ -142,8 +145,18 @@ const ScoreboardRows = ({ settings, onPage }: ScoreboardRowsProps) => {
                      subscribeScroll={subscribe}
@@ -551,8 +3929,20 @@ index 79cee2c..9f77f8f 100644
                      contestData={contestData}
                  />
              ))}
+diff --git a/src/frontend/overlay/src/config.interface.ts b/src/frontend/overlay/src/config.interface.ts
+index b8f7a07..a5ef73d 100644
+--- a/src/frontend/overlay/src/config.interface.ts
++++ b/src/frontend/overlay/src/config.interface.ts
+@@ -374,6 +374,7 @@ export interface OverlayConfig {
+         statistics: LocationRectangle;
+         ticker: LocationRectangle;
+         fullScreenClock: LocationRectangle;
++        overview: LocationRectangle;
+         teamLocator: LocationRectangle;
+         teamViewSingle: LocationRectangle;
+         teamViewPvpTop: LocationRectangle;
 diff --git a/src/frontend/overlay/src/config.ts b/src/frontend/overlay/src/config.ts
-index ce030a2..eb2e5a8 100644
+index ce030a2..5f2121b 100644
 --- a/src/frontend/overlay/src/config.ts
 +++ b/src/frontend/overlay/src/config.ts
 @@ -4,14 +4,13 @@ import { faviconTemplate } from "@/consts";
@@ -560,7 +3950,7 @@ index ce030a2..eb2e5a8 100644
  import type { OverlayConfig, OverlayConfigOverride } from "./config.interface";
  import { AwardEffect } from "@/utils/awards";
 +import { Settings } from "luxon";
-
+ 
 -const WS_PROTO = window.location.protocol === "https:" ? "wss://" : "ws://";
 -const HTTP_PROTO =
 -    window.location.protocol === "https:" ? "https://" : "http://";
@@ -573,7 +3963,7 @@ index ce030a2..eb2e5a8 100644
 +const VISUAL_CONFIG_URL = `${HYDRO_LIVE.overlayApi}/visualConfig.json`;
 +// Hydro: clocks follow the server's time (the page keeps HYDRO_LIVE.clockOffset measured).
 +Settings.now = () => Date.now() + (HYDRO_LIVE.clockOffset ?? 0);
-
+ 
  const urlParams = new URLSearchParams(window.location.search);
  const queryVisualConfig = JSON.parse(
 @@ -41,19 +40,8 @@ function getDefaultConfig(): EvaluatableTo<OverlayConfig> {
@@ -595,9 +3985,18 @@ index ce030a2..eb2e5a8 100644
 -            "/api/overlay",
 +        BASE_URL_WS: HYDRO_LIVE.overlayWs,
 +        BASE_URL_BACKEND: HYDRO_LIVE.overlayApi,
-
+ 
          // Non Styling configs
          WEBSOCKET_RECONNECT_TIME: 5000, // ms
+@@ -449,6 +437,8 @@ function getDefaultConfig(): EvaluatableTo<OverlayConfig> {
+             statistics: Location(16, 662, 1488, 338),
+             ticker: Location(16, 1016, 1888, 48),
+             fullScreenClock: Location(16, 16, 1488, 984),
++            // Hydro: 赛况总览, in the scoreboard's place beside the queue.
++            overview: Location(16, 16, 1488, 984),
+             teamLocator: Location(0, 0, 1920, 1080),
+             teamViewSingle: Location(16, 16, 1488, 984),
+             teamViewPvpTop: Location(16, 16, 1488, 984 / 2 + 16),
 diff --git a/src/frontend/overlay/src/redux/contest/scoreboard.ts b/src/frontend/overlay/src/redux/contest/scoreboard.ts
 index d8fd89d..46a0040 100644
 --- a/src/frontend/overlay/src/redux/contest/scoreboard.ts
@@ -610,7 +4009,7 @@ index d8fd89d..46a0040 100644
 +    groupRankById: Record<string, Record<TeamId, number>>;
 +    groupIdAwards: Record<string, Record<TeamId, Exclude<Award, "teams">[]>>;
  };
-
+ 
  export type ScoreboardState = {
 @@ -33,6 +36,8 @@ const initialState: ScoreboardState = Object.fromEntries(
              awards: [],
@@ -624,7 +4023,7 @@ index d8fd89d..46a0040 100644
 @@ -88,6 +93,39 @@ const scoreboardSlice = createSlice({
                  s.rankById = nextRankById;
              }
-
+ 
 +            const hydroGroups =
 +                (
 +                    diff as ScoreboardDiff & {

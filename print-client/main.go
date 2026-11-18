@@ -117,6 +117,11 @@ type Client struct {
 
 var errUnauthorized = errors.New("连接信息无效或已重新生成")
 
+// The server answered and refused (4xx): retrying the same request cannot help.
+type refusedError struct{ message string }
+
+func (e refusedError) Error() string { return e.message }
+
 func (c *Client) call(action string, body any, out any) error {
 	data, _ := json.Marshal(body)
 	req, err := http.NewRequest("POST", fmt.Sprintf("%s/xcpcio-print/%s/%s", c.conn.URL, c.conn.ID, action), bytes.NewReader(data))
@@ -141,13 +146,16 @@ func (c *Client) call(action string, body any, out any) error {
 			Error any `json:"error"`
 		}
 		json.Unmarshal(payload, &e)
-		if message, ok := e.Error.(string); ok {
-			return errors.New(message)
+		message := fmt.Sprintf("Hydro 返回 %d", res.StatusCode)
+		if text, ok := e.Error.(string); ok {
+			message = text
+		} else if m, ok := e.Error.(map[string]any); ok && m["message"] != nil {
+			message = fmt.Sprint(m["message"])
 		}
-		if m, ok := e.Error.(map[string]any); ok && m["message"] != nil {
-			return fmt.Errorf("%v", m["message"])
+		if res.StatusCode >= 400 && res.StatusCode < 500 {
+			return refusedError{message}
 		}
-		return fmt.Errorf("Hydro 返回 %d", res.StatusCode)
+		return errors.New(message)
 	}
 	if out != nil {
 		return json.Unmarshal(payload, out)
@@ -206,6 +214,24 @@ func (b *Balancer) pick(printers []SysPrinter, prefs map[string]Preference) (str
 	}
 	b.current[best] -= total
 	return best, true
+}
+
+// How many printers can take a job right now: enabled, working and not resting after a failure.
+func (b *Balancer) available(printers []SysPrinter, prefs map[string]Preference) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n := 0
+	for _, p := range printers {
+		pref, ok := prefs[p.Name]
+		if !ok || !pref.Enabled || p.Status == "offline" || p.Status == "error" || p.Status == "paused" {
+			continue
+		}
+		if until, resting := b.resting[p.Name]; resting && time.Now().Before(until) {
+			continue
+		}
+		n++
+	}
+	return n
 }
 
 func (b *Balancer) rest(name string) {
@@ -284,7 +310,8 @@ func run(client *Client, paper Paper) error {
 		if poll < time.Second {
 			poll = 3 * time.Second
 		}
-		slots := usable(printers, reply.Preferences)
+		// Only printers that can print now: one resting after a failure takes no new jobs.
+		slots := balancer.available(printers, reply.Preferences)
 		if !reply.Enabled || slots == 0 {
 			time.Sleep(poll)
 			continue
@@ -302,32 +329,54 @@ func run(client *Client, paper Paper) error {
 			continue
 		}
 		failures = 0
+		released := false
 		for _, job := range next.Jobs {
 			printer := job.Printer
 			if printer == "" || !hasPrinter(printers, printer) {
 				var ok bool
 				if printer, ok = balancer.pick(printers, reply.Preferences); !ok {
-					client.call("report", map[string]any{"id": job.ID, "status": "failed", "message": "没有可用的打印机"}, nil)
+					// Not this request's fault: hand it back without using up one of its attempts.
+					released = true
+					report(client, map[string]any{"id": job.ID, "status": "released", "message": "没有可用的打印机"})
 					continue
 				}
 			}
 			start := time.Now()
 			err := printTo(printer, job, paper)
-			report := map[string]any{"id": job.ID, "printer": printer, "status": "printed"}
+			result := map[string]any{"id": job.ID, "printer": printer, "status": "printed"}
 			if err != nil {
 				balancer.rest(printer)
-				report["status"], report["message"] = "failed", err.Error()
+				result["status"], result["message"] = "failed", err.Error()
 				logf("打印失败  %s → %s：%v", job.Title, printer, err)
 			} else {
 				logf("已打印  %s → %s（%.1f 秒）", job.Title, printer, time.Since(start).Seconds())
 			}
-			if err := client.call("report", report, nil); err != nil {
+			if err := report(client, result); err != nil {
 				logf("回报结果失败：%v", err)
 			}
 		}
-		if len(next.Jobs) == 0 {
+		if len(next.Jobs) == 0 || released {
 			time.Sleep(poll)
 		}
+	}
+}
+
+// reportRetries spaces the attempts to report a result. A printout whose result never reaches Hydro
+// goes back to the queue after five minutes and is printed again, so a short outage must not lose it.
+var reportRetries = []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 30 * time.Second}
+
+func report(client *Client, body map[string]any) error {
+	var err error
+	for attempt := 0; ; attempt++ {
+		if err = client.call("report", body, nil); err == nil {
+			return nil
+		}
+		var refused refusedError
+		if errors.Is(err, errUnauthorized) || errors.As(err, &refused) || attempt >= len(reportRetries) {
+			return err
+		}
+		logf("回报结果失败：%v（%d 秒后重试）", err, int(reportRetries[attempt].Seconds()))
+		time.Sleep(reportRetries[attempt])
 	}
 }
 
@@ -435,8 +484,25 @@ func main() {
 	}
 	path := configPath()
 	config, saved := loadConfig(path)
+	// Flags override the saved choices and are saved with them.
+	changed := false
+	if *paperName != "" {
+		choice := "A4"
+		if strings.EqualFold(*paperName, "letter") {
+			choice = "Letter"
+		} else if !strings.EqualFold(*paperName, "a4") {
+			fmt.Println("纸张只能是 A4 或 Letter")
+			exit(1)
+		}
+		if config.Paper != choice {
+			config.Paper, changed = choice, true
+		}
+	}
+	if *insecure && !config.Insecure {
+		config.Insecure, changed = true, true
+	}
 	paper := A4
-	if strings.EqualFold(*paperName, "letter") || strings.EqualFold(config.Paper, "letter") {
+	if strings.EqualFold(config.Paper, "letter") {
 		paper = Letter
 	}
 	if *sample != "" {
@@ -476,22 +542,16 @@ func main() {
 		}
 		config.Connection = conn
 	}
-	if *insecure {
-		config.Insecure = true
-	}
-	if *paperName != "" {
-		config.Paper = *paperName
-	}
 	for {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		if config.Insecure {
 			transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 		}
 		client := &Client{conn: config.Connection, http: &http.Client{Timeout: 30 * time.Second, Transport: transport}}
-		if !saved {
+		if !saved || changed {
 			if err := saveConfig(path, config); err == nil {
 				fmt.Println("连接信息已保存到", path)
-				saved = true
+				saved, changed = true, false
 			}
 		}
 		fmt.Printf("连接 %s …\n", config.URL)

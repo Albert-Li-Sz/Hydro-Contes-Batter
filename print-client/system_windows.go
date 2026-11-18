@@ -161,6 +161,7 @@ const (
 	taBaseline    = 24
 	bkTransparent = 1
 	nullBrush     = 5
+	systemFont    = 13
 )
 
 func caps(hdc uintptr, index int) float64 {
@@ -199,7 +200,11 @@ func printOn(printer string, job Job, _ Paper) error {
 	px := func(x float64) int32 { return int32(math.Round(x*dpiX/72 - offX)) }
 	py := func(y float64) int32 { return int32(math.Round(y*dpiY/72 - offY)) }
 	fonts := map[string]uintptr{}
+	// Runs before the DC is deleted: a font still selected into the DC cannot be deleted, so put
+	// a stock font back first, or every job would leak its fonts.
 	defer func() {
+		stock, _, _ := procGetStockObject.Call(systemFont)
+		procSelectObject.Call(hdc, stock)
 		for _, font := range fonts {
 			procDeleteObject.Call(font)
 		}

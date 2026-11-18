@@ -101,8 +101,9 @@ export function createPrintersPreview(env: Environment, version: string, demo: (
         case 'settings': settings = normalizePrintSettings(body.settings, settings); return { settings };
         case 'requeue': {
             let updated = 0;
-            for (const task of tasks) if ((body.tasks || []).includes(task.id)) { Object.assign(task, { status: 'pending', server: undefined, attempts: 0, error: undefined }); updated++; }
-            return { updated };
+            const ids = body.tasks || [];
+            for (const task of tasks) if (ids.includes(task.id) && (task.status === 'printed' || task.status === 'failed')) { Object.assign(task, { status: 'pending', server: undefined, attempts: 0, error: undefined }); updated++; }
+            return { updated, skipped: ids.length - updated };
         }
         default: throw new PrintError('未知操作');
         }
@@ -133,9 +134,10 @@ export function createPrintersPreview(env: Environment, version: string, demo: (
         }
         if (action === 'report') {
             if (String(body.id).startsWith('test-')) { server.lastTest = { at: new Date(), printer: body.printer, status: body.status, message: body.message || '' }; return { ok: true }; }
-            const task = tasks.find((candidate) => candidate.id === body.id && candidate.server === server.id);
+            const task = tasks.find((candidate) => candidate.id === body.id && candidate.server === server.id && candidate.status === 'printing');
             if (!task) throw new PrintError('打印请求不存在或已交给其他打印服务器', 404);
-            if (body.status === 'printed') { Object.assign(task, { status: 'printed', printer: body.printer }); server.stats.printed++; } else {
+            if (body.status === 'released') Object.assign(task, { status: 'pending', server: undefined });
+            else if (body.status === 'printed') { Object.assign(task, { status: 'printed', printer: body.printer }); server.stats.printed++; } else {
                 task.attempts++;
                 Object.assign(task, task.attempts < MAX_ATTEMPTS ? { status: 'pending', server: undefined, error: body.message, printer: body.printer } : { status: 'failed', error: body.message, printer: body.printer });
                 server.stats.failed++;
