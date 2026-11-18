@@ -4,11 +4,19 @@
 const runtime = JSON.parse(document.getElementById('capture-runtime').textContent);
 const $ = (id) => document.getElementById(id);
 const socketUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${runtime.ws}`;
+const mediaDevices = navigator.mediaDevices;
+const screenSupported = typeof mediaDevices?.getDisplayMedia === 'function';
+const webcamSupported = typeof mediaDevices?.getUserMedia === 'function';
+const blocked = !window.isSecureContext
+    ? '画面采集需要受浏览器信任的 HTTPS 地址。请向比赛工作人员获取 HTTPS 比赛链接，重新进入比赛后开启画面采集。'
+    : !screenSupported && !webcamSupported ? '当前浏览器不支持屏幕共享或摄像头。请使用桌面版 Chrome 或 Edge 打开比赛。' : '';
 
 const state = { socket: null, profile: null, screen: null, webcam: null, sessions: new Map(), stopped: false, retry: 0, connected: false };
 // The contestant's own capture window (opened from the contest's prompt) tells the contest pages it is capturing.
-const channel = runtime.channel && 'BroadcastChannel' in window ? new BroadcastChannel(runtime.channel) : null;
+const channel = !blocked && runtime.channel && 'BroadcastChannel' in window ? new BroadcastChannel(runtime.channel) : null;
 const pageTitle = document.title;
+/** The contest's STUN/TURN servers, and Hydro's own STUN server on the host this page came from. */
+const iceServers = () => [...state.profile?.iceServers || [], ...state.profile?.stunPort ? [{ urls: `stun:${location.hostname}:${state.profile.stunPort}` }] : []];
 
 $('device-name').textContent = runtime.name;
 $('device-seat').textContent = runtime.seat ? `座位 ${runtime.seat}` : '';
@@ -23,13 +31,14 @@ function announce() {
     channel?.postMessage({ type: 'alive', streams: [...state.screen ? ['screen'] : [], ...state.webcam ? ['webcam'] : []], connected: state.connected });
 }
 channel?.addEventListener('message', (event) => { if (event.data?.type === 'ping') announce(); });
-setInterval(announce, 2000);
+if (channel) setInterval(announce, 2000);
 
 function render() {
     const recording = !!state.screen || !!state.webcam;
     // The tab and the window title say it too, so it is not closed by mistake.
     document.title = recording ? `● 正在录制 · 请勿关闭 · ${pageTitle}` : pageTitle;
     $('recording').hidden = !recording;
+    $('recording-what').textContent = state.webcam ? '● 正在录制屏幕和摄像头' : '● 正在录制屏幕';
     document.body.dataset.recording = String(recording);
     announce();
     $('screen-video').srcObject = state.screen;
@@ -38,7 +47,11 @@ function render() {
     $('webcam-state').textContent = state.webcam ? '正在采集' : '未采集';
     $('screen-tile').dataset.on = String(!!state.screen);
     $('webcam-tile').dataset.on = String(!!state.webcam);
-    $('start').hidden = !!state.screen && !!state.webcam;
+    // Screens only: the contest does not capture webcams.
+    const wantWebcam = state.profile ? !!state.profile.webcam : true;
+    $('webcam-tile').hidden = !wantWebcam;
+    const canStart = (screenSupported && !state.screen) || (wantWebcam && webcamSupported && !state.webcam);
+    $('start').hidden = !blocked && !canStart;
     $('start').textContent = state.screen || state.webcam ? '补全采集' : '开始采集';
     const watching = [...state.sessions.values()];
     $('watching').textContent = watching.length
@@ -64,9 +77,12 @@ async function capture(fromClick = false) {
     if (!state.profile) return;
     const { screen, webcam } = state.profile;
     const problems = [];
-    if (!state.screen) {
+    if (!screenSupported) problems.push('当前浏览器不支持屏幕共享');
+    else if (!state.screen) {
+        // While the browser's picker is open, say what to choose (it waits for the contestant).
+        setStatus('请在浏览器弹出的窗口中选择“整个屏幕”，然后点击“分享”');
         try {
-            const stream = await navigator.mediaDevices.getDisplayMedia({
+            const stream = await mediaDevices.getDisplayMedia({
                 // Chrome opens its picker on 整个屏幕 and leaves out this window and tab switching.
                 video: { width: { ideal: screen.width }, height: { ideal: screen.height }, frameRate: { ideal: screen.frameRate, max: screen.frameRate }, displaySurface: 'monitor' },
                 audio: false, monitorTypeSurfaces: 'include', selfBrowserSurface: 'exclude', surfaceSwitching: 'exclude', systemAudio: 'exclude',
@@ -90,9 +106,10 @@ async function capture(fromClick = false) {
                     : fromClick ? `屏幕：${error.message || error.name}` : '请点击下方按钮，在弹出的窗口中选择“整个屏幕”并点击“分享”');
         }
     }
-    if (!state.webcam) {
+    if (!webcam) { /* screens only */ } else if (!webcamSupported) problems.push('当前浏览器不支持摄像头');
+    else if (!state.webcam) {
         try {
-            state.webcam = await navigator.mediaDevices.getUserMedia({
+            state.webcam = await mediaDevices.getUserMedia({
                 video: { width: { ideal: webcam.width }, height: { ideal: webcam.height }, frameRate: { ideal: webcam.frameRate } },
                 audio: webcam.audio,
             });
@@ -113,11 +130,12 @@ async function applyProfile(previous) {
     const { screen, webcam } = state.profile;
     const video = (settings) => ({ width: { ideal: settings.width }, height: { ideal: settings.height }, frameRate: { ideal: settings.frameRate, max: settings.frameRate } });
     await state.screen?.getVideoTracks()[0]?.applyConstraints(video(screen)).catch(() => {});
-    if (state.webcam && previous.webcam?.audio !== webcam.audio) {
-        for (const session of [...state.sessions.values()]) if (session.stream === 'webcam') session.end('摄像头设置已更新');
+    // Screens only now, or the webcam's sound turned on or off: close the webcam (opened again by capture() if still wanted).
+    if (state.webcam && (!webcam || previous.webcam?.audio !== webcam.audio)) {
+        for (const session of [...state.sessions.values()]) if (session.stream === 'webcam') session.end(webcam ? '摄像头设置已更新' : '本场比赛不再采集摄像头');
         for (const track of state.webcam.getTracks()) track.stop();
         state.webcam = null;
-    } else await state.webcam?.getVideoTracks()[0]?.applyConstraints(video(webcam)).catch(() => {});
+    } else if (webcam) await state.webcam?.getVideoTracks()[0]?.applyConstraints(video(webcam)).catch(() => {});
 }
 
 async function answer(message) {
@@ -126,7 +144,7 @@ async function answer(message) {
         send({ type: 'ended', session: message.session, reason: message.stream === 'screen' ? '该设备没有在采集屏幕' : '该设备没有在采集摄像头' });
         return;
     }
-    const pc = new RTCPeerConnection({ iceServers: state.profile?.iceServers || [] });
+    const pc = new RTCPeerConnection({ iceServers: iceServers() });
     const session = {
         stream: message.stream, pc,
         end: (reason) => {
@@ -219,16 +237,20 @@ function connect() {
     };
 }
 
-$('start').addEventListener('click', () => capture(true));
-setInterval(() => {
-    if (state.socket?.readyState === WebSocket.OPEN) { state.socket.send('ping'); reportStatus(); }
-}, 15000);
-// Closing this window (or the whole browser) while recording: the browser asks first. Its wording is
-// the browser's own; the page above says what closing means.
-window.addEventListener('beforeunload', (event) => {
-    if (state.screen || state.webcam) { event.preventDefault(); event.returnValue = '正在录制屏幕和摄像头，关闭后录制会中断'; }
-});
-window.addEventListener('pagehide', () => channel?.postMessage({ type: 'closed' }));
 if (runtime.window) document.body.classList.add('capture-window');
 render();
-connect();
+if (blocked) {
+    $('start').disabled = true;
+    setStatus(blocked, 'bad');
+} else {
+    $('start').addEventListener('click', () => capture(true));
+    setInterval(() => {
+        if (state.socket?.readyState === WebSocket.OPEN) { state.socket.send('ping'); reportStatus(); }
+    }, 15000);
+    // The browser asks before closing the window while it is recording.
+    window.addEventListener('beforeunload', (event) => {
+        if (state.screen || state.webcam) { event.preventDefault(); event.returnValue = '正在录制，关闭后录制会中断'; }
+    });
+    window.addEventListener('pagehide', () => channel?.postMessage({ type: 'closed' }));
+    connect();
+}

@@ -27,8 +27,13 @@ export interface IceServer {
 export interface CaptureSettings {
     /** Off until a contest manager turns it on: capture pages wait, and the overlay gets no team video. */
     enabled: boolean;
-    /** Screens show code; by default the overlay gets them only after the contest. */
+    /**
+     * Screens on the OBS overlay while the contest runs (they show code). On by default, so the
+     * director can put screens on air; turn off when contestants can watch the broadcast.
+     */
     screenDuringContest: boolean;
+    /** Capture the webcam too; off: screens only, and no webcam permission is asked for. */
+    webcam: boolean;
     /** Contestants are asked to start capturing when they open the contest (a capture window opens). */
     prompt: boolean;
     /** Capture the webcam's microphone too. */
@@ -41,7 +46,7 @@ export interface CaptureSettings {
 }
 
 export const defaultCaptureSettings = (): CaptureSettings => ({
-    enabled: false, screenDuringContest: false, prompt: true, webcamAudio: false, screenHeight: 720, screenFps: 15, webcamHeight: 480, iceServers: [],
+    enabled: false, screenDuringContest: true, webcam: true, prompt: true, webcamAudio: false, screenHeight: 720, screenFps: 15, webcamHeight: 480, iceServers: [],
 });
 
 function pick<T>(value: unknown, allowed: readonly T[], label: string, fallback: T): T {
@@ -85,7 +90,7 @@ function checkServer(server: IceServer): IceServer {
 export function normalizeCaptureSettings(input: unknown, base = defaultCaptureSettings()): CaptureSettings {
     const raw = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
     const settings: CaptureSettings = { ...base };
-    for (const key of ['enabled', 'screenDuringContest', 'prompt', 'webcamAudio'] as const) if (typeof raw[key] === 'boolean') settings[key] = raw[key] as boolean;
+    for (const key of ['enabled', 'screenDuringContest', 'webcam', 'prompt', 'webcamAudio'] as const) if (typeof raw[key] === 'boolean') settings[key] = raw[key] as boolean;
     settings.screenHeight = pick(raw.screenHeight, [720, 1080] as const, '屏幕分辨率', settings.screenHeight);
     settings.screenFps = pick(raw.screenFps, [5, 10, 15, 30] as const, '屏幕帧率', settings.screenFps);
     settings.webcamHeight = pick(raw.webcamHeight, [360, 480, 720] as const, '摄像头分辨率', settings.webcamHeight);
@@ -93,11 +98,11 @@ export function normalizeCaptureSettings(input: unknown, base = defaultCaptureSe
     return settings;
 }
 
-/** What a capture page is told to capture. */
+/** What a capture page is told to capture (`webcam: null` for screens only). */
 export function captureProfile(settings: CaptureSettings) {
     return {
         screen: { height: settings.screenHeight, width: Math.round((settings.screenHeight * 16) / 9), frameRate: settings.screenFps },
-        webcam: { height: settings.webcamHeight, width: Math.round((settings.webcamHeight * 16) / 9), frameRate: 15, audio: settings.webcamAudio },
+        webcam: settings.webcam ? { height: settings.webcamHeight, width: Math.round((settings.webcamHeight * 16) / 9), frameRate: 15, audio: settings.webcamAudio } : null,
         iceServers: settings.iceServers,
     };
 }
@@ -163,7 +168,8 @@ export function normalizeDeviceInput(input: unknown, base?: Pick<CaptureDevice, 
 /** Whether a viewer may watch a stream. Contest staff always; the OBS overlay sees screens only when allowed. */
 export function streamAllowed(stream: CaptureStream, viewer: 'staff' | 'overlay', settings: CaptureSettings, contest: { endAt: Date }, now: number) {
     if (!settings.enabled) return false;
-    if (stream === 'webcam' || viewer === 'staff') return true;
+    if (stream === 'webcam') return settings.webcam;
+    if (viewer === 'staff') return true;
     return settings.screenDuringContest || now >= contest.endAt.getTime();
 }
 
@@ -172,6 +178,7 @@ export function captureMedias(
     teams: { teamId: string; uid: number; seat: string }[],
     devices: Pick<CaptureDevice, '_id' | 'seat' | 'teamUid'>[],
     screens: boolean,
+    webcams = true,
 ): Record<string, Record<string, MediaType[]>> {
     const bySeat = new Map<string, string>();
     const byTeam = new Map<number, string>();
@@ -184,7 +191,11 @@ export function captureMedias(
         const device = byTeam.get(team.uid) ?? (team.seat ? bySeat.get(team.seat.trim().toLowerCase()) : undefined);
         if (!device) continue;
         const media = (stream: CaptureStream): MediaType => ({ type: 'HydroCapture', url: '', device, stream });
-        result[team.teamId] = { camera: [media('webcam')], ...screens ? { screen: [media('screen')] } : {} };
+        const entry: Record<string, MediaType[]> = {};
+        // The screen first: the director's team views and featured runs take it by default.
+        if (screens) entry.screen = [media('screen')];
+        if (webcams) entry.camera = [media('webcam')];
+        if (Object.keys(entry).length) result[team.teamId] = entry;
     }
     return result;
 }

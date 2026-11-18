@@ -26,7 +26,9 @@ export class CaptureViewer {
                 let message;
                 try { message = JSON.parse(event.data); } catch { return; }
                 if (message.type === 'config') {
-                    this.iceServers = Array.isArray(message.iceServers) ? message.iceServers : [];
+                    this.iceServers = [...Array.isArray(message.iceServers) ? message.iceServers : [],
+                        // Hydro's own STUN server, on the host this page came from.
+                        ...message.stunPort ? [{ urls: `stun:${location.hostname}:${message.stunPort}` }] : []];
                     resolve();
                     return;
                 }

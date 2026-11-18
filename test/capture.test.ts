@@ -1,12 +1,44 @@
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import {
     MAX_VIEWER_SESSIONS, type CaptureEnvelope, captureMedias, captureProfile, CaptureRelay, captureSecretMatches, defaultCaptureSettings, isCaptureOnline,
     newCaptureSecret, normalizeCaptureSettings, normalizeDeviceInput, parseIceServers, participantDeviceId, streamAllowed,
 } from '../lib/live/capture';
+import { startStunServer, stunResponse } from '../lib/live/stun';
+
+it('在 HTTP 采集页提示改用 HTTPS，并阻止开始采集', async () => {
+    const makeElement = () => ({ textContent: '', dataset: {}, disabled: false, addEventListener() {} });
+    const elements = new Map<string, ReturnType<typeof makeElement>>();
+    const getElementById = (id: string) => {
+        if (!elements.has(id)) elements.set(id, makeElement());
+        return elements.get(id)!;
+    };
+    getElementById('capture-runtime').textContent = JSON.stringify({ ws: '/device/ws', name: 'A', contest: '测试比赛' });
+    const sockets: Socket[] = [];
+    class Socket {
+        static readonly OPEN = 1;
+        readonly readyState = Socket.OPEN;
+        onmessage?: (event: { data: string }) => Promise<void>;
+        constructor() { sockets.push(this); }
+        send() {}
+    }
+    const script = readFileSync(new URL('../resolver/public/js/hydro-live-capture-device.js', import.meta.url), 'utf8');
+    runInNewContext(script, {
+        document: { getElementById, title: '测试比赛', body: makeElement() },
+        window: { isSecureContext: false, addEventListener() {} },
+        navigator: {}, location: { protocol: 'http:', host: '172.28.0.3' },
+        WebSocket: Socket, setInterval() {},
+    });
+    await sockets[0]?.onmessage?.({ data: JSON.stringify({ type: 'config', screen: {}, webcam: {} }) });
+    expect(getElementById('status').textContent).toContain('HTTPS');
+    expect(getElementById('start').disabled).toBe(true);
+    expect(sockets).toHaveLength(0);
+});
 
 describe('画面采集设置与设备', () => {
     it('校验画质、STUN/TURN 与设备信息', () => {
-        expect(normalizeCaptureSettings({ screenHeight: '1080', screenFps: 30, webcamAudio: true })).toMatchObject({ screenHeight: 1080, screenFps: 30, webcamAudio: true, enabled: false, screenDuringContest: false });
+        expect(normalizeCaptureSettings({ screenHeight: '1080', screenFps: 30, webcamAudio: true })).toMatchObject({ screenHeight: 1080, screenFps: 30, webcamAudio: true, enabled: false, screenDuringContest: true, webcam: true });
         expect(normalizeCaptureSettings({ enabled: true }).enabled).toBe(true);
         expect(() => normalizeCaptureSettings({ screenFps: 60 })).toThrow('屏幕帧率无效');
         expect(parseIceServers('stun:10.0.0.1:3478\n# 注释\n\nturn:10.0.0.1:3478 live secret')).toEqual([
@@ -15,6 +47,7 @@ describe('画面采集设置与设备', () => {
         expect(() => parseIceServers('http://example.com')).toThrow('stun:');
         expect(() => parseIceServers('turn:10.0.0.1:3478')).toThrow('用户名和密码');
         expect(captureProfile(defaultCaptureSettings())).toMatchObject({ screen: { width: 1280, height: 720, frameRate: 15 }, webcam: { height: 480, audio: false } });
+        expect(captureProfile({ ...defaultCaptureSettings(), webcam: false }).webcam).toBeNull();
         expect(normalizeDeviceInput({ seat: ' A-01 ' })).toEqual({ seat: 'A-01', name: 'A-01', teamUid: null });
         expect(normalizeDeviceInput({ name: '讲台机', teamUid: '-12' })).toEqual({ seat: '', name: '讲台机', teamUid: -12 });
         expect(() => normalizeDeviceInput({})).toThrow('请填写');
@@ -34,7 +67,9 @@ describe('画面采集设置与设备', () => {
 
     it('屏幕在比赛结束前只给管理员，开启后直播画面也可用；摄像头随时可用', () => {
         const contest = { endAt: new Date(10_000) };
-        const settings = { ...defaultCaptureSettings(), enabled: true };
+        // Screens on air during the contest are allowed by default; this checks the setting that forbids them.
+        expect(defaultCaptureSettings().screenDuringContest).toBe(true);
+        const settings = { ...defaultCaptureSettings(), enabled: true, screenDuringContest: false };
         expect(defaultCaptureSettings().enabled).toBe(false);
         expect(streamAllowed('webcam', 'overlay', settings, contest, 5000)).toBe(true);
         expect(streamAllowed('screen', 'overlay', settings, contest, 5000)).toBe(false);
@@ -42,6 +77,9 @@ describe('画面采集设置与设备', () => {
         expect(streamAllowed('screen', 'overlay', settings, contest, 10_000)).toBe(true);
         expect(streamAllowed('screen', 'overlay', { ...settings, screenDuringContest: true }, contest, 5000)).toBe(true);
         expect(streamAllowed('webcam', 'staff', { ...settings, enabled: false }, contest, 5000)).toBe(false);
+        // Screens only: no webcam for anyone.
+        expect(streamAllowed('webcam', 'staff', { ...settings, webcam: false }, contest, 5000)).toBe(false);
+        expect(streamAllowed('screen', 'staff', { ...settings, webcam: false }, contest, 5000)).toBe(true);
     });
 
     it('按座位或手动绑定把设备对应到队伍，屏幕不可用时只提供摄像头', () => {
@@ -52,6 +90,10 @@ describe('画面采集设置与设备', () => {
         expect(medias['-3'].camera[0]).toMatchObject({ device: 'd2' });
         expect(medias['9'].camera[0]).toMatchObject({ device: 'd3' });
         expect(captureMedias(teams, devices, true)['7'].screen).toEqual([{ type: 'HydroCapture', url: '', device: 'd1', stream: 'screen' }]);
+        // The screen comes first, so the director's team view takes it by default; screens only leave the camera out.
+        expect(Object.keys(captureMedias(teams, devices, true)['7'])).toEqual(['screen', 'camera']);
+        expect(captureMedias(teams, devices, true, false)['7']).toEqual({ screen: [{ type: 'HydroCapture', url: '', device: 'd1', stream: 'screen' }] });
+        expect(captureMedias(teams, devices, false, false)).toEqual({});
         // A hand binding wins over the seat.
         expect(captureMedias(teams, [...devices, { _id: 'd4', seat: '', teamUid: 7 }], false)['7'].camera[0]).toMatchObject({ device: 'd4' });
     });
@@ -175,5 +217,62 @@ describe('画面采集的连接转交', () => {
         for (let i = 1; i < MAX_VIEWER_SESSIONS; i++) await b.fromViewer(staffId, { type: 'watch', session: `n${i}`, device: 'dev1', stream: 'webcam', sdp: 'x' });
         await b.fromViewer(staffId, { type: 'watch', session: 'over', device: 'dev1', stream: 'webcam', sdp: 'x' });
         expect(staff.sent.at(-1)).toEqual({ type: 'error', session: 'over', message: `同时观看的画面不能超过 ${MAX_VIEWER_SESSIONS} 个` });
+    });
+});
+
+describe('内置 STUN 服务', () => {
+    const request = (extra = Buffer.alloc(0)) => {
+        const message = Buffer.alloc(20 + extra.length);
+        message.writeUInt16BE(0x0001, 0); message.writeUInt16BE(extra.length, 2); message.writeUInt32BE(0x2112a442, 4);
+        for (let i = 8; i < 20; i++) message[i] = i * 7;
+        extra.copy(message, 20);
+        return message;
+    };
+    const decode = (response: Buffer) => {
+        expect(response.readUInt16BE(0)).toBe(0x0101);
+        expect(response.subarray(8, 20)).toEqual(request().subarray(8, 20));
+        expect(response.readUInt16BE(20)).toBe(0x0020);
+        const port = response.readUInt16BE(26) ^ 0x2112;
+        if (response[25] === 1) {
+            const ip = (response.readUInt32BE(28) ^ 0x2112a442) >>> 0;
+            return { port, address: [ip >>> 24, (ip >> 16) & 255, (ip >> 8) & 255, ip & 255].join('.') };
+        }
+        const key = Buffer.concat([Buffer.from([0x21, 0x12, 0xa4, 0x42]), response.subarray(8, 20)]);
+        const bytes = Buffer.from(response.subarray(28, 44).map((byte, index) => byte ^ key[index]));
+        return { port, address: Array.from({ length: 8 }, (_, i) => bytes.readUInt16BE(i * 2).toString(16)).join(':') };
+    };
+
+    it('answers a Binding request with the sender\'s address (IPv4, v4-mapped and IPv6) and ignores anything else', () => {
+        expect(decode(stunResponse(request(), '192.168.1.20', 54321)!)).toEqual({ port: 54321, address: '192.168.1.20' });
+        expect(decode(stunResponse(request(), '::ffff:10.0.0.7', 3000)!)).toEqual({ port: 3000, address: '10.0.0.7' });
+        expect(decode(stunResponse(request(), 'fe80::1:2', 1000)!)).toEqual({ port: 1000, address: 'fe80:0:0:0:0:0:1:2' });
+        // A request with attributes (Chrome adds some) is answered too; its length must match.
+        expect(stunResponse(request(Buffer.from([0x80, 0x28, 0, 4, 1, 2, 3, 4])), '10.0.0.1', 1)).not.toBeNull();
+        const bad = request(); bad.writeUInt16BE(4, 2);
+        expect(stunResponse(bad, '10.0.0.1', 1)).toBeNull();
+        const notBinding = request(); notBinding.writeUInt16BE(0x0101, 0);
+        expect(stunResponse(notBinding, '10.0.0.1', 1)).toBeNull();
+        expect(stunResponse(Buffer.from('GET / HTTP/1.1'), '10.0.0.1', 1)).toBeNull();
+        // Never larger than a request with attributes: no amplification.
+        expect(stunResponse(request(), '10.0.0.1', 1)!.length).toBe(32);
+    });
+
+    it('serves over UDP, and a second server on the same port stays quiet', async () => {
+        const dgram = await import('node:dgram');
+        const probe = dgram.createSocket('udp4');
+        await new Promise<void>((resolve) => probe.bind(0, '127.0.0.1', resolve));
+        const port = await new Promise<number>((resolve) => {
+            const finder = dgram.createSocket('udp4');
+            finder.bind(0, '127.0.0.1', () => { const { port: free } = finder.address(); finder.close(() => resolve(free)); });
+        });
+        const stop = startStunServer(port);
+        const stopAgain = startStunServer(port);
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            const answer = new Promise<Buffer>((resolve) => probe.once('message', resolve));
+            probe.send(request(), port, '127.0.0.1');
+            const response = await answer;
+            expect(decode(response)).toEqual({ port: probe.address().port, address: '127.0.0.1' });
+        } finally { stop(); stopAgain(); probe.close(); }
     });
 });

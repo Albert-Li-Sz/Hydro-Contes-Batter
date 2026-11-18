@@ -15,6 +15,7 @@ import {
     type CaptureStream, captureStreams, defaultCaptureSettings, isCaptureOnline, newCaptureSecret, normalizeCaptureSettings, normalizeDeviceInput,
     participantDeviceId, streamAllowed,
 } from './capture';
+import { startStunServer } from './stun';
 import type { MediaType } from './types';
 
 interface CaptureConfigDoc {
@@ -34,6 +35,8 @@ export interface CaptureHelpers {
     sameSecret: (given: string, stored: string) => boolean;
     /** The overlay token currently in force, to close viewers whose link was revoked. */
     currentToken: (contestKey: string) => Promise<string | null>;
+    /** Hydro's own STUN server (UDP), 0 for none; pages use it on the host they were loaded from. */
+    stunPort: number;
 }
 
 const MAX_DEVICES = 1000;
@@ -49,6 +52,8 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
     const broadcast = (envelope: CaptureEnvelope) => (ctx as unknown as { broadcast: (event: string, ...args: unknown[]) => void })
         .broadcast('xcpcio/live-capture', envelope);
     const relay = new CaptureRelay(broadcast);
+    if (helpers.stunPort) ctx.effect(() => startStunServer(helpers.stunPort, (message) => console.warn(`[xcpcio capture] ${message}`)));
+    const stunPort = helpers.stunPort;
     on('xcpcio/live-capture', (envelope: CaptureEnvelope) => {
         if (envelope && typeof envelope === 'object' && typeof envelope.id === 'string') relay.receive(envelope);
     });
@@ -80,7 +85,7 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
             if (!list.length) return {};
             const seats = await teamSeats(tdoc);
             const teams = data.teams.map((team) => ({ teamId: team.team_id, uid: Number(team.team_id), seat: seats.get(Number(team.team_id)) || '' }));
-            return captureMedias(teams, list, streamAllowed('screen', 'overlay', settings, tdoc, now));
+            return captureMedias(teams, list, streamAllowed('screen', 'overlay', settings, tdoc, now), settings.webcam);
         })();
         value.catch(() => mediaCache.delete(contestKey));
         mediaCache.set(contestKey, { expires: now + 3000, value });
@@ -226,7 +231,7 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
                 for (const doc of await devices.find({ contestKey }).project({ _id: 1 }).toArray()) relay.kickDevice(doc._id, '本场比赛已停用画面采集，重新启用后会自动连接', 4005);
             } else {
                 // Capture pages already open take the new quality settings at once.
-                if (JSON.stringify(captureProfile(settings)) !== JSON.stringify(captureProfile(previous))) relay.configureDevices(contestKey, captureProfile(settings));
+                if (JSON.stringify(captureProfile(settings)) !== JSON.stringify(captureProfile(previous))) relay.configureDevices(contestKey, { ...captureProfile(settings), stunPort });
                 // Screens the overlay is showing stop when they are no longer allowed.
                 if (streamAllowed('screen', 'overlay', previous, this.tdoc, now) && !streamAllowed('screen', 'overlay', settings, this.tdoc, now)) relay.endOverlayScreens(contestKey);
             }
@@ -313,7 +318,7 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
             relay.attachDevice(doc._id, this.endpoint);
             const agent = String(this.request.headers['user-agent'] || '').slice(0, 200);
             await devices.updateOne({ _id: doc._id }, { $set: { connection, lastSeen: new Date(), streams: [], client: { agent, ip: String(this.request.ip || ''), screen: '' } } });
-            this.send({ type: 'config', name: doc.name, seat: doc.seat, ...captureProfile(settings) });
+            this.send({ type: 'config', name: doc.name, seat: doc.seat, ...captureProfile(settings), stunPort });
             // Also for deployments whose processes do not share Hydro's broadcast bus.
             this.recheck = setInterval(async () => {
                 const current = await devices.findOne({ _id: doc._id }).catch(() => null) as CaptureDevice | null;
@@ -472,7 +477,7 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
             if (await participation(tdoc, handler.user._id) === null) return;
             handler.UiContext.xcpcioCapture = {
                 url: `${helpers.contestBase(tdoc)}/live-capture/me`, channel: `xcpcio-capture-${tdoc.docId}`, contest: tdoc.title,
-                screenPublic: settings.screenDuringContest,
+                screenPublic: settings.screenDuringContest, webcam: settings.webcam,
             };
         } catch { /* the contest page works without the prompt */ }
     });
@@ -490,7 +495,7 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
                 send: (message) => this.send(message),
                 close: (code, reason) => this.close(code, reason),
             });
-            this.send({ type: 'config', iceServers: settings.iceServers });
+            this.send({ type: 'config', iceServers: settings.iceServers, stunPort });
         }
 
         async message(input: unknown) {
@@ -547,8 +552,33 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
     ctx.Connection('contest_xcpcio_live_capture_staff_ws', '/contest/:tid/live/ws/capture', CaptureStaffViewerHandler);
     ctx.i18n.load('zh', { contest_xcpcio_live_capture: '画面采集' });
 
+    /** The director console's 画面采集 page: each device, the team it shows and whether it may go on air. */
+    async function directorStatus(tdoc: Tdoc) {
+        const contestKey = helpers.key(tdoc);
+        const now = Date.now();
+        const [settings, list, seats] = await Promise.all([loadSettings(contestKey), devices.find({ contestKey }).toArray() as Promise<CaptureDevice[]>, teamSeats(tdoc)]);
+        const users = await UserModel.getList(tdoc.domainId, [...seats.keys()]);
+        const statuses = await ContestModel.getMultiStatus(tdoc.domainId, { docId: tdoc.docId }).project({ uid: 1, displayName: 1 }).toArray() as unknown as { uid: number; displayName?: string }[];
+        const names = new Map(statuses.map((entry) => [entry.uid, entry.displayName]));
+        const teamName = (uid: number) => names.get(uid) || users[uid]?.displayName || users[uid]?.uname || `UID ${uid}`;
+        const bySeat = new Map([...seats].filter(([, seat]) => seat).map(([uid, seat]) => [seat.toLowerCase(), uid]));
+        return {
+            available: true, enabled: settings.enabled, webcam: settings.webcam,
+            screenOnAir: streamAllowed('screen', 'overlay', settings, tdoc, now),
+            devices: list.sort((a, b) => a.seat.localeCompare(b.seat, 'zh-CN', { numeric: true }) || a.name.localeCompare(b.name, 'zh-CN')).map((doc) => {
+                const uid = doc.teamUid ?? bySeat.get(doc.seat.toLowerCase()) ?? null;
+                const online = isCaptureOnline(doc, now);
+                return {
+                    id: doc._id, name: doc.name, seat: doc.seat, teamId: uid === null ? null : String(uid), teamName: uid === null ? '' : teamName(uid),
+                    online, streams: online ? doc.streams : [],
+                };
+            }),
+        };
+    }
+
     return {
         mediasFor,
+        directorStatus,
         /** The overlay token was reset: its capture viewers stop at once in this process. */
         revoke(contestKey: string, token: string) {
             relay.closeViewers(contestKey, 4004, '直播链接已作废', (endpoint) => endpoint.kind !== 'overlay' || helpers.sameSecret(endpoint.token, token));

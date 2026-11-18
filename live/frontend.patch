@@ -2157,6 +2157,225 @@ index e423af0..d80e028 100644
                          </Button>
                      </ButtonGroup>
                      &nbsp;
+diff --git a/src/frontend/admin-overlay/src/components/pages/CapturePage.tsx b/src/frontend/admin-overlay/src/components/pages/CapturePage.tsx
+new file mode 100644
+index 0000000..2e5044f
+--- /dev/null
++++ b/src/frontend/admin-overlay/src/components/pages/CapturePage.tsx
+@@ -0,0 +1,213 @@
++// Hydro: 画面采集 in the director console. Every capture device (a contestant computer), a preview
++// of its screen or webcam, and one click to put it on air: full screen or a quarter of the split
++// screen, as the team view of the team it belongs to. The screen is the default.
++import { useCallback, useEffect, useMemo, useRef, useState } from "react";
++import {
++    Alert,
++    Box,
++    Button,
++    ButtonGroup,
++    Card,
++    CardActions,
++    CardContent,
++    Chip,
++    Container,
++    FormControlLabel,
++    MenuItem,
++    Select,
++    Stack,
++    Switch,
++    TextField,
++    Typography,
++} from "@mui/material";
++import { useSnackbar } from "notistack";
++import { BASE_URL_BACKEND } from "@admin/config";
++import { captureClient } from "@admin/services/hydroCapture";
++import { t } from "shared-code/i18n";
++
++type Stream = "screen" | "webcam";
++
++interface CaptureDevice {
++    id: string;
++    name: string;
++    seat: string;
++    teamId: string | null;
++    teamName: string;
++    online: boolean;
++    streams: Stream[];
++}
++
++interface CaptureStatus {
++    available: boolean;
++    enabled?: boolean;
++    webcam?: boolean;
++    screenOnAir?: boolean;
++    devices: CaptureDevice[];
++}
++
++const HYDRO_LIVE = (window as unknown as { __HYDRO_LIVE__: { previewCaptureWs?: string; root: string } }).__HYDRO_LIVE__;
++const SPLIT = ["TOP_LEFT", "TOP_RIGHT", "BOTTOM_LEFT", "BOTTOM_RIGHT"] as const;
++const MAX_PREVIEWS = 12;
++
++let watch: ReturnType<typeof captureClient> | null = null;
++const watcher = () => {
++    watch ||= captureClient(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${HYDRO_LIVE.previewCaptureWs}`);
++    return watch;
++};
++
++async function api(path: string, body?: unknown) {
++    const response = await fetch(`${BASE_URL_BACKEND}${path}`, {
++        method: body === undefined ? "GET" : "POST",
++        credentials: "same-origin",
++        headers: { "Content-Type": "application/json", Accept: "application/json" },
++        body: body === undefined ? undefined : JSON.stringify(body),
++    });
++    const data = await response.json().catch(() => null);
++    if (!response.ok || data?.status === "error") throw new Error(data?.message || `HTTP ${response.status}`);
++    return data;
++}
++
++const Preview = ({ device, stream }: { device: string; stream: Stream }) => {
++    const ref = useRef<HTMLVideoElement>(null);
++    const [playing, setPlaying] = useState(false);
++    useEffect(() => {
++        const video = ref.current;
++        if (!video) return;
++        setPlaying(false);
++        return watcher()(device, stream, video, () => setPlaying(true));
++    }, [device, stream]);
++    return (
++        <Box sx={{ position: "relative", background: "#000", aspectRatio: "16 / 9", borderRadius: 1, overflow: "hidden" }}>
++            <video ref={ref} muted autoPlay playsInline style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
++            {!playing && (
++                <Typography variant="caption" sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#ccc" }}>
++                    {t("Connecting…")}
++                </Typography>
++            )}
++        </Box>
++    );
++};
++
++const CapturePage = () => {
++    const { enqueueSnackbar } = useSnackbar();
++    const [status, setStatus] = useState<CaptureStatus | null>(null);
++    const [stream, setStream] = useState<Stream>("screen");
++    const [onlineOnly, setOnlineOnly] = useState(true);
++    const [search, setSearch] = useState("");
++    const [previews, setPreviews] = useState<Set<string>>(new Set());
++
++    const load = useCallback(() => {
++        api("/capture").then(setStatus).catch((error) => setStatus({ available: false, devices: [], ...{ error: error.message } }));
++    }, []);
++    useEffect(() => {
++        load();
++        const timer = setInterval(() => { if (!document.hidden) load(); }, 3000);
++        return () => clearInterval(timer);
++    }, [load]);
++    useEffect(() => { if (status && status.webcam === false && stream === "webcam") setStream("screen"); }, [status, stream]);
++
++    const devices = useMemo(() => (status?.devices || []).filter((device) => (!onlineOnly || device.online)
++        && (!search.trim() || `${device.name} ${device.seat} ${device.teamName}`.toLowerCase().includes(search.trim().toLowerCase()))), [status, onlineOnly, search]);
++
++    const onAir = useCallback(async (device: CaptureDevice, position: "SINGLE" | typeof SPLIT[number]) => {
++        if (!device.teamId) return;
++        const settings = {
++            teamId: device.teamId, mediaTypes: [stream === "screen" ? "screen" : "camera"],
++            showTaskStatus: true, showAchievement: false, showTimeLine: position === "SINGLE",
++        };
++        try {
++            if (position === "SINGLE") await api("/teamView/SINGLE/show_with_settings", settings);
++            else await api(`/splitScreen/${position}/show_with_settings`, settings);
++            enqueueSnackbar(t("{name} is on air", { name: device.teamName || device.name }), { variant: "success" });
++        } catch (error) {
++            enqueueSnackbar(`${t("Failed to put on air")} · ${(error as Error).message}`, { variant: "error" });
++        }
++    }, [stream, enqueueSnackbar]);
++
++    const offAir = useCallback(async () => {
++        try {
++            await api("/teamView/hide", {});
++            await api("/splitScreen/hide", {});
++        } catch (error) {
++            enqueueSnackbar(`${t("Failed to hide ")}${(error as Error).message}`, { variant: "error" });
++        }
++    }, [enqueueSnackbar]);
++
++    const togglePreview = (id: string) => setPreviews((current) => {
++        const next = new Set(current);
++        if (next.has(id)) next.delete(id);
++        else if (next.size < MAX_PREVIEWS) next.add(id);
++        return next;
++    });
++
++    if (status && !status.available) {
++        return <Container maxWidth="md" sx={{ pt: 2 }}><Alert severity="info">{t("Capture is turned off in the plugin settings.")}</Alert></Container>;
++    }
++    const screenBlocked = stream === "screen" && status?.screenOnAir === false;
++    return (
++        <Container maxWidth="xl" sx={{ pt: 2, pb: 4 }}>
++            <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
++                <Select size="small" value={stream} onChange={(event) => setStream(event.target.value as Stream)}>
++                    <MenuItem value="screen">{t("Screen")}</MenuItem>
++                    {status?.webcam !== false && <MenuItem value="webcam">{t("Camera")}</MenuItem>}
++                </Select>
++                <TextField size="small" label={t("Search")} value={search} onChange={(event) => setSearch(event.target.value)} />
++                <FormControlLabel control={<Switch checked={onlineOnly} onChange={(event) => setOnlineOnly(event.target.checked)} />} label={t("Online only")} />
++                <Button variant="outlined" onClick={() => setPreviews(new Set(devices.filter((device) => device.online).slice(0, MAX_PREVIEWS).map((device) => device.id)))}>
++                    {t("Preview all")}
++                </Button>
++                <Button variant="outlined" onClick={() => setPreviews(new Set())}>{t("Close previews")}</Button>
++                <Box sx={{ flex: 1 }} />
++                <Button variant="contained" color="error" onClick={offAir}>{t("Take team views off air")}</Button>
++                <Button href={`${HYDRO_LIVE.root}/capture`} target="_blank" rel="noopener">{t("Manage capture")}</Button>
++            </Stack>
++            {status?.enabled === false && <Alert severity="warning" sx={{ mb: 2 }}>{t("Capture is not enabled for this contest. Enable it on the capture management page.")}</Alert>}
++            {screenBlocked && <Alert severity="warning" sx={{ mb: 2 }}>{t("Screens cannot go on air before the contest ends (capture settings).")}</Alert>}
++            {status && !status.devices.length && <Alert severity="info">{t("No capture devices yet.")}</Alert>}
++            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 2 }}>
++                {devices.map((device) => {
++                    const has = device.streams.includes(stream);
++                    const disabled = !device.online || !has || !device.teamId || screenBlocked;
++                    return (
++                        <Card key={device.id} variant="outlined">
++                            <CardContent sx={{ pb: 1 }}>
++                                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
++                                    <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
++                                        {device.teamName || device.name}
++                                    </Typography>
++                                    <Chip size="small" color={device.online ? "success" : "default"} label={device.online ? t("Online") : t("Offline")} />
++                                </Stack>
++                                <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>
++                                    {[device.seat && `${t("Seat")} ${device.seat}`, device.name !== device.seat && device.name,
++                                        device.streams.map((item) => t(item === "screen" ? "Screen" : "Camera")).join(" · ")].filter(Boolean).join(" · ") || "—"}
++                                </Typography>
++                                {previews.has(device.id) && device.online && has
++                                    ? <Preview device={device.id} stream={stream} />
++                                    : (
++                                        <Box sx={{ aspectRatio: "16 / 9", borderRadius: 1, background: "rgba(0,0,0,.06)", display: "flex", alignItems: "center", justifyContent: "center" }}>
++                                            <Typography variant="caption" color="text.secondary">
++                                                {!device.online ? t("Offline") : !has ? t("Not capturing this") : !device.teamId ? t("No team for this device") : t("Preview off")}
++                                            </Typography>
++                                        </Box>
++                                    )}
++                            </CardContent>
++                            <CardActions sx={{ flexWrap: "wrap", gap: 1, px: 2, pb: 2 }}>
++                                <Button size="small" variant="contained" disabled={disabled} onClick={() => onAir(device, "SINGLE")}>{t("On air")}</Button>
++                                <ButtonGroup size="small" disabled={disabled} aria-label={t("Split screen")}>
++                                    {SPLIT.map((position, index) => (
++                                        <Button key={position} title={t("Split screen")} onClick={() => onAir(device, position)}>{`${t("Split")} ${index + 1}`}</Button>
++                                    ))}
++                                </ButtonGroup>
++                                <Button size="small" disabled={!device.online || !has} onClick={() => togglePreview(device.id)}>
++                                    {previews.has(device.id) ? t("Hide preview") : t("Preview")}
++                                </Button>
++                            </CardActions>
++                        </Card>
++                    );
++                })}
++            </Box>
++        </Container>
++    );
++};
++
++export default CapturePage;
 diff --git a/src/frontend/admin-overlay/src/components/pages/ControlsPage.tsx b/src/frontend/admin-overlay/src/components/pages/ControlsPage.tsx
 index c07d134..3925fe8 100644
 --- a/src/frontend/admin-overlay/src/components/pages/ControlsPage.tsx
@@ -2235,7 +2454,7 @@ index c07d134..3925fe8 100644
      );
  };
 diff --git a/src/frontend/admin-overlay/src/components/pages/TeamView.tsx b/src/frontend/admin-overlay/src/components/pages/TeamView.tsx
-index b228ed4..8139f71 100644
+index b228ed4..e9af12d 100644
 --- a/src/frontend/admin-overlay/src/components/pages/TeamView.tsx
 +++ b/src/frontend/admin-overlay/src/components/pages/TeamView.tsx
 @@ -58,6 +58,7 @@ import {
@@ -2336,7 +2555,20 @@ index b228ed4..8139f71 100644
                      </Button>
                  </ButtonGroup>
              </Box>
-@@ -653,7 +654,7 @@ const TeamViewManager: React.FC = () => {
+@@ -466,7 +467,11 @@ const TeamViewManager: React.FC = () => {
+     } = useTeamsList(rawTeams, status);
+ 
+     useEffect(() => {
+-        singleService.teams().then((ts) => setRawTeams([AUTOMODE_TEAM, ...ts]));
++        const load = () => singleService.teams().then((ts) => setRawTeams([AUTOMODE_TEAM, ...ts])).catch(() => {});
++        load();
++        // Hydro: team media (画面采集) appear as contestant computers connect.
++        const timer = setInterval(() => { if (!document.hidden) load(); }, 10000);
++        return () => clearInterval(timer);
+     }, [singleService]);
+ 
+     const [teamsAvailableMedias, teamsHasAchievement] = useMemo(() => {
+@@ -653,7 +658,7 @@ const TeamViewManager: React.FC = () => {
                                  defaultValue={searchValue}
                                  size="small"
                                  margin="none"
@@ -2345,7 +2577,7 @@ index b228ed4..8139f71 100644
                                  variant="outlined"
                                  fullWidth
                              />
-@@ -666,7 +667,7 @@ const TeamViewManager: React.FC = () => {
+@@ -666,7 +671,7 @@ const TeamViewManager: React.FC = () => {
                      )}
                      {selectedTeamId !== undefined && (
                          <FormControl fullWidth sx={{ mb: 1 }}>
@@ -2354,7 +2586,7 @@ index b228ed4..8139f71 100644
                              <TextField
                                  defaultValue={selectedTeam?.name}
                                  variant="standard"
-@@ -688,7 +689,7 @@ const TeamViewManager: React.FC = () => {
+@@ -688,7 +693,7 @@ const TeamViewManager: React.FC = () => {
                              <Grid container>
                                  <Grid size={{ xs: 12, sm: 4 }}>
                                      <FormLabel component="legend">
@@ -2363,7 +2595,7 @@ index b228ed4..8139f71 100644
                                      </FormLabel>
                                  </Grid>
                                  <Grid size={{ xs: 12, sm: 8 }}>
-@@ -700,7 +701,7 @@ const TeamViewManager: React.FC = () => {
+@@ -700,7 +705,7 @@ const TeamViewManager: React.FC = () => {
                                  </Grid>
                                  <Grid size={{ xs: 12, sm: 4 }}>
                                      <FormLabel component="legend">
@@ -2372,7 +2604,7 @@ index b228ed4..8139f71 100644
                                      </FormLabel>
                                  </Grid>
                                  <Grid size={{ xs: 12, sm: 8 }}>
-@@ -715,7 +716,7 @@ const TeamViewManager: React.FC = () => {
+@@ -715,7 +720,7 @@ const TeamViewManager: React.FC = () => {
                                  </Grid>
                                  <Grid size={{ xs: 10, sm: 4 }}>
                                      <FormLabel component="legend">
@@ -2381,7 +2613,7 @@ index b228ed4..8139f71 100644
                                      </FormLabel>
                                  </Grid>
                                  <Grid size={{ xs: 2, sm: 8 }}>
-@@ -729,7 +730,7 @@ const TeamViewManager: React.FC = () => {
+@@ -729,7 +734,7 @@ const TeamViewManager: React.FC = () => {
                                      <>
                                          <Grid size={{ xs: 10, sm: 4 }}>
                                              <FormLabel component="legend">
@@ -2390,7 +2622,7 @@ index b228ed4..8139f71 100644
                                              </FormLabel>
                                          </Grid>
                                          <Grid size={{ xs: 2, sm: 8 }}>
-@@ -757,7 +758,7 @@ const TeamViewManager: React.FC = () => {
+@@ -757,7 +762,7 @@ const TeamViewManager: React.FC = () => {
                                      <>
                                          <Grid size={{ xs: 10, sm: 4 }}>
                                              <FormLabel component="legend">
@@ -2399,7 +2631,7 @@ index b228ed4..8139f71 100644
                                              </FormLabel>
                                          </Grid>
                                          <Grid size={{ xs: 2, sm: 8 }}>
-@@ -780,7 +781,7 @@ const TeamViewManager: React.FC = () => {
+@@ -780,7 +785,7 @@ const TeamViewManager: React.FC = () => {
                                  variant="contained"
                                  onClick={onShow}
                              >
@@ -2443,6 +2675,31 @@ index e176c60..bf528df 100644
 +export const BASE_URL_WS = HYDRO_LIVE.adminWs;
  export const WEBSOCKET_RECONNECT_TIME = 5000;
  export const ADMIN_ACTIONS_WS_URL = BASE_URL_WS + "/adminActions";
+diff --git a/src/frontend/admin-overlay/src/navigation.tsx b/src/frontend/admin-overlay/src/navigation.tsx
+index c75bbaf..4097211 100644
+--- a/src/frontend/admin-overlay/src/navigation.tsx
++++ b/src/frontend/admin-overlay/src/navigation.tsx
+@@ -12,6 +12,7 @@ import Analytics from "./components/pages/Analytics";
+ import TeamSpotlight from "./components/TeamSpotlight";
+ import MediaFiles from "./components/MediaFiles";
+ import ScoreboardPage from "./components/pages/ScoreboardPage";
++import CapturePage from "./components/pages/CapturePage";
+ 
+ export interface AdminOverlayPage {
+     name: string;
+@@ -47,6 +48,12 @@ export const adminOverlayPages: AdminOverlayPage[] = [
+         path: "/teamview",
+         element: <TeamView />,
+     },
++    {
++        // Hydro: 画面采集, contestants' screens and webcams.
++        name: "Capture",
++        path: "/capture",
++        element: <CapturePage />,
++    },
+     {
+         name: "Scoreboard",
+         path: "/scoreboard",
 diff --git a/src/frontend/admin-overlay/src/services/abstractSingleWidget.ts b/src/frontend/admin-overlay/src/services/abstractSingleWidget.ts
 index 92f8aa2..535f33c 100644
 --- a/src/frontend/admin-overlay/src/services/abstractSingleWidget.ts
@@ -2596,6 +2853,155 @@ index 99cc341..c039454 100644
              );
              return config.ADMIN_HIDE_CONTROL ?? [];
          } catch (error) {
+diff --git a/src/frontend/admin-overlay/src/services/hydroCapture.ts b/src/frontend/admin-overlay/src/services/hydroCapture.ts
+new file mode 100644
+index 0000000..6beefbd
+--- /dev/null
++++ b/src/frontend/admin-overlay/src/services/hydroCapture.ts
+@@ -0,0 +1,143 @@
++// Hydro: 画面采集 previews in the director console. A copy of overlay/src/utils/hydroCapture.ts
++// (the two apps share no module); keep them alike. The console connects with its Hydro login.
++const HYDRO_LIVE = (window as unknown as { __HYDRO_LIVE__: { captureWs?: string } }).__HYDRO_LIVE__;
++const RETRY_MS = 4000;
++const ANSWER_TIMEOUT_MS = 12000;
++
++type Message = { type: string; session?: string; sdp?: string; candidate?: RTCIceCandidateInit | null; message?: string; reason?: string; iceServers?: RTCIceServer[]; stunPort?: number };
++type Session = { handle: (message: Message) => void; fail: (reason: string) => void; close: () => void };
++
++class CaptureConnection {
++    private socket: WebSocket | null = null;
++    private iceServers: RTCIceServer[] = [];
++    private sessions = new Map<string, Session>();
++    private counter = 0;
++    private ready: Promise<void> = Promise.resolve();
++
++    constructor(private url: string) {
++        this.connect();
++        setInterval(() => {
++            if (this.socket?.readyState === WebSocket.OPEN) this.socket.send("ping");
++        }, 20000);
++    }
++
++    private connect() {
++        this.ready = new Promise((resolve) => {
++            const socket = new WebSocket(this.url);
++            this.socket = socket;
++            socket.onmessage = (event) => {
++                if (event.data === "ping") {
++                    socket.send("pong");
++                    return;
++                }
++                if (event.data === "pong") return;
++                let message: Message;
++                try {
++                    message = JSON.parse(event.data);
++                } catch {
++                    return;
++                }
++                if (message.type === "config") {
++                    this.iceServers = [...(Array.isArray(message.iceServers) ? message.iceServers : []),
++                        // Hydro's own STUN server, on the host this page came from.
++                        ...(message.stunPort ? [{ urls: `stun:${location.hostname}:${message.stunPort}` }] : [])];
++                    resolve();
++                    return;
++                }
++                if (message.session) this.sessions.get(message.session)?.handle(message);
++            };
++            socket.onclose = () => {
++                for (const session of [...this.sessions.values()]) session.fail("websocket closed");
++                setTimeout(() => this.connect(), RETRY_MS);
++            };
++        });
++    }
++
++    private send(message: Record<string, unknown>) {
++        if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify(message));
++    }
++
++    /** Plays a device's stream in the video; retried until the returned function is called. */
++    watch(device: string, stream: string, video: HTMLVideoElement, onPlaying: () => void) {
++        let stopped = false;
++        let current: Session | null = null;
++        let retry: ReturnType<typeof setTimeout> | null = null;
++        const start = async () => {
++            if (stopped) return;
++            await this.ready;
++            if (stopped) return;
++            const id = `o${++this.counter}`;
++            const pc = new RTCPeerConnection({ iceServers: this.iceServers });
++            let timer: ReturnType<typeof setTimeout> | null = null;
++            const session: Session = {
++                handle: (message) => {
++                    if (message.type === "answer" && message.sdp) {
++                        if (timer) clearTimeout(timer);
++                        pc.setRemoteDescription({ type: "answer", sdp: message.sdp }).catch(() => session.fail("bad answer"));
++                    } else if (message.type === "ice" && message.candidate) {
++                        pc.addIceCandidate(message.candidate).catch(() => {});
++                    } else if (message.type === "error" || message.type === "ended") {
++                        console.warn(`HydroCapture ${device}/${stream}: ${message.message || message.reason}`);
++                        session.fail(message.message || message.reason || "ended");
++                    }
++                },
++                fail: () => {
++                    if (current !== session) return;
++                    current = null;
++                    if (timer) clearTimeout(timer);
++                    this.sessions.delete(id);
++                    pc.close();
++                    video.srcObject = null;
++                    if (!stopped) retry = setTimeout(start, RETRY_MS);
++                },
++                close: () => {
++                    if (timer) clearTimeout(timer);
++                    this.sessions.delete(id);
++                    this.send({ type: "stop", session: id });
++                    pc.close();
++                },
++            };
++            current = session;
++            this.sessions.set(id, session);
++            pc.addTransceiver("video", { direction: "recvonly" });
++            if (stream === "webcam") pc.addTransceiver("audio", { direction: "recvonly" });
++            const media = new MediaStream();
++            pc.ontrack = (event) => {
++                media.addTrack(event.track);
++                video.srcObject = media;
++                video.play().catch(() => {});
++            };
++            pc.onicecandidate = (event) => this.send({ type: "ice", session: id, candidate: event.candidate ? event.candidate.toJSON() : null });
++            pc.onconnectionstatechange = () => {
++                if (pc.connectionState === "connected") onPlaying();
++                else if (pc.connectionState === "failed") session.fail("failed");
++            };
++            const offer = await pc.createOffer();
++            await pc.setLocalDescription(offer);
++            this.send({ type: "watch", session: id, device, stream, sdp: offer.sdp });
++            timer = setTimeout(() => session.fail("no answer"), ANSWER_TIMEOUT_MS);
++        };
++        start().catch((error) => console.warn("HydroCapture:", error));
++        return () => {
++            stopped = true;
++            if (retry) clearTimeout(retry);
++            current?.close();
++            current = null;
++            video.srcObject = null;
++        };
++    }
++}
++
++let connection: CaptureConnection | null = null;
++
++export function watchCapture(device: string, stream: string, video: HTMLVideoElement, onPlaying: () => void) {
++    if (!HYDRO_LIVE.captureWs) return () => {};
++    connection ||= new CaptureConnection(HYDRO_LIVE.captureWs);
++    return connection.watch(device, stream, video, onPlaying);
++}
++
++/** Another page's own connection (the director console uses its signed-in address). */
++export function captureClient(url: string) {
++    const client = new CaptureConnection(url);
++    return (device: string, stream: string, video: HTMLVideoElement, onPlaying: () => void) => client.watch(device, stream, video, onPlaying);
++}
 diff --git a/src/frontend/admin-overlay/src/services/presetWidget.ts b/src/frontend/admin-overlay/src/services/presetWidget.ts
 index bb2fa94..8b62470 100644
 --- a/src/frontend/admin-overlay/src/services/presetWidget.ts
@@ -2893,10 +3299,10 @@ index 799a87c..79851ad 100644
      };
 diff --git a/src/frontend/common/src/i18n.ts b/src/frontend/common/src/i18n.ts
 new file mode 100644
-index 0000000..281b0ea
+index 0000000..1f14b89
 --- /dev/null
 +++ b/src/frontend/common/src/i18n.ts
-@@ -0,0 +1,324 @@
+@@ -0,0 +1,349 @@
 +// Hydro: the director's console in Chinese (default) or English. Texts are written in English in
 +// the source and looked up here; text that arrives in Chinese (from Hydro) is looked up the other
 +// way for English. The choice is kept in this browser, and switching reloads the page.
@@ -2980,6 +3386,31 @@ index 0000000..281b0ea
 +    Optimistic: "乐观",
 +    Pessimistic: "悲观",
 +    "All groups": "全部分组",
++
++    // 画面采集 (director console)
++    Capture: "画面采集",
++    "Connecting…": "正在连接…",
++    "Online only": "只看在线",
++    "Preview all": "全部预览",
++    "Close previews": "关闭预览",
++    "Take team views off air": "撤下队伍画面",
++    "Manage capture": "管理画面采集",
++    "Capture is turned off in the plugin settings.": "插件配置中关闭了画面采集。",
++    "Capture is not enabled for this contest. Enable it on the capture management page.": "本场比赛尚未启用画面采集，请在画面采集管理页中启用。",
++    "Screens cannot go on air before the contest ends (capture settings).": "按画面采集设置，比赛结束前直播画面不能使用屏幕。",
++    "No capture devices yet.": "还没有采集设备。选手进入比赛开启画面采集后会出现在这里。",
++    "{name} is on air": "已上屏：{name}",
++    "Failed to put on air": "上屏失败",
++    Online: "在线",
++    Offline: "离线",
++    Seat: "座位",
++    "Not capturing this": "没有采集这一画面",
++    "No team for this device": "该设备没有对应的队伍",
++    "Preview off": "未预览",
++    "On air": "上屏",
++    "Split screen": "四分屏",
++    Split: "分屏",
++    "Hide preview": "关闭预览",
 +
 +    // 赛况总览
 +    "Contest overview": "赛况总览",
@@ -4122,10 +4553,10 @@ index d8fd89d..46a0040 100644
              });
 diff --git a/src/frontend/overlay/src/utils/hydroCapture.ts b/src/frontend/overlay/src/utils/hydroCapture.ts
 new file mode 100644
-index 0000000..bc076f6
+index 0000000..e82a953
 --- /dev/null
 +++ b/src/frontend/overlay/src/utils/hydroCapture.ts
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,145 @@
 +// Hydro: 画面采集. A contestant computer's screen or webcam over WebRTC; Hydro passes the
 +// handshake (lib/live/capture.ts in the plugin) and the video comes straight from that computer.
 +// One websocket per page, shared by every media holder. Mirrors the plugin's
@@ -4134,7 +4565,7 @@ index 0000000..bc076f6
 +const RETRY_MS = 4000;
 +const ANSWER_TIMEOUT_MS = 12000;
 +
-+type Message = { type: string; session?: string; sdp?: string; candidate?: RTCIceCandidateInit | null; message?: string; reason?: string; iceServers?: RTCIceServer[] };
++type Message = { type: string; session?: string; sdp?: string; candidate?: RTCIceCandidateInit | null; message?: string; reason?: string; iceServers?: RTCIceServer[]; stunPort?: number };
 +type Session = { handle: (message: Message) => void; fail: (reason: string) => void; close: () => void };
 +
 +class CaptureConnection {
@@ -4168,7 +4599,9 @@ index 0000000..bc076f6
 +                    return;
 +                }
 +                if (message.type === "config") {
-+                    this.iceServers = Array.isArray(message.iceServers) ? message.iceServers : [];
++                    this.iceServers = [...(Array.isArray(message.iceServers) ? message.iceServers : []),
++                        // Hydro's own STUN server, on the host this page came from.
++                        ...(message.stunPort ? [{ urls: `stun:${location.hostname}:${message.stunPort}` }] : [])];
 +                    resolve();
 +                    return;
 +                }
@@ -4262,4 +4695,10 @@ index 0000000..bc076f6
 +    if (!HYDRO_LIVE.captureWs) return () => {};
 +    connection ||= new CaptureConnection(HYDRO_LIVE.captureWs);
 +    return connection.watch(device, stream, video, onPlaying);
++}
++
++/** Another page's own connection (the director console uses its signed-in address). */
++export function captureClient(url: string) {
++    const client = new CaptureConnection(url);
++    return (device: string, stream: string, video: HTMLVideoElement, onPlaying: () => void) => client.watch(device, stream, video, onPlaying);
 +}

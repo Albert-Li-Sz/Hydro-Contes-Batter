@@ -1,10 +1,12 @@
-const entryIds = ['xcpcio-resolver-entry', 'xcpcio-screens-entry', 'xcpcio-live-entry', 'xcpcio-monitor-entry', 'xcpcio-overview-entry'];
-const entries = (url, { live = true } = {}) => [
+const entryIds = ['xcpcio-resolver-entry', 'xcpcio-screens-entry', 'xcpcio-live-entry', 'xcpcio-capture-entry', 'xcpcio-monitor-entry', 'xcpcio-overview-entry'];
+const entries = (url, { live = true, capture = false } = {}) => [
     [entryIds[0], url, 'icon-statistics', '滚榜'],
     [entryIds[1], url.replace(/\/resolver$/, '/screens'), 'icon-preview', '大屏'],
     ...live ? [[entryIds[2], url.replace(/\/resolver$/, '/live'), 'icon-play', '直播']] : [],
-    [entryIds[3], url.replace(/\/resolver$/, '/monitor'), 'icon-stopwatch', '评测监控'],
-    [entryIds[4], url.replace(/\/resolver$/, '/overview'), 'icon-pie-chart', '赛况总览'],
+    // 画面采集: contestants' screens and webcams (with the live module and its plugin setting).
+    ...live && capture ? [[entryIds[3], url.replace(/\/resolver$/, '/live/capture'), 'icon-security', '画面采集']] : [],
+    [entryIds[4], url.replace(/\/resolver$/, '/monitor'), 'icon-stopwatch', '评测监控'],
+    [entryIds[5], url.replace(/\/resolver$/, '/overview'), 'icon-pie-chart', '赛况总览'],
 ];
 const removeEntries = () => { for (const id of entryIds) document.getElementById(id)?.remove(); };
 

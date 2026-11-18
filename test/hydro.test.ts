@@ -86,7 +86,7 @@ function setup(saved = new Map<string, any>(), config: Record<string, unknown> =
     };
     return {
         saved,
-        init: () => apply(ctx as Context, { asDefault: true, publicByDefault: true, refreshInterval: 15000, resolverSessionDays: 0, live: true, liveCapture: true, profileFields: defaultProfileFields, ...config }),
+        init: () => apply(ctx as Context, { asDefault: true, publicByDefault: true, refreshInterval: 15000, resolverSessionDays: 0, live: true, liveCapture: true, liveCaptureStunPort: 0, profileFields: defaultProfileFields, ...config }),
         settings: () => new (routes.get('contest_xcpcio_plus_settings'))(),
         publicBoard: () => new (routes.get('contest_xcpcio_plus_public'))(),
         middleware: () => middleware,
@@ -922,7 +922,7 @@ describe('Hydro Resolver routes', () => {
         await db.db.collection('xcpcio.live.capture.config' as never).updateOne({ _id: `system/${tdoc.docId}` } as never, { $set: { settings: { enabled: true } } } as never, { upsert: true });
         vi.useFakeTimers({ now: Date.now() + 10_000, toFake: ['Date'] });
         try {
-            expect(await run(tdoc, contestant)).toEqual({ url: `/d/system/contest/${tdoc.docId}/live-capture/me`, channel: `xcpcio-capture-${tdoc.docId}`, contest: '测试比赛', screenPublic: false });
+            expect(await run(tdoc, contestant)).toEqual({ url: `/d/system/contest/${tdoc.docId}/live-capture/me`, channel: `xcpcio-capture-${tdoc.docId}`, contest: '测试比赛', screenPublic: true, webcam: true });
             // Contest staff, people who did not join, and a contest that is over get no prompt.
             expect(await run(tdoc, { ...contestant, own: () => true })).toBeUndefined();
             expect(await run({ ...tdoc, endAt: new Date(Date.now() - 1000) }, contestant)).toBeUndefined();
@@ -937,6 +937,9 @@ describe('Hydro Resolver routes', () => {
         hook(handler); expect(handler.UiContext.xcpcioResolverUrl).toBeUndefined();
         handler.user.own = () => true; hook(handler);
         expect(handler.UiContext.xcpcioResolverUrl).toContain(`/contest/${tid()}/resolver`);
+        // 直播 and 画面采集 appear beside 大屏 for the same managers.
+        for (const [name, other] of app.hooks.mock.calls) if (name === 'handler/after' && other !== hook) await other(handler);
+        expect(handler.UiContext).toMatchObject({ xcpcioLiveEnabled: true, xcpcioCaptureEnabled: true });
     });
     it('inherits selected-board medal defaults for partial API configurations', async () => {
         const app = setup(); await app.init(); const settings = app.settings(); settings.user.own = () => true;

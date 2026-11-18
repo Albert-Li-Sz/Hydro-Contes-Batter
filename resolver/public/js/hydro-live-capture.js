@@ -25,6 +25,8 @@ filter.addEventListener('change', () => { state.filter = filter.value; renderTab
 
 $('manage-root').replaceChildren(
     el('p', { class: 'resolver-muted', text: '选手机打开各自的采集链接后，屏幕和摄像头由 Hydro 统一管理：导播台的队伍画面、放大播放和直播画面可直接使用，管理员也可以在下方预览任意设备。Hydro 只负责转交连接信息，视频在选手机和观看端之间直接传输，不经过 Hydro 服务器。' }),
+    ...window.isSecureContext ? [] : [el('p', { class: 'manage-alert manage-alert--error', role: 'alert',
+        text: '当前地址无法采集屏幕或摄像头。请为选手机配置浏览器信任的 HTTPS 站点，使用 HTTPS 重新打开本页后再复制采集链接。' })],
     switchBox,
     stats,
     el('div', { class: 'manage-group' }, el('h3', { text: '采集设置' }), settingsBox),
@@ -121,14 +123,15 @@ function renderSettings() {
     settingsBox.replaceChildren(
         el('div', { class: 'resolver-checks' },
             box('prompt', '选手进入比赛时弹窗提示开启画面采集', '选手登录后打开比赛页面即弹出提示，点击后打开采集窗口；不需要分发链接或启动参数'),
-            box('screenDuringContest', '比赛结束前也在直播画面提供屏幕', '屏幕会显示正在写的代码，选手能看到直播时请勿开启'),
+            box('webcam', '采集摄像头', '取消后选手机只共享屏幕，不再请求摄像头权限'),
+            box('screenDuringContest', '比赛进行中直播画面可以使用屏幕', '导播台默认调用屏幕；屏幕会显示正在写的代码，选手能看到直播时请取消'),
             box('webcamAudio', '摄像头同时采集声音')),
         el('div', { class: 'resolver-fields resolver-two', style: 'margin-top:12px' },
             field('屏幕分辨率', choice('screenHeight', [[720, '720p（推荐）'], [1080, '1080p']])),
             field('屏幕帧率', choice('screenFps', [[5, '5 帧'], [10, '10 帧'], [15, '15 帧（推荐）'], [30, '30 帧']])),
             field('摄像头分辨率', choice('webcamHeight', [[360, '360p'], [480, '480p（推荐）'], [720, '720p']])),
             field('STUN / TURN 服务器', ice, '选手机和 OBS 电脑在同一局域网时可以留空；不同网段需要 STUN，网络互相隔离时需要 TURN 中转')),
-        el('p', { class: 'resolver-muted manage-small', text: state.screenNow ? '当前直播画面可以使用屏幕。' : '当前直播画面只提供摄像头，屏幕在比赛结束后自动提供。' }),
+        el('p', { class: 'resolver-muted manage-small', text: state.screenNow ? '当前直播画面可以使用屏幕。' : '当前直播画面不提供屏幕，屏幕在比赛结束后自动提供。' }),
         el('div', { class: 'resolver-actions' }, save, saved),
     );
 }
@@ -181,7 +184,7 @@ function renderHelp() {
             el('li', { text: '选手用 Chrome 或 Edge 登录参赛账号、打开比赛，页面会弹出提示；点击“开启画面采集”打开采集窗口，在窗口中点击“开始采集”，选择“整个屏幕”并点击“分享”，摄像头权限选择“允许”。' }),
             el('li', { text: '采集窗口需保持打开（可以最小化）。选手关闭窗口或退出浏览器时，浏览器会先确认；采集中断后，比赛页面立即提示重新开启，本页显示该设备离线。' }),
             el('li', { text: '每支队伍自动对应一台设备：有座位号时使用该座位的设备，没有时自动创建。比赛页面右下角显示采集状态。' })),
-        el('p', { class: 'resolver-muted manage-small', text: '选手机授予摄像头权限后，浏览器会直接使用本机地址建立连接；没有摄像头、只采集屏幕的电脑，以及选手机和 OBS 电脑不在同一网段时，请在上方配置 STUN 服务器。' }),
+        el('p', { class: 'resolver-muted manage-small', text: '采集要求比赛使用 HTTPS 地址（浏览器只允许 HTTPS 页面共享屏幕和摄像头）。Hydro 内置 STUN 服务（插件配置中的 UDP 端口，默认 3478），帮助选手机与 OBS 电脑找到彼此的地址，只采集屏幕时也能直接连接；请在防火墙中放行该端口。选手网与直播网完全隔离时，需要在上方配置 TURN 服务器。' }),
         el('h4', { text: '方式二：用采集链接无人值守（可选）' }),
         el('p', { class: 'resolver-muted manage-small', text: '比赛镜像中开机自动打开某个座位的采集链接，免去选手操作。用下面的参数启动浏览器可自动选择整个屏幕、自动允许摄像头：' }),
         el('p', { class: 'resolver-muted manage-small', text: 'Windows：' }),

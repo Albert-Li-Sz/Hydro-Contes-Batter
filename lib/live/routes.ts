@@ -64,6 +64,8 @@ export function applyLive(ctx: Context, dependencies: {
     intervalMs?: number;
     /** 画面采集 (plugin setting): off, its pages and sockets are not offered and teams have no video. */
     capture?: boolean;
+    /** UDP port of Hydro's own STUN server for 画面采集; 0 turns it off. */
+    captureStunPort?: number;
 }) {
     const collection = ctx.db.collection('xcpcio.live');
     const media = ctx.db.collection('xcpcio.live.media');
@@ -226,7 +228,7 @@ export function applyLive(ctx: Context, dependencies: {
     }
 
     const capture = dependencies.capture === false ? null : applyCapture(ctx, {
-        codeBase, key, contestBase, checkAdmin, checkToken, sameSecret,
+        codeBase, key, contestBase, checkAdmin, checkToken, sameSecret, stunPort: dependencies.captureStunPort ?? 3478,
         currentToken: async (contestKey) => (await collection.findOne({ _id: contestKey }))?.token ?? null,
     });
 
@@ -338,6 +340,12 @@ export function applyLive(ctx: Context, dependencies: {
             hub.touch();
             if (!hub.info) await hub.refresh();
             const subpath = /\/live\/api\/admin\/(.*)$/.exec(this.request.path)?.[1] || '';
+            // 画面采集 for the console's 画面采集 page: devices, the teams they show, and what may go on air.
+            if (subpath === 'capture' && this.request.method === 'GET') {
+                this.response.type = 'application/json';
+                this.response.body = JSON.stringify(capture ? await capture.directorStatus(this.tdoc) : { available: false, devices: [] });
+                return;
+            }
             const files = Object.values(this.request.files || {}).flat().map((file) => ({
                 name: file.originalFilename || path.basename(file.filepath), size: file.size, read: () => fs.promises.readFile(file.filepath),
             }));
@@ -492,6 +500,10 @@ export function applyLive(ctx: Context, dependencies: {
     ctx.i18n.load('zh', { contest_xcpcio_live: '直播' });
     // The sidebar shows 直播 next to 滚榜 for the same managers, only while this module is enabled.
     ctx.on('handler/after', (handler) => {
-        if (handler.UiContext?.xcpcioResolverUrl) handler.UiContext.xcpcioLiveEnabled = true;
+        if (handler.UiContext?.xcpcioResolverUrl) {
+            handler.UiContext.xcpcioLiveEnabled = true;
+            // 画面采集 next to 直播 and 大屏 in the contest's sidebar, for the same managers.
+            if (capture) handler.UiContext.xcpcioCaptureEnabled = true;
+        }
     });
 }

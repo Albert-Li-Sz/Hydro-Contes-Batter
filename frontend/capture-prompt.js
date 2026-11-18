@@ -10,6 +10,8 @@ const css = `
 .xcpcio-capture-chip { position: fixed; right: 16px; bottom: 16px; z-index: 2000; display: flex; align-items: center; gap: 6px; padding: 8px 14px; border: 0; border-radius: 999px; font: 13px/1.4 inherit; color: #fff; background: #d9534f; box-shadow: 0 4px 14px rgba(0,0,0,.25); cursor: pointer; }
 .xcpcio-capture-chip[data-state="recording"] { background: #3c9d4f; }
 .xcpcio-capture-chip[data-state="waiting"] { background: #e6a23c; }
+.xcpcio-capture-chip[role="status"] { max-width: calc(100vw - 32px); cursor: default; }
+.xcpcio-capture-chip[role="status"] a { color: inherit; text-decoration: underline; }
 .xcpcio-capture-mask { position: fixed; inset: 0; z-index: 2001; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0,0,0,.55); }
 .xcpcio-capture-dialog { max-width: 520px; width: 100%; padding: 24px 26px; border-radius: 10px; color: #222; background: #fff; box-shadow: 0 12px 40px rgba(0,0,0,.35); font-size: 15px; line-height: 1.7; }
 .xcpcio-capture-dialog h2 { margin: 0 0 10px; font-size: 20px; }
@@ -35,6 +37,21 @@ function element(tag, attrs = {}, ...children) {
 
 export function installCapturePrompt(info) {
     if (!document.getElementById(STYLE_ID)) document.head.append(element('style', { id: STYLE_ID }, css));
+    if (!window.isSecureContext) {
+        const notice = element('div', { class: 'xcpcio-capture-chip', role: 'status',
+            text: '画面采集需要 HTTPS。请使用比赛工作人员提供的 HTTPS 地址重新进入比赛。' });
+        try {
+            const secureUrl = new URL(document.querySelector('link[rel="canonical"]')?.href);
+            if (secureUrl.protocol === 'https:' && !secureUrl.username && !secureUrl.password) {
+                secureUrl.pathname = location.pathname;
+                secureUrl.search = '';
+                secureUrl.hash = '';
+                notice.replaceChildren('画面采集需要 HTTPS。', element('a', { href: secureUrl.href, text: '用 HTTPS 重新进入' }));
+            }
+        } catch { /* A site without a configured HTTPS URL keeps the instructions above. */ }
+        document.body.append(notice);
+        return () => notice.remove();
+    }
     const channel = 'BroadcastChannel' in window ? new BroadcastChannel(info.channel) : null;
     const laterKey = `${info.channel}:later`;
     const seenKey = `${info.channel}:seen`;
@@ -78,11 +95,11 @@ export function installCapturePrompt(info) {
         const dialog = element('div', { class: 'xcpcio-capture-dialog', role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'xcpcio-capture-title', 'data-tone': interrupted ? 'bad' : '' },
             element('h2', { id: 'xcpcio-capture-title', text: interrupted ? '画面采集已中断' : '本场比赛需要开启画面采集' }),
             element('p', { text: interrupted
-                ? '画面采集窗口已关闭或断开，屏幕和摄像头的录制已中断，比赛工作人员会看到中断。请立即重新开启，并保持窗口打开。'
-                : `「${info.contest}」要求录制屏幕和摄像头，用于直播和赛事记录。${info.screenPublic ? '' : '比赛结束前，屏幕画面只提供给比赛工作人员。'}` }),
+                ? `画面采集窗口已关闭或断开，${info.webcam === false ? '屏幕' : '屏幕和摄像头'}的录制已中断，比赛工作人员会看到中断。请立即重新开启，并保持窗口打开。`
+                : `「${info.contest}」要求录制${info.webcam === false ? '屏幕' : '屏幕和摄像头'}，用于直播和赛事记录。${info.screenPublic ? '' : '比赛结束前，屏幕画面只提供给比赛工作人员。'}` }),
             element('ol', {},
                 element('li', { text: '点击下方按钮，打开画面采集窗口。' }),
-                element('li', { text: '在窗口中点击“开始采集”，在浏览器弹出的选择框中选择“整个屏幕”，点击“分享”；如询问摄像头权限，请选择“允许”。' }),
+                element('li', { text: `在窗口中点击“开始采集”，在浏览器弹出的选择框中选择“整个屏幕”，点击“分享”${info.webcam === false ? '' : '；如询问摄像头权限，请选择“允许”'}。` }),
                 element('li', { text: '采集期间请保持该窗口打开（可以最小化），不要关闭窗口或退出浏览器。' })),
             hint,
             element('div', { class: 'xcpcio-capture-actions' }, ...interrupted ? [] : [later], open));

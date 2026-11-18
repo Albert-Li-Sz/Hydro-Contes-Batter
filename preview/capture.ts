@@ -10,6 +10,7 @@ import {
     captureStreams, defaultCaptureSettings, isCaptureOnline, newCaptureSecret, normalizeCaptureSettings, normalizeDeviceInput, participantDeviceId, streamAllowed,
 } from '../lib/live/capture';
 import { toScriptJson } from '../lib/settings';
+import { startStunServer } from '../lib/live/stun';
 
 /**
  * 画面采集 in the local preview, mirroring lib/live/capture-routes.ts without Hydro or MongoDB.
@@ -30,6 +31,9 @@ export function createCapturePreview(env: Environment, options: {
     let settings: CaptureSettings = defaultCaptureSettings();
     // One process: the bus has nobody to reach.
     const relay = new CaptureRelay(() => {});
+    // Hydro's own STUN server, on a port of its own here so it does not meet a local 3478.
+    const stunPort = Number(process.env.XCPCIO_PREVIEW_STUN || 13478);
+    if (stunPort) startStunServer(stunPort, (message) => console.warn(`preview STUN: ${message}`));
     let counter = 0;
     const captureUrl = (device: CaptureDevice) => `${base}/live-capture/${device._id}/${device.secret}`;
 
@@ -57,7 +61,7 @@ export function createCapturePreview(env: Environment, options: {
         if (!settings.enabled || !devices.size) return {};
         const seats = new Map(options.teams().map((team) => [String(team.uid), team.seat]));
         const teams = data.teams.map((team) => ({ teamId: team.team_id, uid: Number(team.team_id), seat: seats.get(team.team_id) || '' }));
-        return captureMedias(teams, [...devices.values()], streamAllowed('screen', 'overlay', settings, contest, Date.now()));
+        return captureMedias(teams, [...devices.values()], streamAllowed('screen', 'overlay', settings, contest, Date.now()), settings.webcam);
     }
 
     function data() {
@@ -115,7 +119,7 @@ export function createCapturePreview(env: Environment, options: {
             const now = Date.now();
             if (!settings.enabled) for (const id of devices.keys()) relay.kickDevice(id, '本场比赛已停用画面采集，重新启用后会自动连接', 4005);
             else {
-                if (JSON.stringify(captureProfile(settings)) !== JSON.stringify(captureProfile(previous))) relay.configureDevices(contestKey, captureProfile(settings));
+                if (JSON.stringify(captureProfile(settings)) !== JSON.stringify(captureProfile(previous))) relay.configureDevices(contestKey, { ...captureProfile(settings), stunPort });
                 if (streamAllowed('screen', 'overlay', previous, contest, now) && !streamAllowed('screen', 'overlay', settings, contest, now)) relay.endOverlayScreens(contestKey);
             }
             return { settings };
@@ -146,6 +150,21 @@ export function createCapturePreview(env: Environment, options: {
             }));
             return true;
         }
+        // The director console's 画面采集 page.
+        if (url.pathname === `${base}/live/api/admin/capture`) {
+            const now = Date.now();
+            const teams = options.teams();
+            const bySeat = new Map(teams.filter((team) => team.seat).map((team) => [team.seat.toLowerCase(), team]));
+            json(response, 200, {
+                available: true, enabled: settings.enabled, webcam: settings.webcam, screenOnAir: streamAllowed('screen', 'overlay', settings, contest, now),
+                devices: [...devices.values()].sort((a, b) => a.seat.localeCompare(b.seat, 'zh-CN', { numeric: true })).map((device) => {
+                    const team = device.teamUid !== null ? teams.find((item) => item.uid === device.teamUid) : bySeat.get(device.seat.toLowerCase());
+                    const online = isCaptureOnline(device, now);
+                    return { id: device._id, name: device.name, seat: device.seat, teamId: team ? String(team.uid) : null, teamName: team?.name || '', online, streams: online ? device.streams : [] };
+                }),
+            });
+            return true;
+        }
         if (url.pathname === `${base}/live/capture/data`) {
             json(response, 200, data());
             return true;
@@ -161,7 +180,7 @@ export function createCapturePreview(env: Environment, options: {
         // A stand-in for a Hydro contest page of a contestant: the prompt that opens the capture window.
         if (url.pathname === `${base}/problems`) {
             const info = settings.enabled && settings.prompt
-                ? { url: `${base}/live-capture/me${url.search}`, channel: 'xcpcio-capture-demo', contest: contest.title, screenPublic: settings.screenDuringContest } : null;
+                ? { url: `${base}/live-capture/me${url.search}`, channel: 'xcpcio-capture-demo', contest: contest.title, screenPublic: settings.screenDuringContest, webcam: settings.webcam } : null;
             response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }).end(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>比赛题目 · ${contest.title}</title></head>
 <body style="font-family:sans-serif;padding:24px"><h1>${contest.title}</h1><p>（预览：参赛选手看到的比赛页面${info ? '' : '。本场比赛未启用画面采集或未开启弹窗提示，所以没有提示'}）</p><p><a href="${base}/problems${url.search}">换一页</a></p>
 <script type="module">import { installCapturePrompt } from '/preview-frontend/capture-prompt.js'; const info = ${JSON.stringify(info)}; if (info) installCapturePrompt(info);</script></body></html>`);
@@ -215,7 +234,7 @@ export function createCapturePreview(env: Environment, options: {
                 const endpoint = { contestKey, connection, send: (message: unknown) => ws.send(JSON.stringify(message)), close: (code: number, reason: string) => ws.close(code, reason) };
                 relay.attachDevice(device._id, endpoint);
                 Object.assign(device, { connection, lastSeen: new Date(), streams: [], client: { agent: String(request.headers['user-agent'] || ''), ip: '127.0.0.1', screen: '' } });
-                ws.send(JSON.stringify({ type: 'config', name: device.name, seat: device.seat, ...captureProfile(settings) }));
+                ws.send(JSON.stringify({ type: 'config', name: device.name, seat: device.seat, ...captureProfile(settings), stunPort }));
                 keepAlive(ws, (message) => {
                     const input = message as Record<string, unknown>;
                     if (input?.type === 'status') {
@@ -249,7 +268,7 @@ export function createCapturePreview(env: Environment, options: {
                     return true;
                 },
             });
-            ws.send(JSON.stringify({ type: 'config', iceServers: settings.iceServers }));
+            ws.send(JSON.stringify({ type: 'config', iceServers: settings.iceServers, stunPort }));
             keepAlive(ws, (message) => { relay.fromViewer(viewer, message).catch(() => null); });
             ws.on('close', () => relay.detachViewer(viewer));
         });

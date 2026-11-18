@@ -15,6 +15,7 @@
 .capture-tiles figcaption { padding: 6px 10px; font-size: 13px; background: rgba(255, 255, 255, .06); }
 .capture-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px 0; }
 .capture-actions button { font: inherit; font-size: 16px; padding: 8px 22px; border: 0; border-radius: 6px; color: #fff; background: #3b82c4; cursor: pointer; }
+.capture-actions button:disabled { opacity: .55; cursor: not-allowed; }
 .capture-actions span { opacity: .75; }
 .capture-note { font-size: 13px; opacity: .6; }
 
