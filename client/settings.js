@@ -90,7 +90,9 @@ if (root) {
     const saveHint = document.getElementById('xp-save-hint');
     const markDirty = () => {
         if (dirty) return;
-        dirty = true; savedNotice.hidden = true; saveHint.textContent = '有未保存的更改。';
+        dirty = true; savedNotice.hidden = true; saveHint.textContent = '有未保存的更改';
+        // The bar stands out while there is something to save.
+        saveHint.closest('.xp-savebar').classList.add('xp-savebar--dirty');
     };
     form.addEventListener('input', (event) => { if (!event.target.closest('.xp-search, .xp-value-search, .xp-filter-panel')) markDirty(); });
     form.addEventListener('change', (event) => { if (!event.target.closest('.xp-search, .xp-filter-panel')) markDirty(); });

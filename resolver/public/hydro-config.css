@@ -3,6 +3,8 @@
 #hydro-resolver-config .resolver-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; }
 #hydro-resolver-config .resolver-heading > div { min-width:0; }
 #hydro-resolver-config .resolver-heading .button { margin:0; flex:none; white-space:nowrap; }
+/* Hydro's own disabled buttons look almost the same as live ones; make the difference plain. */
+#hydro-resolver-config .button:disabled, #hydro-resolver-config .button[disabled] { opacity:.4; cursor:not-allowed; }
 #hydro-resolver-config .resolver-muted { color:inherit; opacity:.65; font-size:13px; line-height:1.6; }
 #hydro-resolver-config .resolver-fields { display:grid; gap:16px; margin-bottom:16px; }
 #hydro-resolver-config .resolver-two { grid-template-columns:repeat(2,minmax(0,1fr)); }

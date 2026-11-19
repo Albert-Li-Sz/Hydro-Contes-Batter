@@ -2309,10 +2309,10 @@ index e423af0..d80e028 100644
                      &nbsp;
 diff --git a/src/frontend/admin-overlay/src/components/pages/CapturePage.tsx b/src/frontend/admin-overlay/src/components/pages/CapturePage.tsx
 new file mode 100644
-index 0000000..b962823
+index 0000000..7ab2d96
 --- /dev/null
 +++ b/src/frontend/admin-overlay/src/components/pages/CapturePage.tsx
-@@ -0,0 +1,212 @@
+@@ -0,0 +1,225 @@
 +// Hydro: 画面采集 in the director console. Every capture device (a contestant computer), a preview
 +// of its screen or webcam, and one click to put it on air: full screen or a quarter of the split
 +// screen, as the team view of the team it belongs to. The screen is the default.
@@ -2363,6 +2363,7 @@ index 0000000..b962823
 +const HYDRO_LIVE = (window as unknown as { __HYDRO_LIVE__: { previewCaptureWs?: string } }).__HYDRO_LIVE__;
 +const SPLIT = ["TOP_LEFT", "TOP_RIGHT", "BOTTOM_LEFT", "BOTTOM_RIGHT"] as const;
 +const MAX_PREVIEWS = 12;
++const SEAT_KEY = `hydro-capture-seat:${location.pathname.split("/live/admin")[0]}`;
 +
 +let watch: ReturnType<typeof captureClient> | null = null;
 +const watcher = () => {
@@ -2409,6 +2410,9 @@ index 0000000..b962823
 +    const [stream, setStream] = useState<Stream>("screen");
 +    const [onlineOnly, setOnlineOnly] = useState(true);
 +    const [search, setSearch] = useState("");
++    // The zone a director watches, kept per browser like the capture management page's filter.
++    const [seatPrefix, setSeatPrefix] = useState(() => { try { return localStorage.getItem(SEAT_KEY) || ""; } catch { return ""; } });
++    useEffect(() => { try { localStorage.setItem(SEAT_KEY, seatPrefix); } catch { /* per-browser convenience only */ } }, [seatPrefix]);
 +    const [previews, setPreviews] = useState<Set<string>>(new Set());
 +
 +    const load = useCallback(() => {
@@ -2416,13 +2420,19 @@ index 0000000..b962823
 +    }, []);
 +    useEffect(() => {
 +        load();
-+        const timer = setInterval(() => { if (!document.hidden) load(); }, 3000);
-+        return () => clearInterval(timer);
++        // Pushed when a device connects, leaves or changes streams; the slow poll catches silent ones.
++        let pushed: ReturnType<typeof setTimeout> | undefined;
++        const unsubscribe = watcher().onDevices(() => { clearTimeout(pushed); pushed = setTimeout(load, 300); });
++        const timer = setInterval(() => { if (!document.hidden) load(); }, 20000);
++        return () => { clearInterval(timer); clearTimeout(pushed); unsubscribe(); };
 +    }, [load]);
 +    useEffect(() => { if (status && status.webcam === false && stream === "webcam") setStream("screen"); }, [status, stream]);
 +
 +    const devices = useMemo(() => (status?.devices || []).filter((device) => (!onlineOnly || device.online)
-+        && (!search.trim() || `${device.name} ${device.seat} ${device.teamName}`.toLowerCase().includes(search.trim().toLowerCase()))), [status, onlineOnly, search]);
++        && (device.seat || "").toLowerCase().startsWith(seatPrefix.trim().toLowerCase())
++        && (!search.trim() || `${device.name} ${device.seat} ${device.teamName}`.toLowerCase().includes(search.trim().toLowerCase()))), [status, onlineOnly, search, seatPrefix]);
++    /** The zones of the seats, as the floor screen groups them: `A-01` → `A`. */
++    const zones = useMemo(() => [...new Set((status?.devices || []).map((device) => (device.seat || "").replace(/[\s_-]*\d+$/, "")).filter(Boolean))].sort(), [status]);
 +
 +    const onAir = useCallback(async (device: CaptureDevice, position: "SINGLE" | typeof SPLIT[number]) => {
 +        if (!device.teamId) return;
@@ -2466,6 +2476,9 @@ index 0000000..b962823
 +                    <MenuItem value="screen">{t("Screen")}</MenuItem>
 +                    {status?.webcam !== false && <MenuItem value="webcam">{t("Camera")}</MenuItem>}
 +                </Select>
++                <TextField size="small" label={t("Seat prefix")} value={seatPrefix} onChange={(event) => setSeatPrefix(event.target.value)}
++                    inputProps={{ list: "capture-zones" }} sx={{ width: 140 }} />
++                <datalist id="capture-zones">{zones.map((zone) => <option key={zone} value={zone} />)}</datalist>
 +                <TextField size="small" label={t("Search")} value={search} onChange={(event) => setSearch(event.target.value)} />
 +                <FormControlLabel control={<Switch checked={onlineOnly} onChange={(event) => setOnlineOnly(event.target.checked)} />} label={t("Online only")} />
 +                <Button variant="outlined" onClick={() => setPreviews(new Set(devices.filter((device) => device.online).slice(0, MAX_PREVIEWS).map((device) => device.id)))}>
@@ -3004,10 +3017,10 @@ index 99cc341..c039454 100644
          } catch (error) {
 diff --git a/src/frontend/admin-overlay/src/services/hydroCapture.ts b/src/frontend/admin-overlay/src/services/hydroCapture.ts
 new file mode 100644
-index 0000000..6beefbd
+index 0000000..3dd2762
 --- /dev/null
 +++ b/src/frontend/admin-overlay/src/services/hydroCapture.ts
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,156 @@
 +// Hydro: 画面采集 previews in the director console. A copy of overlay/src/utils/hydroCapture.ts
 +// (the two apps share no module); keep them alike. The console connects with its Hydro login.
 +const HYDRO_LIVE = (window as unknown as { __HYDRO_LIVE__: { captureWs?: string } }).__HYDRO_LIVE__;
@@ -3023,6 +3036,7 @@ index 0000000..6beefbd
 +    private sessions = new Map<string, Session>();
 +    private counter = 0;
 +    private ready: Promise<void> = Promise.resolve();
++    readonly deviceListeners = new Set<() => void>();
 +
 +    constructor(private url: string) {
 +        this.connect();
@@ -3052,6 +3066,11 @@ index 0000000..6beefbd
 +                        // Hydro's own STUN server, on the host this page came from.
 +                        ...(message.stunPort ? [{ urls: `stun:${location.hostname}:${message.stunPort}` }] : [])];
 +                    resolve();
++                    return;
++                }
++                // Contest staff hear when a device connects, leaves or changes what it captures.
++                if (message.type === "devices") {
++                    for (const listener of this.deviceListeners) listener();
 +                    return;
 +                }
 +                if (message.session) this.sessions.get(message.session)?.handle(message);
@@ -3149,7 +3168,14 @@ index 0000000..6beefbd
 +/** Another page's own connection (the director console uses its signed-in address). */
 +export function captureClient(url: string) {
 +    const client = new CaptureConnection(url);
-+    return (device: string, stream: string, video: HTMLVideoElement, onPlaying: () => void) => client.watch(device, stream, video, onPlaying);
++    const watch = (device: string, stream: string, video: HTMLVideoElement, onPlaying: () => void) => client.watch(device, stream, video, onPlaying);
++    return Object.assign(watch, {
++        /** Calls `listener` whenever the contest's device list changed; returns the unsubscribe. */
++        onDevices: (listener: () => void) => {
++            client.deviceListeners.add(listener);
++            return () => { client.deviceListeners.delete(listener); };
++        },
++    });
 +}
 diff --git a/src/frontend/admin-overlay/src/services/presetWidget.ts b/src/frontend/admin-overlay/src/services/presetWidget.ts
 index bb2fa94..8b62470 100644
@@ -3448,10 +3474,10 @@ index 799a87c..79851ad 100644
      };
 diff --git a/src/frontend/common/src/i18n.ts b/src/frontend/common/src/i18n.ts
 new file mode 100644
-index 0000000..e2bf047
+index 0000000..65ba0ec
 --- /dev/null
 +++ b/src/frontend/common/src/i18n.ts
-@@ -0,0 +1,348 @@
+@@ -0,0 +1,349 @@
 +// Hydro: the director's console in Chinese (default) or English. Texts are written in English in
 +// the source and looked up here; text that arrives in Chinese (from Hydro) is looked up the other
 +// way for English. The choice is kept in this browser, and switching reloads the page.
@@ -3540,6 +3566,7 @@ index 0000000..e2bf047
 +    Capture: "画面采集",
 +    "Connecting…": "正在连接…",
 +    "Online only": "只看在线",
++    "Seat prefix": "座位前缀",
 +    "Preview all": "全部预览",
 +    "Close previews": "关闭预览",
 +    "Take team views off air": "撤下队伍画面",
@@ -3833,6 +3860,39 @@ index 739bcfa..b871d67 100644
  };
  
  const useWidgets = () => {
+diff --git a/src/frontend/overlay/src/components/molecules/info/SubmissionRow.tsx b/src/frontend/overlay/src/components/molecules/info/SubmissionRow.tsx
+index 6b68bc1..f1da671 100644
+--- a/src/frontend/overlay/src/components/molecules/info/SubmissionRow.tsx
++++ b/src/frontend/overlay/src/components/molecules/info/SubmissionRow.tsx
+@@ -99,7 +99,9 @@ export const SubmissionRow = ({
+     return (
+         <SubmissionRowWrap bg_color={bg_color} color={color}>
+             <TimeCell>
+-                {DateTime.fromMillis(lastSubmitTimeMs).toFormat("H:mm")}
++                {lastSubmitTimeMs == null
++                    ? ""
++                    : DateTime.fromMillis(lastSubmitTimeMs).toFormat("H:mm")}
+             </TimeCell>
+             <QueueProblemLabel
+                 letter={problemLetter}
+@@ -133,7 +135,7 @@ const PVPTimeCell = styled(TimeCell)`
+ export type VerticalSubmissionRowProps = {
+     teamData: TeamInfo;
+     result: ProblemResult;
+-    lastSubmitTimeMs?: number;
++    lastSubmitTimeMs?: number | null;
+     minScore?: number;
+     maxScore?: number;
+     problemLetter?: string;
+@@ -154,7 +156,7 @@ export const VerticalSubmissionRow = ({
+     const dark = isShouldUseDarkColor(
+         teamData?.color ? teamData?.color : c.CONTESTER_BACKGROUND_COLOR,
+     );
+-    if (!result || !problemLetter || !lastSubmitTimeMs) {
++    if (!result || !problemLetter || lastSubmitTimeMs == null) {
+         return (
+             <SubmissionColumnWrap bg_color={teamData?.color} darkText={dark}>
+                 <div style={{ order: isTop ? 1 : 3 }} />
 diff --git a/src/frontend/overlay/src/components/organisms/holder/TeamMediaHolder.tsx b/src/frontend/overlay/src/components/organisms/holder/TeamMediaHolder.tsx
 index 9c41933..77c653b 100644
 --- a/src/frontend/overlay/src/components/organisms/holder/TeamMediaHolder.tsx
@@ -4701,10 +4761,10 @@ index d8fd89d..46a0040 100644
              });
 diff --git a/src/frontend/overlay/src/utils/hydroCapture.ts b/src/frontend/overlay/src/utils/hydroCapture.ts
 new file mode 100644
-index 0000000..e82a953
+index 0000000..ca8c189
 --- /dev/null
 +++ b/src/frontend/overlay/src/utils/hydroCapture.ts
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,158 @@
 +// Hydro: 画面采集. A contestant computer's screen or webcam over WebRTC; Hydro passes the
 +// handshake (lib/live/capture.ts in the plugin) and the video comes straight from that computer.
 +// One websocket per page, shared by every media holder. Mirrors the plugin's
@@ -4722,6 +4782,7 @@ index 0000000..e82a953
 +    private sessions = new Map<string, Session>();
 +    private counter = 0;
 +    private ready: Promise<void> = Promise.resolve();
++    readonly deviceListeners = new Set<() => void>();
 +
 +    constructor(private url: string) {
 +        this.connect();
@@ -4751,6 +4812,11 @@ index 0000000..e82a953
 +                        // Hydro's own STUN server, on the host this page came from.
 +                        ...(message.stunPort ? [{ urls: `stun:${location.hostname}:${message.stunPort}` }] : [])];
 +                    resolve();
++                    return;
++                }
++                // Contest staff hear when a device connects, leaves or changes what it captures.
++                if (message.type === "devices") {
++                    for (const listener of this.deviceListeners) listener();
 +                    return;
 +                }
 +                if (message.session) this.sessions.get(message.session)?.handle(message);
@@ -4848,38 +4914,12 @@ index 0000000..e82a953
 +/** Another page's own connection (the director console uses its signed-in address). */
 +export function captureClient(url: string) {
 +    const client = new CaptureConnection(url);
-+    return (device: string, stream: string, video: HTMLVideoElement, onPlaying: () => void) => client.watch(device, stream, video, onPlaying);
++    const watch = (device: string, stream: string, video: HTMLVideoElement, onPlaying: () => void) => client.watch(device, stream, video, onPlaying);
++    return Object.assign(watch, {
++        /** Calls `listener` whenever the contest's device list changed; returns the unsubscribe. */
++        onDevices: (listener: () => void) => {
++            client.deviceListeners.add(listener);
++            return () => { client.deviceListeners.delete(listener); };
++        },
++    });
 +}
-diff --git a/src/frontend/overlay/src/components/molecules/info/SubmissionRow.tsx b/src/frontend/overlay/src/components/molecules/info/SubmissionRow.tsx
-index 6b68bc1..f1da671 100644
---- a/src/frontend/overlay/src/components/molecules/info/SubmissionRow.tsx
-+++ b/src/frontend/overlay/src/components/molecules/info/SubmissionRow.tsx
-@@ -99,7 +99,9 @@ export const SubmissionRow = ({
-     return (
-         <SubmissionRowWrap bg_color={bg_color} color={color}>
-             <TimeCell>
--                {DateTime.fromMillis(lastSubmitTimeMs).toFormat("H:mm")}
-+                {lastSubmitTimeMs == null
-+                    ? ""
-+                    : DateTime.fromMillis(lastSubmitTimeMs).toFormat("H:mm")}
-             </TimeCell>
-             <QueueProblemLabel
-                 letter={problemLetter}
-@@ -133,7 +135,7 @@ const PVPTimeCell = styled(TimeCell)`
- export type VerticalSubmissionRowProps = {
-     teamData: TeamInfo;
-     result: ProblemResult;
--    lastSubmitTimeMs?: number;
-+    lastSubmitTimeMs?: number | null;
-     minScore?: number;
-     maxScore?: number;
-     problemLetter?: string;
-@@ -154,7 +156,7 @@ export const VerticalSubmissionRow = ({
-     const dark = isShouldUseDarkColor(
-         teamData?.color ? teamData?.color : c.CONTESTER_BACKGROUND_COLOR,
-     );
--    if (!result || !problemLetter || !lastSubmitTimeMs) {
-+    if (!result || !problemLetter || lastSubmitTimeMs == null) {
-         return (
-             <SubmissionColumnWrap bg_color={teamData?.color} darkText={dark}>
-                 <div style={{ order: isTop ? 1 : 3 }} />

@@ -88,6 +88,11 @@ describe('additional screens', () => {
         expect(screenProjection('scoreboard', item, view)).not.toHaveProperty('seats');
     });
 
+    it('shows no groups, instead of failing, when the contest has no boards to group by', () => {
+        const item = defaultScreenConfig().items.groups;
+        expect(screenProjection('groups', item, screenData(demoData(), null, { ...env, groups: [] }))).toEqual([]);
+    });
+
     it('exposes only jury broadcasts and rejects non-image uploads', () => {
         const docId = { getTimestamp: () => new Date(4000) };
         expect(broadcastRows([{ owner: 7, content: '私人提问', docId }, { owner: 0, subject: 6, content: '全场公告', docId }], [6], ['A']))

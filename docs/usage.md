@@ -96,11 +96,11 @@ Schema 测试固定使用官方 2026-01 分支文件；上游 schema 对 runs �
 
 需要 Node.js 22 或以上版本及 Hydro 5.x。使用运行 Hydro 的系统用户操作；命令中的 `$HOME` 对应这个用户。自 0.8.1 起，安装包包含供 Hydro 直接加载的源码和完整预构建资源。
 
-下载 `hydro-scoreboard-xcpcio-plus-1.11.0.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
+下载 `hydro-scoreboard-xcpcio-plus-1.12.0.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
 
 ```bash
 mkdir -p "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
-tar -xzf hydro-scoreboard-xcpcio-plus-1.11.0.tgz \
+tar -xzf hydro-scoreboard-xcpcio-plus-1.12.0.tgz \
   -C "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus" --strip-components=1
 hydrooj addon add "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
 pm2 restart hydrooj
@@ -112,7 +112,7 @@ pm2 restart hydrooj
 
 ```bash
 mkdir -p xcpcio-update
-tar -xzf hydro-scoreboard-xcpcio-plus-1.11.0.tgz -C xcpcio-update
+tar -xzf hydro-scoreboard-xcpcio-plus-1.12.0.tgz -C xcpcio-update
 bash xcpcio-update/package/install.sh install
 # 已有安装时
 bash xcpcio-update/package/install.sh upgrade
@@ -220,7 +220,7 @@ profileFields:
 
 Logo 来自 Hydro 的学校 Logo 注册表 <https://avatar.hydrooj.com/>，保留源图分辨率，随包发布在 `logos/` 目录。已有 WebP 保留原始文件，其他格式无损转换为 WebP，并保留透明通道。Resolver 使用这套原图，适用于高清屏幕和奖项大图；增强榜只把校徽显示为行内图标，使用 `logos/thumb/` 中 128px 高的缩略图，每张约 7 KB，避免观众为小图标下载原图。源图地址及文件哈希记录在 `logos/index.json`。
 
-自 0.8.1 起，安装包同时包含 `logos/` 原图、榜单缩略图和 `public/hydro-resolver/logos/` 下供滚榜、大屏及直播使用的副本，解压后即可使用。源码开发时运行 `pnpm build` 或 `pnpm pack` 会重新生成这些资源。
+安装包包含榜单缩略图、`public/hydro-resolver/logos/` 下供滚榜、大屏及直播使用的校徽，以及 CCS API 使用的 PNG（`logos/png/`），解压后即可使用。自 1.12.0 起，安装包不再重复附带 `logos/` 原图、`live/dist/` 和滚榜字体图片的源副本，体积约为此前的一半；这些源文件在仓库中，`pnpm build` 或 `pnpm pack` 会由它们重新生成 `public/`。
 
 校徽按学校名称（含注册表中的别名和英文名，忽略全半角、大小写和多余空格）匹配。增强榜中名称不在注册表的学校不显示 Logo，未填写学校显示 XCPCIO 自带的 ICPC 标志。Resolver 缺失校徽时使用本地 ICPC 图标。未开启“向所有观众显示学校”时增强榜的学校列和 Logo 均隐藏。
 
@@ -504,7 +504,7 @@ Hydro 的系统管理员（`PRIV_EDIT_SYSTEM`）可在控制面板（`/manage`�
 
 设备列表上方的“全部 / 在线 / 离线”按钮同时显示数量并用于筛选；“座位前缀”输入框按座位号开头筛选（如 `A`、`B1-`，不区分大小写），输入时会提示已有的区域。勾选、删除、导出链接和“全部预览”都只作用于当前筛选出的设备，筛选条件在本浏览器中保留。采集设置位于页面底部，修改后自动保存；“重新生成链接”在设备的“设置”中。
 
-设备显示“在线”后，在管理页点“预览”确认画面。
+设备显示“在线”后，在管理页点“预览”确认画面。选手机连上、断开或开始采集时，管理页和导播台“画面采集”页立即更新，无需刷新；导播台该页也可按座位前缀筛选。
 
 导播台中调用采集画面：
 

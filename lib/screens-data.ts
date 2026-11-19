@@ -405,7 +405,8 @@ export function screenProjection(type: ScreenType, item: ScreenItem, data: Scree
             if (!groups.has(id)) groups.set(id, []);
             groups.get(id)!.push(row);
         }
-        return contest.groups.map(({ id, name }: { id: string; name: string }) => {
+        // Resolver-Web leaves `groups` out when there are none (a contest without boards to group by).
+        return (contest.groups || []).map(({ id, name }: { id: string; name: string }) => {
             let position = 0, rank = 0, previous: number | string = 0;
             const rows = (groups.get(id) || []).slice(0, 10).map((row) => {
                 if (!row.unrank) {

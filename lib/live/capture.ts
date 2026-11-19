@@ -365,6 +365,16 @@ export class CaptureRelay {
         this.bus({ origin: this.instance, to: 'contest', id: contestKey, message });
     }
 
+    /**
+     * A device of the contest connected, left or changed what it captures: contest staff watching the
+     * contest (the management page, the director console) reload their device list, in every process.
+     */
+    devicesChanged(contestKey: string) {
+        const message = { type: 'devices' };
+        this.deliverToContest(contestKey, message);
+        this.bus({ origin: this.instance, to: 'contest', id: contestKey, message });
+    }
+
     /** Screens are no longer allowed for the OBS overlay: end the screens it is watching, in every process. */
     endOverlayScreens(contestKey: string) {
         const message = { type: 'end-overlay-screens' };
@@ -375,6 +385,8 @@ export class CaptureRelay {
     private deliverToContest(contestKey: string, message: Record<string, unknown>) {
         if (message.type === 'config') {
             for (const endpoint of this.devices.values()) if (endpoint.contestKey === contestKey) endpoint.send(message);
+        } else if (message.type === 'devices') {
+            for (const endpoint of this.viewers.values()) if (endpoint.contestKey === contestKey && endpoint.kind === 'staff') endpoint.send(message);
         } else if (message.type === 'end-overlay-screens') {
             for (const [session, entry] of this.viewerSessions) {
                 const endpoint = this.viewers.get(entry.viewer);

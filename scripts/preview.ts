@@ -19,7 +19,8 @@ import { previewDatabase } from '../preview/resolver-memory-db';
 
 async function main() {
 const root = path.resolve(__dirname, '..');
-const statePath = path.join(root, 'preview-state.json');
+// XCPCIO_PREVIEW_STATE lets the UI smoke test keep its saves out of the developer's own preview state.
+const statePath = process.env.XCPCIO_PREVIEW_STATE || path.join(root, 'preview-state.json');
 let settings = normalizeSettings({ ...defaultSettings, publicAccess: true, showIdentity: true, manualBoards: [] });
 try { settings = normalizeSettings(JSON.parse(await fs.readFile(statePath, 'utf8'))); } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;

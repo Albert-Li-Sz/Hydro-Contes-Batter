@@ -347,5 +347,12 @@ function previewAll(stream) {
 }
 
 window.addEventListener('beforeunload', () => { closeAll(); viewer?.close(); });
+// The list follows the devices as they change (pushed over the preview socket); the slow poll
+// catches devices that go silent without disconnecting.
+let pushed = 0;
+const refresh = () => { if (!document.hidden && !document.querySelector('dialog[open]')) load(); };
+ensureViewer().onDevices = () => { clearTimeout(pushed); pushed = setTimeout(refresh, 300); };
+// A tab coming back reloads at once instead of waiting for the next poll.
+document.addEventListener('visibilitychange', refresh);
 load();
-setInterval(() => { if (!document.hidden && !document.querySelector('dialog[open]')) load(); }, 4000);
+setInterval(refresh, 20000);

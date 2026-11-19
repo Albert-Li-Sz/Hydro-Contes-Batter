@@ -299,6 +299,8 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
         deviceId = '';
         endpoint?: Parameters<CaptureRelay['attachDevice']>[1];
         recheck?: NodeJS.Timeout;
+        /** The last status report's streams and screen size, to tell staff only about changes. */
+        reported = '';
 
         /** Still allowed to capture (checked every minute; the bus usually ends it sooner). */
         abstract stillValid(doc: CaptureDevice | null): Promise<boolean>;
@@ -318,6 +320,7 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
             relay.attachDevice(doc._id, this.endpoint);
             const agent = String(this.request.headers['user-agent'] || '').slice(0, 200);
             await devices.updateOne({ _id: doc._id }, { $set: { connection, lastSeen: new Date(), streams: [], client: { agent, ip: String(this.request.ip || ''), screen: '' } } });
+            relay.devicesChanged(contestKey);
             this.send({ type: 'config', name: doc.name, seat: doc.seat, ...captureProfile(settings), stunPort });
             // Also for deployments whose processes do not share Hydro's broadcast bus.
             this.recheck = setInterval(async () => {
@@ -334,7 +337,12 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
             if (message?.type === 'status') {
                 const streams = (Array.isArray(message.streams) ? message.streams : []).filter((stream): stream is CaptureStream => captureStreams.includes(stream as CaptureStream));
                 const screen = typeof message.screen === 'string' ? message.screen.slice(0, 40) : '';
-                await devices.updateOne({ _id: this.deviceId, connection: this.endpoint?.connection }, { $set: { lastSeen: new Date(), streams: [...new Set(streams)], 'client.screen': screen } });
+                const current = [...new Set(streams)].sort();
+                await devices.updateOne({ _id: this.deviceId, connection: this.endpoint?.connection }, { $set: { lastSeen: new Date(), streams: current, 'client.screen': screen } });
+                // Reports come every few seconds; staff hear only about a change.
+                const key = `${current.join(',')}|${screen}`;
+                if (key !== this.reported && this.endpoint) relay.devicesChanged(this.endpoint.contestKey);
+                this.reported = key;
                 return;
             }
             relay.fromDevice(this.deviceId, message);
@@ -345,6 +353,7 @@ export function applyCapture(ctx: Context, helpers: CaptureHelpers) {
             if (!this.endpoint) return;
             relay.detachDevice(this.deviceId, this.endpoint);
             await devices.updateOne({ _id: this.deviceId, connection: this.endpoint.connection }, { $set: { connection: null, streams: [] } }).catch(() => null);
+            relay.devicesChanged(this.endpoint.contestKey);
         }
     }
 

@@ -469,3 +469,6 @@
   #xcpcio-plus #app table.standings { --xp-team-width: 146px; --xp-problem-width: 46px; }
   #xcpcio-plus #app .xp-mobile-result { column-gap: 5px; }
 }
+.xp-settings .button:disabled, .xp-settings .button[disabled] { opacity: .4; cursor: not-allowed; }
+.xp-savebar.xp-savebar--dirty { border-color: #5f9fd6; box-shadow: 0 -4px 18px #5f9fd633; }
+.xp-savebar.xp-savebar--dirty #xp-save-hint { color: #5f9fd6; opacity: 1; }

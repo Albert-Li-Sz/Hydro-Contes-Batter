@@ -218,6 +218,23 @@ describe('画面采集的连接转交', () => {
         await b.fromViewer(staffId, { type: 'watch', session: 'over', device: 'dev1', stream: 'webcam', sdp: 'x' });
         expect(staff.sent.at(-1)).toEqual({ type: 'error', session: 'over', message: `同时观看的画面不能超过 ${MAX_VIEWER_SESSIONS} 个` });
     });
+
+    it('设备变化时通知本场比赛的管理员（跨进程），不通知直播画面和其他比赛', () => {
+        const [a, b] = cluster();
+        const staff = endpoint();
+        b.attachViewer({ ...staff, kind: 'staff', token: '', allow: async () => true });
+        const local = endpoint();
+        a.attachViewer({ ...local, kind: 'staff', token: '', allow: async () => true });
+        const overlay = endpoint();
+        b.attachViewer({ ...overlay, kind: 'overlay', token: 't', allow: async () => true });
+        const otherContest = endpoint('system/2');
+        b.attachViewer({ ...otherContest, kind: 'staff', token: '', allow: async () => true });
+        a.devicesChanged('system/1');
+        expect(staff.sent).toEqual([{ type: 'devices' }]);
+        expect(local.sent).toEqual([{ type: 'devices' }]);
+        expect(overlay.sent).toEqual([]);
+        expect(otherContest.sent).toEqual([]);
+    });
 });
 
 describe('内置 STUN 服务', () => {

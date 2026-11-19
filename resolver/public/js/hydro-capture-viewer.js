@@ -12,6 +12,8 @@ export class CaptureViewer {
         this.counter = 0;
         this.closed = false;
         this.ready = null;
+        /** Set by the page: called when the device list changed. */
+        this.onDevices = null;
         this.connect();
     }
 
@@ -32,6 +34,8 @@ export class CaptureViewer {
                     resolve();
                     return;
                 }
+                // Contest staff hear when a device connects, leaves or changes what it captures.
+                if (message.type === 'devices') { this.onDevices?.(); return; }
                 this.sessions.get(message.session)?.handle(message);
             };
             socket.onclose = () => {

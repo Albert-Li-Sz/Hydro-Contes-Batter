@@ -234,7 +234,9 @@ export function createCapturePreview(env: Environment, options: {
                 const endpoint = { contestKey, connection, send: (message: unknown) => ws.send(JSON.stringify(message)), close: (code: number, reason: string) => ws.close(code, reason) };
                 relay.attachDevice(device._id, endpoint);
                 Object.assign(device, { connection, lastSeen: new Date(), streams: [], client: { agent: String(request.headers['user-agent'] || ''), ip: '127.0.0.1', screen: '' } });
+                relay.devicesChanged(contestKey);
                 ws.send(JSON.stringify({ type: 'config', name: device.name, seat: device.seat, ...captureProfile(settings), stunPort }));
+                let reported = '';
                 keepAlive(ws, (message) => {
                     const input = message as Record<string, unknown>;
                     if (input?.type === 'status') {
@@ -242,6 +244,9 @@ export function createCapturePreview(env: Environment, options: {
                         device.lastSeen = new Date();
                         device.streams = (Array.isArray(input.streams) ? input.streams : []).filter((stream): stream is CaptureStream => captureStreams.includes(stream as CaptureStream));
                         if (device.client) device.client.screen = String(input.screen || '').slice(0, 40);
+                        const key = `${[...device.streams].sort().join(',')}|${device.client?.screen || ''}`;
+                        if (key !== reported) relay.devicesChanged(contestKey);
+                        reported = key;
                         return;
                     }
                     relay.fromDevice(device._id, message);
@@ -249,6 +254,7 @@ export function createCapturePreview(env: Environment, options: {
                 ws.on('close', () => {
                     relay.detachDevice(device._id, endpoint);
                     if (device.connection === connection) Object.assign(device, { connection: null, streams: [] });
+                    relay.devicesChanged(contestKey);
                 });
                 return;
             }
