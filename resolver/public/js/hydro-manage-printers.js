@@ -1,7 +1,7 @@
 // /manage print servers: PCs running the print client, their printers (as each PC reports them),
 // which contests and seats each PC prints for, the print queue, and how printouts look.
 import {
-    $, adminPassword, copyText, el, field, formatTime, get, input, notify, openDialog, post, runtime,
+    $, adminPassword, copyText, el, field, formatTime, get, input, listen, notify, openDialog, post, runtime,
 } from './hydro-manage-common.js';
 
 const state = { servers: [], contests: [], clients: [], queue: {}, recent: [], settings: null, selected: new Set() };
@@ -358,4 +358,15 @@ for (const list of [serverList, recentTable]) {
 }
 const busy = () => document.querySelector('dialog[open]')
     || (Date.now() - touched < 8000 && (serverList.contains(document.activeElement) || recentTable.contains(document.activeElement)));
-setInterval(() => { if (!document.hidden && !busy()) load(); }, 5000);
+// Changes are pushed (a new request, a claim, a result, a print server coming online); the slow
+// poll notices print servers that went silent. A busy page reloads once the operator is done.
+let waiting = 0;
+const refresh = () => {
+    clearTimeout(waiting);
+    if (document.hidden) return;
+    if (busy()) { waiting = setTimeout(refresh, 2000); return; }
+    load();
+};
+listen(runtime.socket, refresh);
+document.addEventListener('visibilitychange', refresh);
+setInterval(refresh, 30000);

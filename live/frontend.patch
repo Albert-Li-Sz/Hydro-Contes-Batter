@@ -1860,16 +1860,14 @@ index 481e408..4419073 100644
  type TeamMediaSwitcherProps = {
 diff --git a/src/frontend/admin-overlay/src/components/managers/ContestOverviewManager.tsx b/src/frontend/admin-overlay/src/components/managers/ContestOverviewManager.tsx
 new file mode 100644
-index 0000000..3858615
+index 0000000..4f87208
 --- /dev/null
 +++ b/src/frontend/admin-overlay/src/components/managers/ContestOverviewManager.tsx
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,135 @@
 +// Hydro: settings of 赛况总览 (the overlay's ContestOverviewWidget): language, title, panels.
 +import { SlimTableCell } from "../atoms/Table.js";
 +import {
-+    Alert,
 +    Button,
-+    ButtonGroup,
 +    FormControlLabel,
 +    MenuItem,
 +    Select,
@@ -1879,7 +1877,7 @@ index 0000000..3858615
 +    TableRow,
 +    TextField,
 +} from "@mui/material";
-+import { Dispatch, SetStateAction } from "react";
++import { Dispatch, SetStateAction, useEffect, useRef } from "react";
 +import { AbstractSingleWidgetService } from "@admin/services/abstractSingleWidget.ts";
 +import { t } from "shared-code/i18n";
 +
@@ -1911,7 +1909,7 @@ index 0000000..3858615
 +    ["showProblems", "Problems"],
 +    ["showSchools", "Schools"],
 +    ["showRecent", "Recent accepts"],
-+    ["showCharts", "Charts (submissions, solved, verdicts)"],
++    ["showCharts", "Charts"],
 +];
 +
 +export type ContestOverviewManagerProps = {
@@ -1922,13 +1920,19 @@ index 0000000..3858615
 +};
 +
 +const ContestOverviewManager = ({ service, isShown, settings, setSettings }: ContestOverviewManagerProps) => {
-+    const set = <K extends keyof ContestOverviewSettings>(key: K, value: ContestOverviewSettings[K]) =>
++    // Edits made while it is on air go out by themselves (only edits: not the settings loaded from the server).
++    const edited = useRef(false);
++    const set = <K extends keyof ContestOverviewSettings>(key: K, value: ContestOverviewSettings[K]) => {
++        edited.current = true;
 +        setSettings((current) => ({ ...current, [key]: value }));
++    };
++    useEffect(() => {
++        if (!isShown || !edited.current) return;
++        const timer = setTimeout(() => { edited.current = false; service.showWithSettings(settings); }, 400);
++        return () => clearTimeout(timer);
++    }, [settings, isShown, service]);
 +    return (
 +        <>
-+            <Alert severity="info" sx={{ mb: 1 }}>
-+                {t("Public data only: frozen like the public board, and rejected results are not told apart until the contest ends.")}
-+            </Alert>
 +            <Table align="center" size="small">
 +                <TableBody>
 +                    <TableRow>
@@ -1951,7 +1955,7 @@ index 0000000..3858615
 +                                size="small"
 +                                fullWidth
 +                                value={settings.title}
-+                                placeholder={t("Leave empty to use the contest title")}
++                                placeholder={t("Contest title")}
 +                                inputProps={{ maxLength: 100 }}
 +                                onChange={(event) => set("title", event.target.value)}
 +                            />
@@ -1986,14 +1990,9 @@ index 0000000..3858615
 +                </TableBody>
 +            </Table>
 +            <div>
-+                <ButtonGroup variant="contained" sx={{ m: 2 }}>
-+                    <Button color="primary" onClick={() => service.showWithSettings(settings)}>
-+                        {isShown ? t("Update") : t("Show")}
-+                    </Button>
-+                    <Button color="error" disabled={!isShown} onClick={() => service.hide()}>
-+                        {t("Hide")}
-+                    </Button>
-+                </ButtonGroup>
++                {isShown
++                    ? <Button variant="contained" color="error" sx={{ m: 2 }} onClick={() => service.hide()}>{t("Hide")}</Button>
++                    : <Button variant="contained" sx={{ m: 2 }} onClick={() => service.showWithSettings(settings)}>{t("Show")}</Button>}
 +            </div>
 +        </>
 +    );
@@ -2309,10 +2308,10 @@ index e423af0..d80e028 100644
                      &nbsp;
 diff --git a/src/frontend/admin-overlay/src/components/pages/CapturePage.tsx b/src/frontend/admin-overlay/src/components/pages/CapturePage.tsx
 new file mode 100644
-index 0000000..7ab2d96
+index 0000000..37ce59d
 --- /dev/null
 +++ b/src/frontend/admin-overlay/src/components/pages/CapturePage.tsx
-@@ -0,0 +1,225 @@
+@@ -0,0 +1,229 @@
 +// Hydro: 画面采集 in the director console. Every capture device (a contestant computer), a preview
 +// of its screen or webcam, and one click to put it on air: full screen or a quarter of the split
 +// screen, as the team view of the team it belongs to. The screen is the default.
@@ -2481,10 +2480,14 @@ index 0000000..7ab2d96
 +                <datalist id="capture-zones">{zones.map((zone) => <option key={zone} value={zone} />)}</datalist>
 +                <TextField size="small" label={t("Search")} value={search} onChange={(event) => setSearch(event.target.value)} />
 +                <FormControlLabel control={<Switch checked={onlineOnly} onChange={(event) => setOnlineOnly(event.target.checked)} />} label={t("Online only")} />
-+                <Button variant="outlined" onClick={() => setPreviews(new Set(devices.filter((device) => device.online).slice(0, MAX_PREVIEWS).map((device) => device.id)))}>
-+                    {t("Preview all")}
-+                </Button>
-+                <Button variant="outlined" onClick={() => setPreviews(new Set())}>{t("Close previews")}</Button>
++                {previews.size
++                    ? <Button variant="outlined" onClick={() => setPreviews(new Set())}>{t("Close previews")}</Button>
++                    : (
++                        <Button variant="outlined" disabled={!devices.some((device) => device.online && device.streams.includes(stream))}
++                            onClick={() => setPreviews(new Set(devices.filter((device) => device.online && device.streams.includes(stream)).slice(0, MAX_PREVIEWS).map((device) => device.id)))}>
++                            {t("Preview all")}
++                        </Button>
++                    )}
 +                <Box sx={{ flex: 1 }} />
 +                <Button variant="contained" color="error" onClick={offAir}>{t("Take team views off air")}</Button>
 +            </Stack>
@@ -3474,10 +3477,10 @@ index 799a87c..79851ad 100644
      };
 diff --git a/src/frontend/common/src/i18n.ts b/src/frontend/common/src/i18n.ts
 new file mode 100644
-index 0000000..65ba0ec
+index 0000000..00c967f
 --- /dev/null
 +++ b/src/frontend/common/src/i18n.ts
-@@ -0,0 +1,349 @@
+@@ -0,0 +1,347 @@
 +// Hydro: the director's console in Chinese (default) or English. Texts are written in English in
 +// the source and looked up here; text that arrives in Chinese (from Hydro) is looked up the other
 +// way for English. The choice is kept in this browser, and switching reloads the page.
@@ -3593,15 +3596,13 @@ index 0000000..65ba0ec
 +    Chinese: "中文",
 +    English: "English",
 +    Title: "标题",
-+    "Leave empty to use the contest title": "留空则使用比赛名称",
++    "Contest title": "比赛名称",
 +    "Teams in the standings": "排名显示队数",
 +    Panels: "显示内容",
 +    Standings: "排名",
 +    Schools: "学校",
 +    "Recent accepts": "最近通过",
-+    "Charts (submissions, solved, verdicts)": "图表（提交趋势、过题分布、评测结果）",
-+    "Public data only: frozen like the public board, and rejected results are not told apart until the contest ends.":
-+        "只使用公开榜数据：封榜规则与公开榜一致，比赛结束前不区分具体的错误类型。",
++    Charts: "图表",
 +
 +    // Presets and tables
 +    "Add new preset": "新建预设",

@@ -125,7 +125,7 @@ const server = http.createServer(async (request, response) => {
         response.writeHead((error as NodeJS.ErrnoException).code === 'ENOENT' ? 404 : 400, { 'Content-Type': 'text/plain; charset=utf-8' }).end(error instanceof Error ? error.message : 'Invalid request');
     }
 });
-livePreview.attach(server);
+livePreview.attach(server, [printersPreview.upgrade]);
 server.on('close', () => { void ccsPreview.close(); });
 const port = Number(process.env.XCPCIO_PREVIEW_PORT || 18900);
 server.listen(port, '127.0.0.1', () => console.log(`Preview: http://127.0.0.1:${port}${boardUrl}\nSettings: http://127.0.0.1:${port}${settingsUrl}\nLive: http://127.0.0.1:${port}${base}/live`));

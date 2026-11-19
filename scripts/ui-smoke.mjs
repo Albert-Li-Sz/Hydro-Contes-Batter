@@ -188,6 +188,20 @@ async function interactions(browser, base) {
         await users.waitForTimeout(1200);
         const found = await users.locator('tbody tr').count();
         check(where, found > 0 && found < all, `search shows ${found} of ${all}`);
+        // Print management follows changes made elsewhere without reloading (its poll is 30 s).
+        where = 'printers push';
+        const printers = await open(context, base, '/manage/xcpcio-printers', where);
+        await printers.waitForTimeout(1500);
+        const other = await open(context, base, '/manage/xcpcio-printers', where);
+        const name = `冒烟 ${Date.now() % 100000}`;
+        await other.evaluate(async (serverName) => {
+            await fetch('/manage/xcpcio-printers', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ operation: 'create', payload: JSON.stringify({ name: serverName, origin: location.origin }) }),
+            });
+        }, name);
+        const seen = await printers.getByText(name).first().waitFor({ timeout: 5000 }).then(() => true, () => false);
+        check(where, seen, 'a print server added elsewhere did not appear');
         // The announce screen turns pages from the first frame on.
         where = 'announce';
         for (let i = 0; i < 4; i++) {

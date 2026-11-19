@@ -109,3 +109,30 @@ export function input(attrs = {}) {
 export function adminPassword() {
     return input({ type: 'password', autocomplete: 'current-password', required: true, placeholder: '当前登录管理员的 Hydro 密码' });
 }
+
+/**
+ * Calls `onChange` (debounced) whenever the server says the page's data changed, over a socket
+ * that reconnects by itself. Returns a function that closes it.
+ */
+export function listen(path, onChange) {
+    let socket = null;
+    let closed = false;
+    let opened = false;
+    let timer = 0;
+    const changed = () => { clearTimeout(timer); timer = setTimeout(onChange, 300); };
+    const connect = () => {
+        if (closed) return;
+        socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${path}`);
+        socket.onmessage = (event) => {
+            if (event.data === 'ping') { socket.send('pong'); return; }
+            let message;
+            try { message = JSON.parse(event.data); } catch { return; }
+            if (message?.type === 'changed') changed();
+        };
+        // After a reconnect, changes made while it was away are fetched once.
+        socket.onopen = () => { if (opened) changed(); opened = true; };
+        socket.onclose = () => { if (!closed) setTimeout(connect, 4000); };
+    };
+    connect();
+    return () => { closed = true; clearTimeout(timer); socket?.close(); };
+}

@@ -1,4 +1,5 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
+import type { Duplex } from 'node:stream';
 import type { Environment } from 'nunjucks';
 import { WebSocketServer } from 'ws';
 import type { BoardData } from '../lib/board';
@@ -171,9 +172,11 @@ export function createLivePreview(env: Environment, logoNames: Record<string, st
     };
 
     const overlaySockets = new Map<import('ws').WebSocket, string>();
-    const attach = (server: Server) => {
+    /** `others` are tried first: other previews' sockets (the print management page). */
+    const attach = (server: Server, others: ((request: IncomingMessage, socket: Duplex, head: Buffer, sockets: WebSocketServer) => boolean)[] = []) => {
         const sockets = new WebSocketServer({ noServer: true });
         server.on('upgrade', (request, socket, head) => {
+            if (others.some((upgrade) => upgrade(request, socket, head, sockets))) return;
             if (capture.upgrade(request, socket, head, sockets)) return;
             const url = new URL(request.url || '/', 'http://localhost');
             const adminMatch = /^\/contest\/demo\/live\/ws\/admin\/(.+)$/.exec(url.pathname);

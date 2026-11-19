@@ -1,4 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Duplex } from 'node:stream';
+import type { WebSocket, WebSocketServer } from 'ws';
 import type { Environment } from 'nunjucks';
 import type { BoardData } from '../lib/board';
 import {
@@ -44,6 +46,9 @@ export function createPrintersPreview(env: Environment, version: string, demo: (
     const onsiteSeats = new Map<number, string>([[1, 'A-01'], [2, 'A-02'], [3, 'B-01'], [4, 'B-02'], [5, 'A-03'], [6, 'B-03'], [7, 'A-04']]);
     const servers: Server[] = [];
     const tasks: Task[] = [];
+    // The management page's socket (lib/print-routes.ts PrintersSocketHandler): told when anything changes.
+    const sockets = new Set<WebSocket>();
+    const changed = () => { for (const ws of sockets) ws.send(JSON.stringify({ type: 'changed' })); };
     let counter = 0;
     const addTask = () => {
         const team = data.teams[counter % data.teams.length];
@@ -51,6 +56,7 @@ export function createPrintersPreview(env: Environment, version: string, demo: (
         // Every third request comes from the warm-up contest.
         const contest = counter % 3 === 2 ? contests[1].key : contestKey;
         tasks.push({ id: `6742a${String(++counter).padStart(19, '0')}`, contest, owner: Number(team.team_id), title, content, status: 'pending', attempts: 0, time: new Date() });
+        changed();
     };
     for (let index = 0; index < 4; index++) addTask();
     const timer = setInterval(addTask, 20_000);
@@ -173,7 +179,15 @@ export function createPrintersPreview(env: Environment, version: string, demo: (
         };
     }
 
-    return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
+    const upgrade = (request: IncomingMessage, socket: Duplex, head: Buffer, server: WebSocketServer) => {
+        if (new URL(request.url || '/', 'http://localhost').pathname !== '/manage/xcpcio-printers/ws') return false;
+        server.handleUpgrade(request, socket, head, (ws) => {
+            sockets.add(ws);
+            ws.on('close', () => sockets.delete(ws));
+        });
+        return true;
+    };
+    return Object.assign(async (request: IncomingMessage, response: ServerResponse, url: URL) => {
         const json = (value: unknown, status = 200) => response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(JSON.stringify(value));
         const api = /^\/xcpcio-print\/([a-f\d]{24})\/(heartbeat|next|report)$/.exec(url.pathname);
         if (!api && !url.pathname.startsWith('/manage/xcpcio-printers')) return false;
@@ -186,20 +200,21 @@ export function createPrintersPreview(env: Environment, version: string, demo: (
                 const server = servers.find((candidate) => candidate.id === api[1]);
                 if (!server || !token || !tokenMatches(token, server.tokenHash)) throw new PrintError('连接信息无效或已重新生成，请在“打印服务器管理”中复制新的连接信息', 401);
                 json(client(api[2], server, body));
+                changed();
                 return true;
             }
             if (url.pathname === '/manage/xcpcio-printers/data') { json(overview()); return true; }
             if (url.pathname !== '/manage/xcpcio-printers') return false;
-            if (request.method === 'POST') { json(await admin(body.operation, JSON.parse(body.payload || '{}'), `http://${request.headers.host}`)); return true; }
+            if (request.method === 'POST') { json(await admin(body.operation, JSON.parse(body.payload || '{}'), `http://${request.headers.host}`)); changed(); return true; }
             const menu = [['控制面板', '#'], ['脚本管理', '#'], ['导入用户', '#'], ['用户配置', '/manage/xcpcio-users'], ['用户权限', '#'], ['系统设置', '#'], ['配置管理', '#'],
                 ['评测机控制', '/manage/xcpcio-judges'], ['打印服务器管理', '/manage/xcpcio-printers'], ['批量重测', '/manage/xcpcio-rejudge']];
             response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }).end(env.render('xcpcio_manage_printers.html', {
                 codeBase, tdoc: { title: '控制面板' }, manageMenu: menu.map(([label, href]) => ({ label, href, active: href === url.pathname })),
-                runtimeJson: toScriptJson({ base: url.pathname, dataUrl: `${url.pathname}/data`, headerFields }),
+                runtimeJson: toScriptJson({ base: url.pathname, dataUrl: `${url.pathname}/data`, socket: `${url.pathname}/ws`, headerFields }),
             }));
         } catch (error) {
             json({ error: error instanceof Error ? error.message : 'Invalid request' }, error instanceof PrintError ? error.status : 400);
         }
         return true;
-    };
+    }, { upgrade });
 }

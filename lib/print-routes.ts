@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-    ContestModel, Context, Handler, ObjectId, param, PRIV, SystemModel, Types, UserModel,
+    ConnectionHandler, ContestModel, Context, Handler, ObjectId, param, PRIV, SystemModel, Types, UserModel,
 } from 'hydrooj';
 import {
     CLAIM_TIMEOUT_MS, connectionCode, headerFields, languageOfFile, lineCount, MAX_ATTEMPTS, MAX_PRINT_BYTES, newPrintToken, hashToken,
@@ -149,6 +149,31 @@ export function applyPrintServers(ctx: Context) {
         );
     }
 
+    // ---------------------------------------------------------------- Live updates
+
+    // The management page listens on a socket and reloads when the queue or a print server
+    // changes; Hydro's broadcast reaches the sockets in every process (PM2 cluster included).
+    const sockets = new Set<PrintersSocketHandler>();
+    const changed = () => (ctx as unknown as { broadcast: (event: string, ...args: unknown[]) => void }).broadcast('xcpcio/print-changed');
+    (ctx.on as unknown as (name: string, listener: () => void) => void)('xcpcio/print-changed', () => {
+        for (const socket of sockets) socket.send({ type: 'changed' });
+    });
+    // A contestant's print request (Hydro's own handler, model/contest.ts addPrintTask).
+    ctx.on('handler/after', (handler) => {
+        if (handler.constructor?.name === 'ContestPrintHandler' && handler.request.method.toLowerCase() === 'post') changed();
+    });
+
+    class PrintersSocketHandler extends ConnectionHandler {
+        async prepare() {
+            this.checkPriv(PRIV.PRIV_EDIT_SYSTEM);
+            sockets.add(this);
+        }
+
+        async cleanup() {
+            sockets.delete(this);
+        }
+    }
+
     // ---------------------------------------------------------------- Administration
 
     abstract class AdminBase extends Handler {
@@ -185,6 +210,11 @@ export function applyPrintServers(ctx: Context) {
             }
             return super.onerror(error);
         }
+
+        /** Every management action changes a print server or the queue (failed ones never get here). */
+        async after() {
+            if (this.request.method.toLowerCase() === 'post') changed();
+        }
     }
 
     class PrintersHandler extends AdminBase {
@@ -192,7 +222,7 @@ export function applyPrintServers(ctx: Context) {
             this.response.template = 'xcpcio_manage_printers.html';
             this.response.body = {
                 codeBase,
-                runtimeJson: toScriptJson({ base: this.request.path, dataUrl: `${this.request.path}/data`, headerFields }),
+                runtimeJson: toScriptJson({ base: this.request.path, dataUrl: `${this.request.path}/data`, socket: `${this.request.path}/ws`, headerFields }),
             };
         }
 
@@ -388,6 +418,9 @@ export function applyPrintServers(ctx: Context) {
             })).filter((printer: ClientPrinter) => printer.name);
             const client = { version: text(body.version, 40), host: text(body.host, 100), os: text(body.os, 60), ip: String(this.request.ip || '') };
             await servers.updateOne({ _id: this.doc._id }, { $set: { lastSeen: new Date(), client, printers } });
+            // Heartbeats come every few seconds: only coming back online or a printer change is news.
+            const wasOnline = !!this.doc.lastSeen && Date.now() - new Date(this.doc.lastSeen).getTime() < ONLINE_MS;
+            if (!wasOnline || JSON.stringify(printers) !== JSON.stringify(this.doc.printers)) changed();
             this.response.body = {
                 name: this.doc.name, enabled: this.doc.enabled, pollMs: 3000,
                 preferences: Object.fromEntries(printers.map((printer) => [printer.name, this.doc.preferences?.[printer.name] ?? defaultPreference(printer)])),
@@ -449,10 +482,16 @@ export function applyPrintServers(ctx: Context) {
                 if (candidates.length < SCAN_PAGE) break;
             }
             this.response.body = { jobs };
+            if (jobs.length) changed();
         }
     }
 
     class ReportHandler extends ClientBase {
+        /** A printed or failed result (also of a test page) changes what the management page shows. */
+        async after() {
+            changed();
+        }
+
         async post() {
             const body = this.body();
             const id = String(body.id || '');
@@ -500,6 +539,7 @@ export function applyPrintServers(ctx: Context) {
     ctx.Route('xcpcio_print_heartbeat', '/xcpcio-print/:sid/heartbeat', HeartbeatHandler);
     ctx.Route('xcpcio_print_next', '/xcpcio-print/:sid/next', NextHandler);
     ctx.Route('xcpcio_print_report', '/xcpcio-print/:sid/report', ReportHandler);
+    ctx.Connection('manage_xcpcio_printers_ws', '/manage/xcpcio-printers/ws', PrintersSocketHandler);
     // Right below 评测机控制.
     ctx.injectUI('ControlPanel', 'manage_xcpcio_printers', { before: 'manage_xcpcio_rejudge' }, PRIV.PRIV_EDIT_SYSTEM);
     ctx.i18n.load('zh', { manage_xcpcio_printers: '打印服务器管理' });

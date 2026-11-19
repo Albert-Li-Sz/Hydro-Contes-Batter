@@ -96,11 +96,11 @@ Schema 测试固定使用官方 2026-01 分支文件；上游 schema 对 runs �
 
 需要 Node.js 22 或以上版本及 Hydro 5.x。使用运行 Hydro 的系统用户操作；命令中的 `$HOME` 对应这个用户。自 0.8.1 起，安装包包含供 Hydro 直接加载的源码和完整预构建资源。
 
-下载 `hydro-scoreboard-xcpcio-plus-1.12.0.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
+下载 `hydro-scoreboard-xcpcio-plus-1.12.1.tgz` 并放入当前目录。首次安装按以下步骤解压、注册 addon 并重启服务。
 
 ```bash
 mkdir -p "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
-tar -xzf hydro-scoreboard-xcpcio-plus-1.12.0.tgz \
+tar -xzf hydro-scoreboard-xcpcio-plus-1.12.1.tgz \
   -C "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus" --strip-components=1
 hydrooj addon add "$HOME/.hydro/addons/hydro-scoreboard-xcpcio-plus"
 pm2 restart hydrooj
@@ -112,7 +112,7 @@ pm2 restart hydrooj
 
 ```bash
 mkdir -p xcpcio-update
-tar -xzf hydro-scoreboard-xcpcio-plus-1.12.0.tgz -C xcpcio-update
+tar -xzf hydro-scoreboard-xcpcio-plus-1.12.1.tgz -C xcpcio-update
 bash xcpcio-update/package/install.sh install
 # 已有安装时
 bash xcpcio-update/package/install.sh upgrade
@@ -412,7 +412,7 @@ Hydro 的系统管理员（`PRIV_EDIT_SYSTEM`）可在控制面板（`/manage`�
 
 ### 打印服务器管理
 
-`/manage/xcpcio-printers`，位于“评测机控制”下方，每 5 秒刷新。打印服务器是运行打印客户端的电脑：它领取选手在比赛“打印”页提交的打印请求（比赛设置中需开启“允许打印”），在本机打印机上打印，并把本机的打印机同步到这里。
+`/manage/xcpcio-printers`，位于“评测机控制”下方。新的打印请求、打印服务器领取和回报结果、打印服务器上线或打印机变化时页面立即更新（多进程部署下同样送达），另每 30 秒刷新一次以发现离线的打印服务器；正在操作列表或打开弹窗时，更新推迟到操作结束。打印服务器是运行打印客户端的电脑：它领取选手在比赛“打印”页提交的打印请求（比赛设置中需开启“允许打印”），在本机打印机上打印，并把本机的打印机同步到这里。
 
 **连接一台打印电脑**
 
