@@ -25,6 +25,7 @@ $('device-contest').textContent = runtime.contest;
 function setStatus(text, tone = '') {
     $('status').textContent = text;
     $('status').dataset.tone = tone;
+    $('status').hidden = !text;
 }
 
 function announce() {
@@ -56,9 +57,10 @@ function render() {
     $('start').disabled = !!blocked || !state.profile;
     $('start').textContent = state.screen || state.webcam ? '补全采集' : '开始采集';
     const watching = [...state.sessions.values()];
+    const count = (stream) => watching.filter((session) => session.stream === stream).length;
     $('watching').textContent = watching.length
-        ? `正在被观看：${watching.filter((s) => s.stream === 'screen').length} 路屏幕，${watching.filter((s) => s.stream === 'webcam').length} 路摄像头`
-        : '当前没有人观看';
+        ? ['屏幕', '摄像头'].map((label, index) => [label, count(index ? 'webcam' : 'screen')]).filter(([, n]) => n).map(([label, n]) => `${label} ${n} 人观看`).join(' · ')
+        : '';
 }
 
 function send(message) {
@@ -82,7 +84,7 @@ async function capture(fromClick = false) {
     if (!screenSupported) problems.push('当前浏览器不支持屏幕共享');
     else if (!state.screen) {
         // While the browser's picker is open, say what to choose (it waits for the contestant).
-        setStatus('请在浏览器弹出的窗口中选择“整个屏幕”，然后点击“分享”');
+        setStatus('请选择“整个屏幕”并点击“分享”');
         try {
             const stream = await mediaDevices.getDisplayMedia({
                 // Chrome opens its picker on 整个屏幕 and leaves out this window and tab switching.
@@ -100,7 +102,7 @@ async function capture(fromClick = false) {
                 for (const session of [...state.sessions.values()]) if (session.stream === 'screen') session.end('选手机停止了屏幕共享');
                 render();
                 reportStatus();
-                setStatus('屏幕共享已停止，请点击“补全采集”重新开始', 'warn');
+                setStatus('屏幕共享已停止', 'warn');
             });
         } catch (error) {
             problems.push(error.name === 'WrongSurface' ? error.message
@@ -122,7 +124,7 @@ async function capture(fromClick = false) {
     render();
     reportStatus();
     if (problems.length) setStatus(problems.join('；'), 'warn');
-    else setStatus('正在采集，请保持此页面打开', 'ok');
+    else setStatus('');
     // Keep the screen awake while capturing.
     navigator.wakeLock?.request('screen').catch(() => {});
 }

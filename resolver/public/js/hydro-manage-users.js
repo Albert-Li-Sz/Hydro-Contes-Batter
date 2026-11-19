@@ -7,9 +7,8 @@ const state = { tab: location.hash === '#teams' ? 'teams' : 'users', q: '', page
 const labels = { users: '用户', teams: '队伍' };
 
 const status = el('p', { class: 'resolver-muted', role: 'status', hidden: true });
-const search = input({ type: 'search', placeholder: '搜索账号、显示名、邮箱、学校、学号或 UID', 'aria-label': '搜索' });
-const deleteButton = el('button', { class: 'button', type: 'button', text: '删除所选', disabled: true });
-const selectedInfo = el('span', { class: 'resolver-muted' });
+const search = input({ type: 'search', placeholder: '账号、显示名、邮箱、学校、学号或 UID', 'aria-label': '搜索' });
+const deleteButton = el('button', { class: 'button manage-danger', type: 'button', text: '删除', disabled: true });
 const tabs = el('div', { class: 'manage-tabs', role: 'tablist' });
 const table = el('table', { class: 'data-table' });
 const pager = el('div', { class: 'manage-pager' });
@@ -31,11 +30,23 @@ for (const tab of ['users', 'teams']) {
     }));
 }
 
+// Results follow the search box as it is typed in.
+let searchTimer = 0;
+search.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        if (state.q === search.value.trim()) return;
+        notify(status, '');
+        state.q = search.value.trim();
+        state.page = 1;
+        load();
+    }, 300);
+});
+
 const root = $('manage-root');
 root.replaceChildren(
     tabs,
-    el('form', { class: 'manage-toolbar', onsubmit: (event) => { event.preventDefault(); notify(status, ''); state.q = search.value.trim(); state.page = 1; load(); } },
-        search, el('button', { class: 'button', type: 'submit', text: '搜索' }), el('span', { class: 'manage-spacer' }), selectedInfo, deleteButton),
+    el('div', { class: 'manage-toolbar' }, search, el('span', { class: 'manage-spacer' }), deleteButton),
     status,
     el('div', { class: 'manage-scroll' }, table),
     pager,
@@ -43,9 +54,8 @@ root.replaceChildren(
 
 function updateSelection() {
     const count = state.selected.size;
-    selectedInfo.textContent = count ? `已选 ${count} ${state.tab === 'teams' ? '支队伍' : '个用户'}` : '';
     deleteButton.disabled = !count;
-    deleteButton.textContent = count ? `删除所选（${count}）` : '删除所选';
+    deleteButton.textContent = count ? `删除 ${count} ${state.tab === 'teams' ? '支队伍' : '个用户'}` : '删除';
     for (const row of table.querySelectorAll('tbody tr[data-id]')) row.classList.toggle('is-selected', state.selected.has(Number(row.dataset.id)));
     const boxes = [...table.querySelectorAll('tbody input[type=checkbox]:not(:disabled)')];
     const all = table.querySelector('thead input[type=checkbox]');
@@ -198,8 +208,8 @@ function editTeam(row) {
             field('队伍账号', el('div', { class: 'manage-readonly', text: row.uname }))),
         el('div', { class: 'resolver-fields' },
             field('队名', displayName),
-            field('队员', members, '账号名或 UID，用逗号或换行分隔'),
-            field('待接受邀请', invite, '被邀请但尚未接受的用户；留空清除全部邀请'),
+            field('队员（账号名或 UID）', members),
+            field('待接受邀请', invite),
             field('重置全体队员密码', password.wrap, 'Hydro 队伍本身没有密码，选手用各自账号登录；填写后所有队员改用此密码登录'),
             el('label', { class: 'checkbox' }, sync, '同步队名与队员到该队已报名的比赛')),
         ],

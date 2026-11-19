@@ -9,7 +9,7 @@
       <a class="button" href="{{ boardUrl }}">返回榜单</a>
     </div>
   </section>
-  <p id="xp-saved" class="xp-status" role="status" hidden>设置已保存，榜单刷新后生效。</p>
+  <p id="xp-saved" class="xp-status" role="status" hidden>已保存</p>
   <p id="xp-restored" class="xp-notice xp-restored" role="status" hidden><span>上次提交没有保存成功，已恢复当时填写的内容。请检查后重新保存。</span><button class="button" type="button" id="xp-discard">放弃并重新加载</button></p>
   <form method="post" id="xp-form">
     <input type="hidden" name="config" id="xp-payload">
@@ -22,17 +22,16 @@
             <label><span><i class="xp-dot xp-silver"></i>银牌</span><input class="textbox" aria-label="银牌数量" data-medal="silver" type="number" min="0" max="100000" step="1" required></label>
             <label><span><i class="xp-dot xp-bronze"></i>铜牌</span><input class="textbox" aria-label="铜牌数量" data-medal="bronze" type="number" min="0" max="100000" step="1" required></label>
           </div>
-          <p class="xp-muted">各榜默认使用此数量；并列同奖，零过题不获奖。</p>
           <div id="xp-default-award-options"></div>
-          <p class="xp-muted">打星选手保留非正式身份，金银铜及前三名仅授予正式选手。各榜可以单独设置打星选手的一血资格。</p>
+          <p class="xp-muted">零过题不获奖；奖牌与前三名只授予正式选手。</p>
         </div>
       </section>
       <section class="section visible">
         <div class="section__header"><h2 class="section__title">自动分榜</h2></div>
         <div class="section__body">
           <div class="xp-checks xp-auto-options">
-            <label class="checkbox"><input type="checkbox" id="xp-schools"><span><strong>按学校生成分榜</strong><small>根据选手填写的学校自动归组。</small></span></label>
-            <label class="checkbox"><input type="checkbox" id="xp-participation"><span><strong>按参赛资格分榜</strong><small>分别显示正式参赛与打星选手。</small></span></label>
+            <label class="checkbox"><input type="checkbox" id="xp-schools"><span>按学校生成分榜</span></label>
+            <label class="checkbox"><input type="checkbox" id="xp-participation"><span>按正式 / 打星分榜</span></label>
           </div>
         </div>
       </section>
@@ -41,36 +40,34 @@
       <div class="section__header"><h2 class="section__title">访问与默认榜单</h2></div>
       <div class="section__body">
         <div class="xp-checks xp-access-options">
-          <label class="checkbox"><input type="checkbox" id="xp-replace-native" {% if not replacementEnabled %}disabled{% endif %}><span><strong>替换 Hydro 原生榜单</strong><small>从比赛的榜单入口直接进入增强榜。</small></span></label>
-          <label class="checkbox"><input type="checkbox" id="xp-public-access"><span><strong>公开榜单</strong><small>开赛后无需登录即可查看，遵守封榜规则。</small></span></label>
-          <label class="checkbox"><input type="checkbox" id="xp-ccs-api"><span><strong>开放 CCS API</strong><small>按 ICPC CCS Contest API（2026-01）提供比赛数据与事件流，供 ICPC Tools 等官方工具连接。登录方式为 Hydro 账号的 HTTP Basic 认证；未登录访问遵守“公开榜单”设置。</small></span></label>
-          <label class="checkbox"><input type="checkbox" id="xp-show-identity"><span><strong>向所有观众显示学校</strong><small>学校属于 Hydro 私有资料，关闭时其他观众看不到学校、校徽和学校榜。选手名始终显示 Hydro 中的显示名（未设置时为用户名）。</small></span></label>
+          <label class="checkbox"><input type="checkbox" id="xp-replace-native" {% if not replacementEnabled %}disabled{% endif %}><span><strong>替换 Hydro 原生榜单</strong></span></label>
+          <label class="checkbox"><input type="checkbox" id="xp-public-access"><span><strong>公开榜单</strong><small>无需登录即可查看</small></span></label>
+          <label class="checkbox"><input type="checkbox" id="xp-ccs-api"><span><strong>开放 CCS API</strong><small>供 ICPC Tools 连接，使用 Hydro 账号登录</small></span></label>
+          <label class="checkbox"><input type="checkbox" id="xp-show-identity"><span><strong>向所有观众显示学校</strong><small>关闭时观众看不到学校、校徽和学校榜</small></span></label>
         </div>
-        {% if not replacementEnabled %}<p class="xp-muted">全局替换已关闭，需在插件配置启用 asDefault 后生效。</p>{% endif %}
+        {% if not replacementEnabled %}<p class="xp-muted">需先在插件配置中启用 asDefault 才能替换原生榜单。</p>{% endif %}
         <div id="xp-public-url-wrap" class="xp-public-link"><span>公开地址：<a id="xp-public-url" href="{{ publicUrl }}" target="_blank" rel="noopener">{{ publicUrl }}</a></span><button class="button" type="button" id="xp-copy-url">复制链接</button></div>
-        <p id="xp-public-disabled" class="xp-muted" hidden>公开访问已关闭，保存后公开链接将不可访问。</p>
+        <p id="xp-public-disabled" class="xp-muted" hidden>保存后公开链接将失效。</p>
         <div id="xp-ccs-url-wrap" class="xp-public-link"><span>CCS API 地址：<a id="xp-ccs-url" href="{{ ccsUrl }}" target="_blank" rel="noopener">{{ ccsUrl }}</a></span><button class="button" type="button" id="xp-copy-ccs-url">复制链接</button></div>
         <div id="xp-ccs-controls" hidden>
-          <label class="checkbox"><input type="checkbox" id="xp-ccs-auto-finalize"><span><strong>自动确认 CCS 最终结果</strong><small>比赛结束并解冻、没有待评测提交，且数据稳定 30 秒后，保存最终快照并结束事件流。默认由管理员手动确认。</small></span></label>
-          <p class="xp-muted">确认后，CCS 数据保持为最终快照，后续在 Hydro 中修改比赛或重测不会改变此快照。</p>
-          <button class="button" type="button" id="xp-ccs-finalize">确认 CCS 最终结果</button>
+          <label class="checkbox"><input type="checkbox" id="xp-ccs-auto-finalize"><span><strong>自动确认 CCS 最终结果</strong><small>解冻且无待评测提交 30 秒后自动确认</small></span></label>
+          <button class="button" type="button" id="xp-ccs-finalize" title="确认后 CCS 数据固定，之后的重测不再改变它">确认 CCS 最终结果</button>
           <span id="xp-ccs-status" class="xp-muted" role="status" aria-live="polite"></span>
         </div>
       </div>
     </section>
     <section class="section visible" id="board-awards">
       <div class="section__header"><h2 class="section__title">各榜奖项</h2></div>
-      <div class="section__body"><p class="xp-muted">榜单与滚榜共用这些设置。未单独设置的榜单继承上方默认值。</p><div id="xp-board-awards"></div></div>
+      <div class="section__body"><p class="xp-muted">榜单与滚榜共用；未单独设置的继承默认值。</p><div id="xp-board-awards"></div></div>
     </section>
     <section class="section visible">
       <div class="section__header"><h2 class="section__title">手动分榜</h2></div>
       <div class="section__body">
-        <p class="xp-muted">从参赛名单中选择成员；每个榜独立排名、授奖和计算首次通过。</p>
         <div id="xp-boards"></div>
         <div class="xp-line"><button class="button" type="button" id="xp-add">＋ 添加手动分榜</button><span class="xp-muted" id="xp-add-limit" hidden>最多 50 个手动分榜</span></div>
       </div>
     </section>
-    <div class="xp-savebar"><button class="button primary" type="submit">保存设置</button><span class="xp-muted" id="xp-save-hint" aria-live="polite">保存后对所有观众生效。</span></div>
+    <div class="xp-savebar"><button class="button primary" type="submit">保存设置</button><span class="xp-muted" id="xp-save-hint" aria-live="polite"></span></div>
   </form>
 </div></div>
 <script type="application/json" id="xp-data">{{ settingsJson | safe }}</script>

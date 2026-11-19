@@ -23,7 +23,7 @@ const domainPanel = el('div', { class: 'manage-alert manage-alert--error' },
     el('strong', { text: '将重测整个域的全部提交' }),
     el('div', { text: '包括比赛内外的所有提交（已取消、Hack、自测与数据生成除外），仍按下方的结果类型与“AC 不参与重测”筛选。数量可能很大，评测队列会被占用较长时间；开始前需要输入管理员密码。' }));
 const contestProblems = el('div');
-const search = input({ type: 'search', placeholder: '输入题号、题目 ID 或标题搜索，如 1001、P1001、最短路', 'aria-label': '搜索题目', autocomplete: 'off' });
+const search = input({ type: 'search', placeholder: '题号、题目 ID 或标题', 'aria-label': '搜索题目', autocomplete: 'off' });
 const searchResults = el('ul', { class: 'manage-search', role: 'listbox', hidden: true });
 const picked = el('div', { class: 'manage-picked' });
 
@@ -45,7 +45,6 @@ contestPanel.append(
     contestProblems,
 );
 problemPanel.append(
-    el('p', { class: 'resolver-muted manage-small', text: '搜索并点选题目，可多选；重测这些题目在该域内的全部提交（含比赛内的提交）。' }),
     el('div', { class: 'manage-search-box' }, search, searchResults),
     picked,
 );
@@ -58,7 +57,6 @@ $('manage-root').replaceChildren(
     el('div', { class: 'manage-group' }, el('h3', {}, '评测结果',
         el('span', { class: 'manage-quick' },
             quick('常见错误', [2, 3, 4, 5, 6]), quick('TLE / MLE', [3, 4]), quick('系统错误', [8, 10]), quick('清空（全部结果）', []))),
-        el('p', { class: 'resolver-muted manage-small', text: '不选表示全部结果（已取消的提交始终不重测）。' }),
         statuses,
         el('label', { class: 'checkbox', style: 'margin-top:12px' }, skipAccepted, 'AC 不参与重测')),
     status,
@@ -99,7 +97,6 @@ function renderContestProblems() {
         return;
     }
     contestProblems.replaceChildren(
-        el('p', { class: 'resolver-muted manage-small', text: '不选表示比赛的全部题目。' }),
         el('div', { class: 'manage-problems' }, ...state.problems.map((problem) => el('label', { title: problem.title },
             el('input', { type: 'checkbox', value: problem.pid }), el('strong', { text: problem.label }), el('span', { text: problem.title })))),
     );
@@ -273,7 +270,7 @@ async function loadHistory() {
         const data = await get({ page: historyState.page }, runtime.historyUrl);
         historyState.pending = data.jobs.reduce((sum, job) => sum + job.pending, 0);
         fill(history,
-            el('h3', {}, '重测记录', el('span', { class: 'resolver-muted manage-small', style: 'font-weight:normal;margin-left:8px', text: '保留每次重测的范围、操作人，以及每条提交重测前后的结果' })),
+            el('h3', { text: '重测记录' }),
             el('div', { class: 'manage-scroll' }, el('table', { class: 'data-table' },
                 el('thead', {}, el('tr', {}, ...['时间', '操作人', '范围', '提交', '结果变化', '进度'].map((text) => el('th', { text })), el('th', { class: 'col-actions', text: '' }))),
                 el('tbody', {}, ...data.jobs.length ? data.jobs.map((job) => el('tr', {},

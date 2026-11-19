@@ -141,9 +141,8 @@ function showConfig(title, config, copied) {
         title,
         confirm: '完成',
         body: [
-            el('p', { class: copied ? 'resolver-muted' : 'manage-error', text: copied ? '配置已复制到剪贴板。保存为评测机上的 ~/.hydro/judge.yaml 后启动 hydrojudge。' : '浏览器未允许自动复制，请手动复制下面的内容。' }),
+            el('p', { class: copied ? 'resolver-muted' : 'manage-error', text: copied ? '已复制，保存为评测机的 ~/.hydro/judge.yaml。' : '请手动复制以下内容。' }),
             text,
-            el('p', { class: 'resolver-muted manage-small', text: '再次复制会生成新密码，此配置随即失效。' }),
         ],
     });
     if (!copied) { text.focus(); text.select(); }
@@ -195,9 +194,9 @@ function editRule(judge) {
         confirm: '保存并生效',
         body: [el('div', { class: 'resolver-fields' },
             el('label', { class: 'checkbox' }, enabled, '接收新任务'),
-            field('并发上限', concurrency, '同时评测的任务数，不超过评测机自身配置'),
+            field('并发上限', concurrency),
             field('任务范围', scope),
-            el('div', {}, '只评测这些语言', el('span', { class: 'resolver-muted manage-small', text: '（不选表示全部语言）' }), langs),
+            el('div', {}, '语言（不选为全部）', langs),
             field('备注', memo))],
         submit: async () => {
             await post('rule', {

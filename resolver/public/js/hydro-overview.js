@@ -267,7 +267,7 @@ function render() {
         freeze.style.width = `${share * 100}%`;
         placeLockMark(1 - share);
     }
-    $('updated').textContent = `数据实时更新（含封榜后结果，请勿在选手可见处展示）· 更新于 ${new Date(data.serverTime).toLocaleTimeString('zh-CN', { hour12: false })}`;
+    $('updated').textContent = `含封榜后结果，请勿向选手展示 · 更新于 ${new Date(data.serverTime).toLocaleTimeString('zh-CN', { hour12: false })}`;
     firstRender = false;
 }
 

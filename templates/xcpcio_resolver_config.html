@@ -18,10 +18,10 @@
         <div class="resolver-fields resolver-two">
           <label>滚榜方式<select class="select" name="mode"><option value="board">仅滚所选榜单</option><option value="official">所选分榜正式，其余非正式</option></select></label>
           <label>选择榜单<select class="select" name="boardId" id="board-select"></select></label>
-          <label>封榜时间来源<select class="select" name="freezeMode"><option value="contest">使用比赛封榜时间</option><option value="custom">本场滚榜自定义</option></select></label>
-          <label>封榜时长（比赛最后多少分钟）<input class="textbox" aria-label="封榜时长，比赛最后多少分钟" name="freezeMinutes" type="number" min="1" step="1" placeholder="例如 60"><small class="resolver-muted" id="freeze-hint"></small></label>
+          <label>封榜<select class="select" name="freezeMode"><option value="contest">比赛设置</option><option value="custom">本场滚榜自定义</option></select></label>
+          <label id="freeze-minutes-field">比赛最后多少分钟封榜<input class="textbox" name="freezeMinutes" type="number" min="1" step="1"></label>
         </div>
-        <label class="checkbox"><input name="rehearsal" type="checkbox"><span>仅供彩排</span></label><p class="resolver-muted" id="rehearsal-hint">彩排可忽略尚未评测完成的提交</p>
+        <label class="checkbox"><input name="rehearsal" type="checkbox"><span>仅供彩排</span><small class="resolver-muted" id="rehearsal-hint" hidden></small></label>
       </div>
     </section>
     <section class="section visible" id="awards">
@@ -37,10 +37,13 @@
       <div class="section__body">
         <div class="resolver-fields resolver-three">
           <label>每屏行数<input class="textbox" name="rowsPerScreen" type="number" min="4" max="30" step="1" required></label>
-          <label>自动播放速度<input class="textbox" name="autoplaySpeed" type="number" min="0.25" max="16" step="0.25" required></label>
           <label>起始画面<select class="select" name="startScreen"><option value="splash">开场画面</option><option value="scoreboard">冻结榜单</option></select></label>
         </div>
-        <div class="resolver-checks"><label class="checkbox"><input name="autoplay" type="checkbox"><span>启用自动播放</span></label><label class="checkbox"><input name="autoStopAtMedals" type="checkbox"><span>进入奖牌区后手动推进</span></label><label class="checkbox"><input name="showSchool" type="checkbox"><span>选手名后显示学校</span></label></div>
+        <div class="resolver-checks"><label class="checkbox"><input name="showSchool" type="checkbox"><span>选手名后显示学校</span></label><label class="checkbox"><input name="autoplay" type="checkbox"><span>自动播放</span></label></div>
+        <div class="resolver-fields resolver-three" id="autoplay-fields" style="margin-top:12px">
+          <label>速度（倍）<input class="textbox" name="autoplaySpeed" type="number" min="0.25" max="16" step="0.25" required></label>
+          <label class="checkbox" style="align-self:center"><input name="autoStopAtMedals" type="checkbox"><span>进入奖牌区后暂停</span></label>
+        </div>
       </div>
     </section>
     <section class="section visible" id="preview">

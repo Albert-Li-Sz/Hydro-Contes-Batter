@@ -55,16 +55,17 @@ function updateFreeze() {
     const total = Math.floor(runtime.durationSeconds / 60);
     const contestMinutes = runtime.contestFreezeAtSeconds === null ? null
         : Math.round((runtime.durationSeconds - runtime.contestFreezeAtSeconds) / 6) / 10;
+    // The contest's own freeze time is named in the menu; the minutes field is only for a custom one.
+    form.elements.freezeMode.options[0].text = contestMinutes === null ? '比赛设置（未设封榜）' : `比赛设置（最后 ${contestMinutes} 分钟）`;
+    form.elements.freezeMode.options[0].disabled = contestMinutes === null;
+    document.getElementById('freeze-minutes-field').hidden = !custom;
     field.disabled = !custom;
     field.required = custom;
     field.max = total;
-    if (!custom) field.value = contestMinutes ?? '';
-    const minutes = Number(field.value);
-    document.getElementById('freeze-hint').textContent = custom
-        ? (field.value !== '' && minutes > 0 && minutes <= total
-            ? `比赛共 ${total} 分钟，将在开赛后 ${clock(runtime.durationSeconds - minutes * 60)} 封榜，仅作用于本次滚榜`
-            : `请填写 1 至 ${total} 之间的分钟数，仅作用于本次滚榜`)
-        : contestMinutes === null ? '比赛尚未设置封榜时间，请选择“本场滚榜自定义”' : `比赛在最后 ${contestMinutes} 分钟封榜`;
+    field.placeholder = `1 – ${total}`;
+    // Speed and the medal stop only matter while playing by itself.
+    document.getElementById('autoplay-fields').hidden = !form.elements.autoplay.checked;
+    form.elements.autoplaySpeed.disabled = !form.elements.autoplay.checked;
     document.getElementById('rehearsal-note').hidden = runtime.ended && !form.elements.rehearsal.checked;
 }
 
@@ -253,7 +254,8 @@ for (const [key, value] of Object.entries(runtime.config)) {
 if (runtime.contestFreezeAtSeconds === null) form.elements.freezeMode.value = 'custom';
 if (!runtime.ended) {
     form.elements.rehearsal.disabled = true;
-    document.getElementById('rehearsal-hint').textContent = '比赛尚未结束，当前只能彩排';
+    document.getElementById('rehearsal-hint').textContent = '（比赛结束前只能彩排）';
+    document.getElementById('rehearsal-hint').hidden = false;
 }
 updateFreeze();
 updateStats(runtime.initialStats || {});

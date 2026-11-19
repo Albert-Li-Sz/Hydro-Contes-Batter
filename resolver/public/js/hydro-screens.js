@@ -16,7 +16,6 @@ const hints = {
     floor: '读取 onsite-toolkit 导入的座位号。请按场馆需要分享链接。',
     balloons: '从 Hydro 气球管理读取待配送记录。仅显示公开榜可见的通过。',
     judges: '画面以编号标识评测机。',
-    poster: '支持 PNG、JPEG、WebP，每张最多 2 MiB，可上传 20 张。上传和移除立即生效。',
     clarifications: '只显示发给所有选手的公告。',
 };
 
@@ -39,9 +38,34 @@ function select(options, value, onChange) {
     return field;
 }
 
+// Settings save themselves a moment after the last change; open screens pick them up on their next poll.
+let saveTimer = null;
+let saving = null;
 function changed() {
     dirty = true;
-    $('save-status').textContent = '有未保存的更改';
+    $('save-status').textContent = '';
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 700);
+}
+
+async function save() {
+    if (saving) { await saving; if (!dirty) return; }
+    const invalid = [...document.querySelectorAll('#screen-panel input, #screen-panel textarea')].find((field) => !field.checkValidity());
+    if (invalid) { $('save-status').textContent = `${runtime.labels[invalid.closest('[data-type]').dataset.type]}：${invalid.validationMessage}`; return; }
+    message.hidden = true;
+    dirty = false;
+    $('save-status').textContent = '正在保存…';
+    saving = (async () => {
+        try {
+            const saved = (await request({ config: JSON.stringify(config) })).config;
+            config.locale = saved.locale;
+            for (const type of runtime.types) Object.assign(config.items[type], saved.items[type]);
+            refreshPosters();
+            $('save-status').textContent = dirty ? '' : '已保存';
+        } catch (error) { dirty = true; $('save-status').textContent = ''; showError(error); }
+    })();
+    await saving;
+    saving = null;
 }
 
 const toLocalInput = (iso) => {
@@ -65,27 +89,24 @@ function readImage(file) {
 let refreshPosters = () => {};
 function posterControls(item) {
     const file = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp' });
-    const upload = el('button', { type: 'button', class: 'button', text: '上传图片' });
     const list = el('ol', { class: 'screen-posters' });
     const apply = async (body) => {
         message.hidden = true;
-        upload.disabled = true;
+        file.disabled = true;
         for (const button of list.querySelectorAll('button')) button.disabled = true;
         try {
             item.images = (await request(body)).images;
         } catch (error) { showError(error); }
         finally { refreshPosters(); }
     };
-    upload.addEventListener('click', async () => {
+    // Choosing a file uploads it.
+    file.addEventListener('change', async () => {
         const selected = file.files[0];
-        if (!selected) { showError(new Error('请选择图片')); return; }
-        if (selected.size > 2 * 1024 * 1024) { showError(new Error('图片不能超过 2 MiB')); return; }
-        upload.disabled = true;
+        if (!selected) return;
         try {
-            const image = await readImage(selected);
-            await apply({ operation: 'upload_poster', image });
-            file.value = '';
-        } catch (error) { showError(error); upload.disabled = false; }
+            if (selected.size > 2 * 1024 * 1024) throw new Error('图片不能超过 2 MiB');
+            await apply({ operation: 'upload_poster', image: await readImage(selected) });
+        } catch (error) { showError(error); } finally { file.value = ''; }
     });
     refreshPosters = () => {
         list.replaceChildren(...item.images.map((id, index) => {
@@ -93,10 +114,10 @@ function posterControls(item) {
             remove.addEventListener('click', () => apply({ operation: 'remove_poster', imageId: id }));
             return el('li', {}, el('img', { src: imageFor(id), alt: `图片 ${index + 1}`, loading: 'lazy' }), remove);
         }));
-        upload.disabled = item.images.length >= 20;
+        file.disabled = item.images.length >= 20;
     };
     refreshPosters();
-    return el('div', { class: 'screen-poster-controls' }, el('label', { text: '选择图片' }, file), upload, list);
+    return el('div', { class: 'screen-poster-controls' }, el('label', { text: '添加图片（PNG、JPEG、WebP，≤ 2 MiB，最多 20 张）' }, file), list);
 }
 
 function card(type) {
@@ -153,8 +174,9 @@ function card(type) {
     const open = el('a', { class: 'button', target: '_blank', rel: 'noopener', text: '新窗口打开', href: link.value });
     open.dataset.type = type;
     const preview = el('button', { class: 'button', type: 'button', text: '预览' });
-    preview.addEventListener('click', () => {
-        $('preview-title').textContent = `${runtime.labels[type]}预览（已保存设置）`;
+    preview.addEventListener('click', async () => {
+        if (dirty) { clearTimeout(saveTimer); await save(); }
+        $('preview-title').textContent = runtime.labels[type];
         $('screen-preview-frame').src = linkFor(type);
         $('screen-preview').showModal();
     });
@@ -210,24 +232,6 @@ function choose(type, focus = false) {
 }
 choose(location.hash.replace(/^#screen-/, ''));
 addEventListener('hashchange', () => choose(location.hash.replace(/^#screen-/, '')));
-$('save').addEventListener('click', async () => {
-    message.hidden = true;
-    for (const field of document.querySelectorAll('#screen-panel input[required]')) {
-        if (field.checkValidity()) continue;
-        choose(field.closest('[data-type]').dataset.type);
-        field.reportValidity();
-        return;
-    }
-    $('save').disabled = true;
-    try {
-        const saved = (await request({ config: JSON.stringify(config) })).config;
-        config.locale = saved.locale;
-        for (const type of runtime.types) Object.assign(config.items[type], saved.items[type]);
-        refreshPosters();
-        dirty = false;
-        $('save-status').textContent = `已保存 ${new Date().toLocaleTimeString('zh-CN')}`;
-    } catch (error) { showError(error); } finally { $('save').disabled = false; }
-});
 $('reset-token').addEventListener('click', () => $('reset-confirm').showModal());
 $('reset-confirm').addEventListener('close', async () => {
     if ($('reset-confirm').returnValue !== 'confirm') return;
@@ -242,4 +246,4 @@ $('reset-confirm').addEventListener('close', async () => {
     } catch (error) { showError(error); }
 });
 $('screen-preview').addEventListener('close', () => $('screen-preview-frame').removeAttribute('src'));
-addEventListener('beforeunload', (event) => { if (dirty) event.preventDefault(); });
+addEventListener('beforeunload', (event) => { if (dirty || saving) event.preventDefault(); });

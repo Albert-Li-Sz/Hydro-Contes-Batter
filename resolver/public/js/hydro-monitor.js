@@ -142,13 +142,13 @@ function render(data) {
     $('alerts').replaceChildren(...data.alerts.map((alert) => el('li', { class: `monitor-alert monitor-${alert.level}`, text: alert.text })));
     $('cards').replaceChildren(
         card('在线评测机', `${s.judgesOnline}/${s.judgesTotal}`, '', s.judgesOnline ? '' : 'error'),
-        card('正在评测', s.capacity ? `${s.activeTasks}/${s.capacity}` : String(s.activeTasks), s.capacityKnown ? '任务数 / 总并发' : '任务数 / 独立评测机并发（内置评测机不计）'),
-        card('评测速度', `${s.judgedPerMinute} 条/分`, `最近 5 分钟平均 · 15 分钟共 ${s.judged15} 条`),
-        card('平均评测用时', duration(s.averageJudgeSeconds), '评测机取题到出结果，最近 15 分钟'),
-        card('全站排队', s.queueLength, '等待评测机领取的任务', s.queueLength > 20 ? 'warning' : ''),
-        card('本场待评测', s.pending, `最久等待 ${duration(s.oldestPendingSeconds)}`, s.oldestPendingSeconds > 180 ? 'error' : s.pending ? 'warning' : ''),
-        card('提交到出结果', duration(s.averageLatencySeconds), `本场最近 15 分钟 ${s.judgedRecently} 条 · P95 ${duration(s.p95LatencySeconds)}`),
-        card('本场系统错误', s.systemErrors, `本场提交 ${s.total} · 通过 ${s.accepted}`, s.systemErrors ? 'error' : ''),
+        card('正在评测 / 并发', s.capacity ? `${s.activeTasks}/${s.capacity}` : String(s.activeTasks)),
+        card('评测速度', `${s.judgedPerMinute} 条/分`, `15 分钟 ${s.judged15} 条`),
+        card('平均评测用时', duration(s.averageJudgeSeconds)),
+        card('全站排队', s.queueLength, '', s.queueLength > 20 ? 'warning' : ''),
+        card('本场待评测', s.pending, s.pending ? `最久 ${duration(s.oldestPendingSeconds)}` : '', s.oldestPendingSeconds > 180 ? 'error' : s.pending ? 'warning' : ''),
+        card('提交到出结果', duration(s.averageLatencySeconds), `P95 ${duration(s.p95LatencySeconds)}`),
+        card('本场系统错误', s.systemErrors, '', s.systemErrors ? 'error' : ''),
     );
     const machines = $('machines');
     machines.replaceChildren(...(data.machines.length ? data.machines.map(machineCard) : [el('p', { class: 'resolver-muted', text: '没有评测机连接到 Hydro，也没有评测机上报' })]));

@@ -32,7 +32,6 @@ $('manage-root').replaceChildren(
     el('div', { class: 'manage-group' },
         el('div', { class: 'manage-toolbar' }, el('h3', { text: '最近的打印请求', style: 'margin:0' }), el('span', { class: 'manage-spacer' }),
             el('button', { class: 'button', type: 'button', text: '重新排队所选', onclick: () => requeue() })),
-        el('p', { class: 'resolver-muted manage-small', text: '仅可重新排队已打印或失败的请求。' }),
         recentStatus,
         el('div', { class: 'manage-scroll' }, recentTable)),
     el('div', { class: 'manage-group' }, el('h3', { text: '打印排版' }), settingsBox),
@@ -146,38 +145,42 @@ function renderRecent() {
     );
 }
 
+/** Layout settings apply as they change; print requests claimed afterwards use them. */
 function renderSettings() {
     const settings = state.settings;
+    const saved = el('span', { class: 'resolver-muted manage-small', role: 'status' });
+    let timer = null;
+    const save = () => {
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+            saved.textContent = '正在保存…';
+            saved.classList.remove('manage-error');
+            try {
+                state.settings = (await post('settings', { settings })).settings;
+                saved.textContent = '已保存';
+            } catch (error) { saved.textContent = error.message; saved.classList.add('manage-error'); }
+        }, 400);
+    };
     const box = (key, label) => {
         const node = el('input', { type: 'checkbox', checked: settings[key] });
-        node.addEventListener('change', () => { settings[key] = node.checked; });
+        node.addEventListener('change', () => { settings[key] = node.checked; save(); });
         return el('label', { class: 'checkbox' }, node, label);
     };
     const fontSize = input({ type: 'number', min: 7, max: 16, step: 0.5, value: settings.fontSize });
-    fontSize.addEventListener('input', () => { settings.fontSize = Number(fontSize.value) || 10; });
+    fontSize.addEventListener('change', () => { if (fontSize.reportValidity()) { settings.fontSize = Number(fontSize.value) || 10; save(); } });
     const header = el('div', { class: 'manage-statuses' }, ...runtime.headerFields.map(([key, label]) => {
         const node = el('input', { type: 'checkbox', checked: settings.header.includes(key) });
         node.addEventListener('change', () => {
             settings.header = runtime.headerFields.map(([fieldName]) => fieldName).filter((fieldName) => (fieldName === key ? node.checked : settings.header.includes(fieldName)));
+            save();
         });
         return el('label', {}, node, el('span', { text: label }));
     }));
-    const saved = el('span', { class: 'resolver-muted', role: 'status' });
-    const save = el('button', { class: 'button primary', type: 'button', text: '保存设置' });
-    save.addEventListener('click', async () => {
-        save.disabled = true;
-        try {
-            state.settings = (await post('settings', { settings })).settings;
-            saved.textContent = `已保存 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}，之后领取的打印请求按新设置排版`;
-            saved.classList.remove('manage-error');
-        } catch (error) { saved.textContent = error.message; saved.classList.add('manage-error'); } finally { save.disabled = false; }
-    });
     settingsBox.replaceChildren(
-        el('div', { class: 'resolver-checks' }, box('highlight', '黑白代码高亮（关键字加粗、注释斜体灰色）'), box('lineNumbers', '显示行号')),
+        el('div', { class: 'resolver-checks' }, box('highlight', '代码高亮'), box('lineNumbers', '显示行号')),
         el('div', { class: 'resolver-fields resolver-two', style: 'margin-top:12px' }, field('代码字号（磅）', fontSize)),
-        el('h3', { text: '页眉（每页顶部重复，方便分发）' }), header,
-        el('p', { class: 'resolver-muted manage-small', style: 'margin-top:12px', text: '座位号来自 Hydro 的 onsite-toolkit 插件导入的队伍信息（账号的 seat 字段），打印在页眉右上角，打印服务器的“座位范围”也按它分工；没有导入座位的队伍打印时不显示座位号。' }),
-        el('div', { class: 'resolver-actions' }, save, saved),
+        el('h3', { text: '页眉' }), header,
+        saved,
     );
 }
 
@@ -207,15 +210,12 @@ function showCode(server, code, created) {
         title: `${server.name} 的连接信息`,
         confirm: '完成',
         body: [
-            el('ol', { class: 'resolver-muted', style: 'padding-left:20px;line-height:1.8' },
-                el('li', { text: '在打印电脑上下载对应系统的打印客户端（本页上方），放到任意文件夹。' }),
-                el('li', { text: '双击运行（macOS、Linux 在终端运行，首次需 chmod +x），按提示粘贴下面的连接信息并回车。' }),
-                el('li', { text: '客户端连接成功后，这台电脑的打印机会出现在本页；可先打印测试页确认。' })),
+            el('p', { class: 'resolver-muted', text: '在打印电脑上运行打印客户端，粘贴以下连接信息。' }),
             text,
             el('div', { class: 'resolver-actions', style: 'justify-content:flex-start;margin-top:8px' }, copy),
             el('p', { class: created ? 'resolver-muted manage-small' : 'manage-error manage-small', text: created
-                ? '连接信息包含访问密钥，只在此时显示；忘记时可点击“连接信息”重新生成。'
-                : '已重新生成：这台电脑原来的连接立即失效，请在客户端中重新粘贴。' }),
+                ? '只显示这一次；遗失时可重新生成。'
+                : '原连接已失效，请在客户端中重新粘贴。' }),
         ],
     });
     copyText(code);
@@ -282,10 +282,10 @@ function serverDialog(server) {
         confirm: server ? '保存' : '添加并生成连接信息',
         body: [el('div', { class: 'resolver-fields' },
             field('名称', serverName), field('备注', serverNote),
-            server ? el('label', { class: 'checkbox' }, enabled, '启用（停用后不再领取打印请求）') : null,
-            field('服务比赛', scope, '仅服务所选比赛时，这台电脑只打印这些比赛的打印请求；其他比赛交给别的打印服务器'),
+            server ? el('label', { class: 'checkbox' }, enabled, '启用') : null,
+            field('服务比赛', scope),
             picker,
-            field('座位范围', prefixes, '按 onsite-toolkit 导入的座位号开头匹配，用逗号分隔；可让各区域的打印电脑只打本区域的请求。没有座位号或不在任何范围内的请求，由不设座位范围的打印服务器打印；没有这样的服务器时，由任意一台打印'))],
+            field('座位前缀', prefixes, '逗号分隔，如 A, B1。不设前缀的服务器打印其余座位。'))],
         submit: async () => {
             if (!serverName.reportValidity()) throw new Error('请填写名称');
             if (scope.value === 'some' && !chosen.size) throw new Error('请至少选择一场比赛，或改为“服务全部比赛”');

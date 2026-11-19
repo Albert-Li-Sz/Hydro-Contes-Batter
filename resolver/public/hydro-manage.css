@@ -101,3 +101,15 @@
 #hydro-resolver-config.xcpcio-manage .manage-langs label { display: flex; gap: 8px; align-items: center; }
 #hydro-resolver-config.xcpcio-manage .manage-langs label input { display: inline-block; margin: 0; flex: none; }
 #hydro-resolver-config.xcpcio-manage dialog .manage-toolbar .textbox { margin: 0; }
+/* A row of buttons that work as one filter; the pressed one is the current view. */
+.xcpcio-manage .manage-segments { display: inline-flex; flex-wrap: wrap; }
+.xcpcio-manage .manage-segments .button { margin: 0 -1px 0 0; border-radius: 0; }
+.xcpcio-manage .manage-segments .button:first-child { border-radius: 3px 0 0 3px; }
+.xcpcio-manage .manage-segments .button:last-child { border-radius: 0 3px 3px 0; margin-right: 0; }
+.xcpcio-manage .manage-segments .button strong { margin-left: 2px; }
+.xcpcio-manage .manage-segments .button.is-active { position: relative; z-index: 1; color: #fff; background: #5f9fd6; border-color: #5f9fd6; }
+.xcpcio-manage details.manage-group > summary { cursor: pointer; font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+/* Inputs in a toolbar line up with its buttons. */
+.xcpcio-manage .manage-toolbar input.textbox { height: 2.5em; padding-top: 0; padding-bottom: 0; }
+/* Several row buttons stay on one line; the table scrolls sideways instead of growing tall. */
+.xcpcio-manage .data-table td.col-actions.manage-nowrap { white-space: nowrap; }
